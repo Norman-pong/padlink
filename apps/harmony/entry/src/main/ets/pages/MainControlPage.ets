@@ -15,6 +15,8 @@ import type { ConnectionManager } from '../common/net/ConnectionManager';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { KeyboardPage } from './KeyboardPage';
+import { VoicePage } from './VoicePage';
+import type { VoiceModel } from '../common/voice/VoiceModel';
 
 const SIDE_MARGIN_VP: number = 12; // 左右经验边距：侧边手势区无 API 可查，真机待校准
 
@@ -23,6 +25,7 @@ export struct MainControlPage {
   @Require @Param conn: ConnectionManager;
   @Require @Param touchpad: TouchpadModel;
   @Require @Param keyboard: KeyboardModel;
+  @Require @Param voice: VoiceModel;
   @Require @Param pathStack: NavPathStack;
 
   @Local curTabIndex: number = 0;
@@ -42,12 +45,16 @@ export struct MainControlPage {
     // 切页先复位引擎（FR-2：未释放按键先发 release，CANCEL 路径已含左键 up + 滚动冲账）
     this.touchpad.cancelGesture();
     this.touchpad.onSwitchTab = null;
+    // 语音会话随页收口：cancel 在途识别，麦克风仅按住期间占用（PRD §12）
+    this.voice.cancelSession();
     this.restoreWindow();
   }
 
   // 三指左右滑（FR-2）：触摸板 ⇄ 键盘 ⇄ 语音 循环；系统三指下滑为截屏，不拦截。
   private switchTab(direction: number): void {
     this.touchpad.cancelGesture();
+    // 离开语音 Tab 即取消会话（PRD §12：麦克风仅按住期间占用；空闲时为 no-op）
+    this.voice.cancelSession();
     this.curTabIndex = (this.curTabIndex + direction + 3) % 3;
   }
 
@@ -136,7 +143,7 @@ export struct MainControlPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopEnd }) {
-        // 三功能区容器（FR-2）：触摸板 / 键盘占位 / 语音占位；默认页签条隐藏，三指手势驱动 index。
+        // 三功能区容器（FR-2）：触摸板 / 键盘 / 语音；默认页签条隐藏，三指手势驱动 index。
         Tabs({ barPosition: BarPosition.End, index: this.curTabIndex }) {
           TabContent() {
             Column()
@@ -161,14 +168,13 @@ export struct MainControlPage {
           .tabBar($r('app.string.tab_keyboard'))
 
           TabContent() {
+            // 语音听写（PRD §4.5）：按住说话，最终结果发 TEXT（daemon 写剪贴板 + Ctrl+V）。
             Column() {
-              Text($r('app.string.voice_placeholder'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_secondary'))
+              VoicePage({ voice: this.voice, conn: this.conn })
             }
             .width('100%')
             .height('100%')
-            .justifyContent(FlexAlign.Center)
+            .padding({ bottom: this.bottomAvoidVp })
           }
           .tabBar($r('app.string.tab_voice'))
         }

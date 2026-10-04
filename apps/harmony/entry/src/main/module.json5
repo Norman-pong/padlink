@@ -12,9 +12,22 @@
     "pages": "$profile:main_pages",
     // 局域网 UDP/TCP（FR-0/FR-6）。system_grant normal 级：无需 reason/usedScene
     //（faqs-compiling-and-building-158/159：仅 user_grant 权限强制要求这两个字段）。
+    // MICROPHONE（PRD §4.5 语音听写）：user_grant，必须带 reason（string.json 资源引用）
+    // + usedScene（speechrecognizer-guide 声明权限章节完整 JSON）；运行时弹窗在首次使用
+    // 语音 Tab 时申请，不在启动时申请。
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET"
+      },
+      {
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:mic_permission_reason",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
       }
     ],
     "abilities": [

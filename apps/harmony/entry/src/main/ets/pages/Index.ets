@@ -3,11 +3,13 @@
 // 共享对象（ConnectionManager/TouchpadModel/SettingsModel/PairingModel）在此创建，经 @Param 下发各页。
 // App 启动（首页即主控页）：settings 就绪后按 lastHost 静默自动重连（FR-6，AutoConnect）。
 import type { BusinessError } from '@kit.BasicServicesKit';
+import type { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ConnectionManager } from '../common/net/ConnectionManager';
 import { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import { KeyboardModel } from '../common/keyboard/KeyboardModel';
+import { VoiceModel } from '../common/voice/VoiceModel';
 import { PairingModel } from '../common/viewmodel/PairingModel';
 import { tryAutoReconnect } from '../common/viewmodel/AutoConnect';
 import { MainControlPage } from './MainControlPage';
@@ -26,6 +28,7 @@ struct Index {
   settings: SettingsModel = new SettingsModel();
   touchpad: TouchpadModel = new TouchpadModel();
   keyboard: KeyboardModel = new KeyboardModel();
+  voice: VoiceModel = new VoiceModel();
   pairing: PairingModel = new PairingModel(this.conn, this.settings);
 
   aboutToAppear(): void {
@@ -33,6 +36,7 @@ struct Index {
     this.keyboard.bindTransport(this.conn.transport);
     const ctx = this.getUIContext().getHostContext();
     if (ctx !== undefined) {
+      this.voice.attach(this.conn, ctx as common.UIAbilityContext); // 语音权限弹窗/连接发送依赖
       this.settings.init(ctx).then(() => {
         this.touchpad.applySettings(this.settings.sensitivity, this.settings.naturalScroll);
         tryAutoReconnect(this.conn, this.settings); // lastHost 有 token → 后台静默重连（失败进退避循环）
@@ -44,7 +48,8 @@ struct Index {
 
   build() {
     Navigation(this.pathStack) {
-      MainControlPage({ conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard, pathStack: this.pathStack })
+      MainControlPage({ conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard,
+        voice: this.voice, pathStack: this.pathStack })
     }
     .mode(NavigationMode.Stack)
     .hideTitleBar(true)
