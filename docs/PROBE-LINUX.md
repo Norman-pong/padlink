@@ -2,6 +2,7 @@
 
 > 本程序验证 **M0 交付物**（padlinkd 及安装物）在真实 GNOME Wayland 会话的端到端注入：libinput 消费虚拟设备（光标画圆）、uaccess 权限在登录会话生效、systemd user service 常驻。文中 `daemon/dist/…` 路径指 M0 构建产物。
 > 逐条执行，期望输出已注明；任何一步不符即停并记录。
+> **辅助脚本**：`bash daemon/dist/probe-acceptance.sh`（`--dry-run` 预览 / `--skip-install` 跳过 §3）可自动化 §0–§4 的机械步骤并输出 PASS/FAIL 汇总；§4 目视确认与 §5/§6 取证仍需人工。
 
 ## 0. 环境自检（30 秒）
 
