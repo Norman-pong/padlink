@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Go（daemon）——dist/bin 为构建产物，udev/systemd 安装文件保留入库
+daemon/dist/bin/
+*.test
+*.out
+
+# 鸿蒙工程（apps/harmony）
+**/oh_modules/
+**/.hvigor/
+**/build/
+**/.preview/
+**/.clangd/
+**/.clang-format/
+**/.clang-tidy
+**/local.properties
+*.har
+
+# 签名与证书一律不入库
+*.p7b
+*.cer
+*.p12
+signing/
+
+# 临时与日志
+node_modules/
+*.log
+tmp/

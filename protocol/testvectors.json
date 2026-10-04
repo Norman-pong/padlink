@@ -1,0 +1,159 @@
+{
+  "spec": "PadLink wire protocol v1 golden vectors (single source of truth for cross-implementation testing)",
+  "consumer": "HarmonyOS app + Go daemon must both pass all vectors; generate more via daemon/internal/proto",
+  "header_layout": "magic(2B 'PL') | ver(1B) | type(1B) | flags(1B) | seq(2B) | payload_len(2B) | reserved(2B) | hmac_trunc(8B) | payload(<=1400B)",
+  "header_size_bytes": 19,
+  "note_prd_discrepancy": "PRD v1.0 §5.2 says '16 字节' header, but its field list sums to 19 bytes; the field list is authoritative and these vectors pin 19 bytes. Any change must be decided in protocol/ first.",
+  "byte_order": "big-endian for seq/payload_len/reserved and all multi-byte payload integers",
+  "flags": {
+    "0x01": "FlagAuth: hmac_trunc is HMAC-SHA256(token, header-with-zeroed-hmac || payload)[0:8]"
+  },
+  "token_hex": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "token_note": "32-byte DEMO token for vectors only; real tokens are random 32B issued at pairing (PRD §4.1)",
+  "types": {
+    "1": "HELLO",
+    "2": "DISCOVER_RESP",
+    "3": "PAIR_REQ",
+    "4": "PAIR_OK",
+    "5": "PAIR_NAK",
+    "6": "MOVE",
+    "7": "SCROLL",
+    "8": "BUTTON",
+    "9": "KEY",
+    "10": "TEXT",
+    "11": "ECHO",
+    "12": "BYE",
+    "13": "ERR"
+  },
+  "vectors": [
+    {
+      "id": 1,
+      "desc": "MOVE dx=-5 dy=3 (cursor relative motion), unauthenticated pre-pairing",
+      "hex": "504c0106000001000400000000000000000000fffb0003",
+      "valid": true,
+      "type": "MOVE",
+      "seq": 1,
+      "authenticated": false,
+      "payload_semantics": {
+        "dx": -5,
+        "dy": 3
+      }
+    },
+    {
+      "id": 2,
+      "desc": "MOVE dx=123 dy=-45 with per-packet HMAC (token = token_hex below)",
+      "hex": "504c010601000200040000fa323a6af0501538007bffd3",
+      "valid": true,
+      "type": "MOVE",
+      "seq": 2,
+      "authenticated": true,
+      "payload_semantics": {
+        "dx": 123,
+        "dy": -45
+      }
+    },
+    {
+      "id": 3,
+      "desc": "SCROLL dy_hi_res=+240 (two wheel notches; unit=1/120 detent, maps to REL_WHEEL_HI_RES)",
+      "hex": "504c0107000003000400000000000000000000000000f0",
+      "valid": true,
+      "type": "SCROLL",
+      "seq": 3,
+      "authenticated": false,
+      "payload_semantics": {
+        "dy_hi_res": 240
+      }
+    },
+    {
+      "id": 4,
+      "desc": "BUTTON btn=1(left) down=1 (tap/long-press press phase)",
+      "hex": "504c01080000040002000000000000000000000101",
+      "valid": true,
+      "type": "BUTTON",
+      "seq": 4,
+      "authenticated": false,
+      "payload_semantics": {
+        "btn": 1,
+        "btn_name": "left",
+        "down": true
+      }
+    },
+    {
+      "id": 5,
+      "desc": "BUTTON btn=3(right) down=0 (release)",
+      "hex": "504c01080000050002000000000000000000000300",
+      "valid": true,
+      "type": "BUTTON",
+      "seq": 5,
+      "authenticated": false,
+      "payload_semantics": {
+        "btn": 3,
+        "btn_name": "right",
+        "down": false
+      }
+    },
+    {
+      "id": 6,
+      "desc": "KEY hid=0x0004 (HID keyboard usage A) down=1; daemon maps HID->Linux KEY_A(30)",
+      "hex": "504c0109000006000300000000000000000000000401",
+      "valid": true,
+      "type": "KEY",
+      "seq": 6,
+      "authenticated": false,
+      "payload_semantics": {
+        "hid_usage": "0x0004",
+        "key": "A",
+        "linux_key_code": 30,
+        "down": true
+      }
+    },
+    {
+      "id": 7,
+      "desc": "TEXT utf8='PadLink 你好' (clipboard-inject path)",
+      "hex": "504c010a000007000e000000000000000000005061644c696e6b20e4bda0e5a5bd",
+      "valid": true,
+      "type": "TEXT",
+      "seq": 7,
+      "authenticated": false,
+      "payload_semantics": {
+        "text": "PadLink 你好"
+      }
+    },
+    {
+      "id": 8,
+      "desc": "ECHO ts_ms=1760000000123 (Unix ms, RTT measurement)",
+      "hex": "504c010b00000800080000000000000000000000000199c82cc07b",
+      "valid": true,
+      "type": "ECHO",
+      "seq": 8,
+      "authenticated": false,
+      "payload_semantics": {
+        "ts_ms": 1760000000123
+      }
+    },
+    {
+      "id": 9,
+      "desc": "INVALID: magic is 'XL' not 'PL' — receiver must drop+count",
+      "hex": "584c010600000900040000000000000000000000010001",
+      "valid": false,
+      "authenticated": false,
+      "expect_error": "bad_magic"
+    },
+    {
+      "id": 10,
+      "desc": "INVALID: payload_len=2048 exceeds MaxPayload=1400 — drop+count",
+      "hex": "504c010b00000a0800000000000000000000000000000000000001",
+      "valid": false,
+      "authenticated": false,
+      "expect_error": "len_out_of_range"
+    },
+    {
+      "id": 11,
+      "desc": "INVALID: payload truncated (payload_len=4 but only 2 bytes follow) — drop+count",
+      "hex": "504c010600000b0004000000000000000000000007",
+      "valid": false,
+      "authenticated": false,
+      "expect_error": "truncated"
+    }
+  ]
+}
