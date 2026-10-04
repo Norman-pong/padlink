@@ -87,7 +87,7 @@ export function newMove(seq: number, dx: number, dy: number): Packet {
   const p = new Uint8Array(4);
   be16(p, 0, dx & 0xffff);
   be16(p, 2, dy & 0xffff);
-  const pkt: Packet = zeroPacket(PacketType.MOVE, seq, p.buffer);
+  const pkt: Packet = zeroPacket(PacketType.MOVE, seq, p.buffer as ArrayBuffer);
   pkt.move = { dx: dx, dy: dy };
   return pkt;
 }
@@ -95,7 +95,7 @@ export function newMove(seq: number, dx: number, dy: number): Packet {
 export function newScroll(seq: number, dyHiRes: number): Packet {
   const p = new Uint8Array(4);
   be32(p, 0, dyHiRes | 0);
-  const pkt: Packet = zeroPacket(PacketType.SCROLL, seq, p.buffer);
+  const pkt: Packet = zeroPacket(PacketType.SCROLL, seq, p.buffer as ArrayBuffer);
   pkt.scroll = { dyHiRes: dyHiRes };
   return pkt;
 }
@@ -104,7 +104,7 @@ export function newButton(seq: number, btn: number, down: boolean): Packet {
   const p = new Uint8Array(2);
   p[0] = btn & 0xff;
   p[1] = down ? 1 : 0;
-  const pkt: Packet = zeroPacket(PacketType.BUTTON, seq, p.buffer);
+  const pkt: Packet = zeroPacket(PacketType.BUTTON, seq, p.buffer as ArrayBuffer);
   pkt.button = { btn: btn, down: down };
   return pkt;
 }
@@ -113,14 +113,14 @@ export function newKey(seq: number, hidUsage: number, down: boolean): Packet {
   const p = new Uint8Array(3);
   be16(p, 0, hidUsage & 0xffff);
   p[2] = down ? 1 : 0;
-  const pkt: Packet = zeroPacket(PacketType.KEY, seq, p.buffer);
+  const pkt: Packet = zeroPacket(PacketType.KEY, seq, p.buffer as ArrayBuffer);
   pkt.key = { hidUsage: hidUsage, down: down };
   return pkt;
 }
 
 export function newText(seq: number, text: string): Packet {
   const bytes: Uint8Array = utf8Encode(text);
-  const pkt: Packet = zeroPacket(PacketType.TEXT, seq, bytes.buffer);
+  const pkt: Packet = zeroPacket(PacketType.TEXT, seq, bytes.buffer as ArrayBuffer);
   pkt.text = text;
   return pkt;
 }
@@ -142,7 +142,7 @@ export function newEcho(seq: number, tsMs: number): Packet {
   }
   be32(p, 0, hi | 0);
   be32(p, 4, lo | 0);
-  const pkt: Packet = zeroPacket(PacketType.ECHO, seq, p.buffer);
+  const pkt: Packet = zeroPacket(PacketType.ECHO, seq, p.buffer as ArrayBuffer);
   pkt.echo = { tsMs: tsMs };
   return pkt;
 }

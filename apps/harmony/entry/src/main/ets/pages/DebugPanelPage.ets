@@ -1,0 +1,361 @@
+// 调试面板（FR-7 / PRD §4.8）：1Hz 实时数据（手势状态/触摸采样率/发送速率/RTT/收发计数）、
+// echo 自测（10 连发列 RTT）、手动连接区（M1 联调：IP/端口/token(hex) + 连接/断开，
+// 交互四态：空闲/连接中(LoadingProgress)/成功/失败(带原因)+断开提示；成功后写 lastHost 偏好）。
+import type { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { GestureStateName } from '../common/gesture/GestureEngine';
+import { ConnState } from '../common/net/ConnectionManager';
+import type { ConnectionManager, RttListener } from '../common/net/ConnectionManager';
+import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
+import type { SettingsModel } from '../common/viewmodel/SettingsModel';
+import { HostInfo } from '../common/viewmodel/SettingsModel';
+
+const TAG: string = 'PadLink.Debug';
+const DOMAIN: number = 0x5050;
+const ECHO_TEST_COUNT: number = 10;
+const TOKEN_HEX_LEN: number = 64; // 32 字节 token
+
+// GestureStateName（0..7）→ 文案资源（$r 需字面量，不用拼名）。
+function gestureRes(state: number): string {
+  if (state === GestureStateName.SINGLE_PENDING) {
+    return 'gesture_single_pending';
+  }
+  if (state === GestureStateName.CURSOR) {
+    return 'gesture_cursor';
+  }
+  if (state === GestureStateName.DRAGGING) {
+    return 'gesture_dragging';
+  }
+  if (state === GestureStateName.HOLD_MULTI) {
+    return 'gesture_hold_multi';
+  }
+  if (state === GestureStateName.TWO_PENDING) {
+    return 'gesture_two_pending';
+  }
+  if (state === GestureStateName.SCROLLING) {
+    return 'gesture_scrolling';
+  }
+  if (state === GestureStateName.THREE_PENDING) {
+    return 'gesture_three_pending';
+  }
+  return 'gesture_idle';
+}
+
+function connRes(state: number): string {
+  if (state === ConnState.CONNECTED) {
+    return 'state_connected';
+  }
+  if (state === ConnState.RECONNECTING) {
+    return 'state_reconnecting';
+  }
+  if (state === ConnState.LOST) {
+    return 'state_lost';
+  }
+  return 'state_idle';
+}
+
+// hex 字符串 → 字节；非法（奇数长/非 hex 字符）返回 null（外部输入校验）。
+function hexToBytes(hex: string): Uint8Array | null {
+  if (hex.length === 0 || hex.length % 2 !== 0) {
+    return null;
+  }
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    const v = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    if (Number.isNaN(v)) {
+      return null;
+    }
+    out[i] = v;
+  }
+  return out;
+}
+
+@ComponentV2
+export struct DebugPanelPage {
+  @Require @Param conn: ConnectionManager;
+  @Require @Param touchpad: TouchpadModel;
+  @Require @Param settings: SettingsModel;
+  @Require @Param pathStack: NavPathStack;
+
+  // 实时数据（1Hz 刷新）
+  @Local gestureState: number = GestureStateName.IDLE;
+  @Local sampleRate: number = 0;
+  @Local sendRate: number = 0;
+  @Local rttMs: number = -1;
+  @Local udpSendOk: number = 0;
+  @Local udpSendFail: number = 0;
+  @Local tcpSendOk: number = 0;
+  @Local tcpSendFail: number = 0;
+  @Local recvOk: number = 0;
+  @Local recvDecodeFail: number = 0;
+  @Local recvHmacFail: number = 0;
+
+  // echo 自测
+  @Local echoRunning: boolean = false;
+  @Local echoRtts: number[] = [];
+
+  // 手动连接区（四态：空闲/loading/成功/失败；断开提示复用 statusText）
+  @Local ip: string = '';
+  @Local portText: string = '53021';
+  @Local tokenHex: string = '';
+  @Local connecting: boolean = false;
+  @Local statusText: string = '';
+  @Local statusOk: boolean = false;
+  private refreshTimer: number = -1;
+  private echoPending: number = 0;
+  private rttCb: RttListener = (rtt: number) => {
+    this.onRtt(rtt);
+  };
+
+  aboutToAppear(): void {
+    this.conn.addRttListener(this.rttCb);
+    this.settings.getLastHost().then((h: HostInfo | null) => {
+      if (h !== null) {
+        this.ip = h.ip;
+        this.portText = `${h.port}`;
+        this.tokenHex = h.tokenHex;
+      }
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'getLastHost fail: %{public}s', err.message);
+    });
+    this.refreshNow();
+    this.refreshTimer = setInterval(() => {
+      this.refreshNow();
+    }, 1000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.refreshTimer >= 0) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = -1;
+    }
+    this.conn.removeRttListener(this.rttCb);
+  }
+
+  private refreshNow(): void {
+    this.gestureState = this.touchpad.currentState();
+    this.sampleRate = this.touchpad.getSampleRate();
+    this.sendRate = this.touchpad.getSendRate();
+    this.rttMs = this.conn.snapshot.rttMs;
+    const st = this.conn.transport.stats;
+    this.udpSendOk = st.udpSendOk;
+    this.udpSendFail = st.udpSendFail;
+    this.tcpSendOk = st.tcpSendOk;
+    this.tcpSendFail = st.tcpSendFail;
+    this.recvOk = st.recvOk;
+    this.recvDecodeFail = st.recvDecodeFail;
+    this.recvHmacFail = st.recvHmacFail;
+  }
+
+  private onRtt(rtt: number): void {
+    if (this.echoPending > 0) {
+      this.echoPending--;
+      const list: number[] = this.echoRtts.slice();
+      list.push(rtt);
+      this.echoRtts = list;
+      if (this.echoPending === 0) {
+        this.echoRunning = false;
+      }
+    }
+  }
+
+  private runEchoTest(): void {
+    if (this.echoRunning) {
+      return;
+    }
+    if (!this.conn.isConnected()) {
+      this.showStatus(this.resStr('debug_need_connect'), false);
+      return;
+    }
+    this.echoRtts = [];
+    this.echoPending = ECHO_TEST_COUNT;
+    this.echoRunning = true;
+    for (let i = 0; i < ECHO_TEST_COUNT; i++) {
+      this.conn.transport.sendEcho();
+    }
+  }
+
+  private showStatus(text: string, ok: boolean): void {
+    this.statusText = text;
+    this.statusOk = ok;
+  }
+
+  private async onConnectClick(): Promise<void> {
+    if (this.connecting) {
+      return;
+    }
+    const ip: string = this.ip.trim();
+    const port: number = parseInt(this.portText.trim(), 10);
+    if (ip.length === 0 || Number.isNaN(port) || port <= 0 || port > 65535) {
+      this.showStatus(this.resStr('debug_input_invalid'), false);
+      return;
+    }
+    const token: Uint8Array | null = hexToBytes(this.tokenHex.trim());
+    if (token === null || token.length !== 32) {
+      this.showStatus(this.resStr('debug_token_invalid'), false);
+      return;
+    }
+    this.connecting = true; // loading 态：按钮禁用 + LoadingProgress
+    this.showStatus(this.resStr('debug_connecting'), false);
+    try {
+      await this.conn.connect(ip, port, port, token);
+      this.showStatus(this.resStr('debug_connected'), true); // 成功态
+      const h = new HostInfo();
+      h.ip = ip;
+      h.port = port;
+      h.tokenHex = this.tokenHex.trim();
+      h.name = ip;
+      this.settings.saveLastHost(h).catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
+      });
+    } catch (err) {
+      this.showStatus((err as Error).message, false); // 失败态：给原因，可重试
+    } finally {
+      this.connecting = false;
+    }
+  }
+
+  private onDisconnectClick(): void {
+    this.conn.disconnect();
+    this.showStatus(this.resStr('debug_disconnected'), true); // 断开提示
+  }
+
+  private rttText(): string {
+    return this.rttMs >= 0 ? `${this.rttMs} ms` : '--';
+  }
+
+  private resStr(name: string): string {
+    const ctx = this.getUIContext().getHostContext();
+    if (ctx === undefined) {
+      return '';
+    }
+    // getStringSync(Resource) 自 API20 废弃（js-apis-resource-manager），改用 getStringByNameSync
+    return ctx.resourceManager.getStringByNameSync(name);
+  }
+
+  @Builder
+  statRow(label: Resource, value: string) {
+    Row() {
+      Text(label)
+        .fontSize($r('sys.float.ohos_id_text_size_body2'))
+        .fontColor($r('sys.color.font_secondary'))
+      Blank()
+      Text(value)
+        .fontSize($r('sys.float.ohos_id_text_size_body2'))
+        .fontColor($r('sys.color.font_primary'))
+    }
+    .width('100%')
+  }
+
+  build() {
+    NavDestination() {
+      Scroll() {
+        Column({ space: 16 }) {
+          // ---- 实时数据（1Hz） ----
+          Column({ space: 8 }) {
+            Text($r('app.string.debug_realtime'))
+              .fontSize($r('sys.float.ohos_id_text_size_body1'))
+              .fontColor($r('sys.color.font_primary'))
+            this.statRow($r('app.string.debug_conn_state'), this.resStr(connRes(this.conn.snapshot.state)))
+            this.statRow($r('app.string.debug_gesture_state'), this.resStr(gestureRes(this.gestureState)))
+            this.statRow($r('app.string.debug_sample_rate'), `${this.sampleRate}/s`)
+            this.statRow($r('app.string.debug_send_rate'), `${this.sendRate}/s`)
+            this.statRow($r('app.string.debug_rtt'), this.rttText())
+            this.statRow($r('app.string.debug_udp_fail'), `${this.udpSendFail}`)
+            this.statRow($r('app.string.debug_tcp_decode_fail'), `${this.recvDecodeFail}`)
+            this.statRow($r('app.string.debug_hmac_fail'), `${this.recvHmacFail}`)
+            this.statRow($r('app.string.debug_udp_ok'), `${this.udpSendOk}`)
+            this.statRow($r('app.string.debug_tcp_ok'), `${this.tcpSendOk}`)
+            this.statRow($r('app.string.debug_recv_ok'), `${this.recvOk}`)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+
+          Divider().color($r('sys.color.comp_divider'))
+
+          // ---- echo 自测 ----
+          Column({ space: 8 }) {
+            Row() {
+              Text($r('app.string.debug_echo_test'))
+                .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                .fontColor($r('sys.color.font_primary'))
+              Blank()
+              Button($r('app.string.debug_echo_run'))
+                .onClick(() => {
+                  this.runEchoTest();
+                })
+            }
+            .width('100%')
+            if (this.echoRtts.length > 0) {
+              ForEach(this.echoRtts, (rtt: number, idx: number) => {
+                Text(`#${idx + 1}: ${rtt} ms`)
+                  .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                  .fontColor($r('sys.color.font_secondary'))
+              }, (rtt: number, idx: number) => `echo-${idx}-${rtt}`)
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+
+          Divider().color($r('sys.color.comp_divider'))
+
+          // ---- 手动连接区（M1 联调） ----
+          Column({ space: 8 }) {
+            Text($r('app.string.debug_manual_connect'))
+              .fontSize($r('sys.float.ohos_id_text_size_body1'))
+              .fontColor($r('sys.color.font_primary'))
+            TextInput({ text: this.ip, placeholder: this.resStr('debug_ip_hint') })
+              .height(40)
+              .backgroundColor($r('sys.color.comp_background_tertiary'))
+              .onChange((v: string) => {
+                this.ip = v;
+              })
+            TextInput({ text: this.portText, placeholder: this.resStr('debug_port_hint') })
+              .height(40)
+              .backgroundColor($r('sys.color.comp_background_tertiary'))
+              .onChange((v: string) => {
+                this.portText = v;
+              })
+            TextInput({ text: this.tokenHex, placeholder: this.resStr('debug_token_hint') })
+              .height(40)
+              .backgroundColor($r('sys.color.comp_background_tertiary'))
+              .onChange((v: string) => {
+                this.tokenHex = v;
+              })
+            Row({ space: 12 }) {
+              Button(this.connecting ? $r('app.string.debug_connecting') : $r('app.string.debug_connect'))
+                .enabled(!this.connecting)
+                .onClick(() => {
+                  this.onConnectClick();
+                })
+              Button($r('app.string.debug_disconnect'))
+                .buttonStyle(ButtonStyleMode.NORMAL)
+                .onClick(() => {
+                  this.onDisconnectClick();
+                })
+              if (this.connecting) {
+                LoadingProgress()
+                  .width(24)
+                  .height(24)
+                  .color($r('sys.color.brand'))
+              }
+            }
+            if (this.statusText.length > 0) {
+              Text(this.statusText)
+                .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                .fontColor(this.statusOk ? $r('sys.color.font_primary') : $r('sys.color.font_emphasize'))
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+        }
+        .padding(16)
+        .width('100%')
+      }
+      .width('100%')
+      .height('100%')
+      .scrollBar(BarState.Off)
+    }
+    .title($r('app.string.page_debug'))
+  }
+}

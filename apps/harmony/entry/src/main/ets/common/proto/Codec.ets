@@ -172,5 +172,5 @@ export function decode(data: ArrayBuffer): DecodeResult {
 
 function hex2(v: number): string {
   const digits = '0123456789ABCDEF';
-  return digits[(v >> 4) & 0xf] + digits[v & 0xf];
+  return digits.charAt((v >> 4) & 0xf) + digits.charAt(v & 0xf);
 }

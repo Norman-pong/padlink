@@ -10,6 +10,13 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    // 局域网 UDP/TCP（FR-0/FR-6）。system_grant normal 级：无需 reason/usedScene
+    //（faqs-compiling-and-building-158/159：仅 user_grant 权限强制要求这两个字段）。
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET"
+      }
+    ],
     "abilities": [
       {
         "name": "EntryAbility",

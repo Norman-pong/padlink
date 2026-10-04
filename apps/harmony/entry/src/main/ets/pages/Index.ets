@@ -1,38 +1,57 @@
-/*
- * Copyright (c) 2026 Huawei Device Co., Ltd.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// 应用宿主：Navigation + NavPathStack（PRD §6.1 导航一律 Navigation）。
+// 页面注册：discover（发现与配对占位，M2 接入）/ control（主控，首页）/ settings / debug。
+// 共享对象（ConnectionManager/TouchpadModel/SettingsModel）在此创建，经 @Param 下发各页。
+import type { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { ConnectionManager } from '../common/net/ConnectionManager';
+import { SettingsModel } from '../common/viewmodel/SettingsModel';
+import { TouchpadModel } from '../common/viewmodel/TouchpadModel';
+import { MainControlPage } from './MainControlPage';
+import { DiscoverPage } from './DiscoverPage';
+import { SettingsPage } from './SettingsPage';
+import { DebugPanelPage } from './DebugPanelPage';
+
+const TAG: string = 'PadLink.Index';
+const DOMAIN: number = 0x5050;
 
 @Entry
-@Component
+@ComponentV2
 struct Index {
-  @State message: string = 'Hello World';
+  pathStack: NavPathStack = new NavPathStack();
+  conn: ConnectionManager = new ConnectionManager();
+  settings: SettingsModel = new SettingsModel();
+  touchpad: TouchpadModel = new TouchpadModel();
+
+  aboutToAppear(): void {
+    this.touchpad.bindTransport(this.conn.transport);
+    const ctx = this.getUIContext().getHostContext();
+    if (ctx !== undefined) {
+      this.settings.init(ctx).then(() => {
+        this.touchpad.applySettings(this.settings.sensitivity, this.settings.naturalScroll);
+      }).catch((err: BusinessError) => {
+        hilog.error(DOMAIN, TAG, 'settings init fail: %{public}d %{public}s', err.code, err.message);
+      });
+    }
+  }
 
   build() {
-    RelativeContainer() {
-      Text(this.message)
-        .id('HelloWorld')
-        .fontSize($r('app.float.page_text_font_size'))
-        .fontWeight(FontWeight.Bold)
-        .alignRules({
-          center: { anchor: '__container__', align: VerticalAlign.Center },
-          middle: { anchor: '__container__', align: HorizontalAlign.Center }
-        })
-        .onClick(() => {
-          this.message = 'Welcome';
-        })
+    Navigation(this.pathStack) {
+      MainControlPage({ conn: this.conn, touchpad: this.touchpad, pathStack: this.pathStack })
     }
-    .height('100%')
-    .width('100%')
+    .mode(NavigationMode.Stack)
+    .hideTitleBar(true)
+    .hideToolBar(true)
+    .navDestination(this.pageMap)
+  }
+
+  @Builder
+  pageMap(name: string) {
+    if (name === 'discover') {
+      DiscoverPage({ pathStack: this.pathStack })
+    } else if (name === 'settings') {
+      SettingsPage({ settings: this.settings, touchpad: this.touchpad, pathStack: this.pathStack })
+    } else if (name === 'debug') {
+      DebugPanelPage({ conn: this.conn, touchpad: this.touchpad, settings: this.settings, pathStack: this.pathStack })
+    }
   }
 }
