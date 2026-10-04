@@ -43,6 +43,7 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 		s.stats.Dropped.Add(1)
 		return
 	}
+	s.vlogf("UDP ← %s %v seq=%d auth=%v plen=%d", addr, pkt.Type, pkt.Seq, pkt.Flags&proto.FlagAuth != 0, len(pkt.Payload))
 	if pkt.Type == proto.TypeHello {
 		// 发现已认证性要求为 0，应答不含敏感信息（JSON 作为 DISCOVER_RESP payload）
 		reply := proto.NewRaw(proto.TypeDiscoverResp, uint16(s.udpSeq.Add(1)), s.discoverBody())

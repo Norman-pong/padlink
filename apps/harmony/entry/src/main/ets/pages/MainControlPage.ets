@@ -30,6 +30,7 @@ export struct MainControlPage {
 
   @Local curTabIndex: number = 0;
   @Local bottomAvoidVp: number = 0;
+  @Local topAvoidVp: number = 0; // 状态栏避让：胶囊不得压入系统状态栏（否则点击被状态栏窗口拦截）
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
@@ -113,6 +114,9 @@ export struct MainControlPage {
     const area: window.AvoidArea =
       this.win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
     this.bottomAvoidVp = this.getUIContext().px2vp(area.bottomRect.height); // px → vp（faqs-arkui-1114）
+    const sys: window.AvoidArea =
+      this.win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM); // 状态栏高度（arkts-apis-window-e：TYPE_SYSTEM=0）
+    this.topAvoidVp = this.getUIContext().px2vp(sys.topRect.height);
   }
 
   private stateRes(): Resource {
@@ -219,7 +223,7 @@ export struct MainControlPage {
         .padding({ left: 12, right: 12, top: 6, bottom: 6 })
         .borderRadius(18)
         .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
-        .margin({ top: 12, right: 12 })
+        .margin({ top: this.topAvoidVp + 12, right: 12 })
         .onClick(() => {
           this.pathStack.pushPathByName('debug', null);
         })

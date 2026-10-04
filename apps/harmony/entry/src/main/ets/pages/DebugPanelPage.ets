@@ -63,6 +63,14 @@ function connRes(state: number): string {
 
 // hex 字符串 → 字节：见 common/net/HexCodec（与 M2 配对/快速连接共用）。
 
+// statRow 入参（@Builder 按引用传递的唯一参数）：label/value 随 @Local/@Trace 变化刷新。
+// 依据 arkts-builder：@Builder 多参/按值传递状态变量时不触发动态渲染（faqs-arkui-1078），
+// 仅「单参数 + 对象字面量」按引用传递才随状态变化刷新。
+class StatRowData {
+  public label: ResourceStr = '';
+  public value: string = '';
+}
+
 @ComponentV2
 export struct DebugPanelPage {
   @Require @Param conn: ConnectionManager;
@@ -99,7 +107,10 @@ export struct DebugPanelPage {
   @Local connecting: boolean = false;
   @Local statusText: string = '';
   @Local statusOk: boolean = false;
+  // 页面存活秒数（1Hz 走字）：既是 Realtime 区刷新节拍的可视证据，也用于排查整页渲染冻结
+  @Local pageSec: number = 0;
   private refreshTimer: number = -1;
+  private openedAtMs: number = 0;
   private echoPending: number = 0;
   private rttCb: RttListener = (rtt: number) => {
     this.onRtt(rtt);
@@ -107,6 +118,7 @@ export struct DebugPanelPage {
 
   aboutToAppear(): void {
     this.conn.addRttListener(this.rttCb);
+    this.openedAtMs = new Date().getTime();
     this.settings.getLastHost().then((h: HostInfo | null) => {
       if (h !== null) {
         this.ip = h.ip;
@@ -136,6 +148,7 @@ export struct DebugPanelPage {
   }
 
   private refreshNow(): void {
+    this.pageSec = Math.floor((Date.now() - this.openedAtMs) / 1000);
     this.gestureState = this.touchpad.currentState();
     this.sampleRate = this.touchpad.getSampleRate();
     this.sendRate = this.touchpad.getSendRate();
@@ -269,13 +282,13 @@ export struct DebugPanelPage {
   }
 
   @Builder
-  statRow(label: Resource, value: string) {
+  statRow($$: StatRowData) {
     Row() {
-      Text(label)
+      Text($$.label)
         .fontSize($r('sys.float.ohos_id_text_size_body2'))
         .fontColor($r('sys.color.font_secondary'))
       Blank()
-      Text(value)
+      Text($$.value)
         .fontSize($r('sys.float.ohos_id_text_size_body2'))
         .fontColor($r('sys.color.font_primary'))
     }
@@ -288,20 +301,27 @@ export struct DebugPanelPage {
         Column({ space: 16 }) {
           // ---- 实时数据（1Hz） ----
           Column({ space: 8 }) {
-            Text($r('app.string.debug_realtime'))
-              .fontSize($r('sys.float.ohos_id_text_size_body1'))
-              .fontColor($r('sys.color.font_primary'))
-            this.statRow($r('app.string.debug_conn_state'), this.resStr(connRes(this.conn.snapshot.state)))
-            this.statRow($r('app.string.debug_gesture_state'), this.resStr(gestureRes(this.gestureState)))
-            this.statRow($r('app.string.debug_sample_rate'), `${this.sampleRate}/s`)
-            this.statRow($r('app.string.debug_send_rate'), `${this.sendRate}/s`)
-            this.statRow($r('app.string.debug_rtt'), this.rttText())
-            this.statRow($r('app.string.debug_udp_fail'), `${this.udpSendFail}`)
-            this.statRow($r('app.string.debug_tcp_decode_fail'), `${this.recvDecodeFail}`)
-            this.statRow($r('app.string.debug_hmac_fail'), `${this.recvHmacFail}`)
-            this.statRow($r('app.string.debug_udp_ok'), `${this.udpSendOk}`)
-            this.statRow($r('app.string.debug_tcp_ok'), `${this.tcpSendOk}`)
-            this.statRow($r('app.string.debug_recv_ok'), `${this.recvOk}`)
+            Row() {
+              Text($r('app.string.debug_realtime'))
+                .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                .fontColor($r('sys.color.font_primary'))
+              Blank()
+              Text(`t+${this.pageSec}s`)
+                .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                .fontColor($r('sys.color.font_secondary'))
+            }
+            .width('100%')
+            this.statRow({ label: $r('app.string.debug_conn_state'), value: this.resStr(connRes(this.conn.snapshot.state)) })
+            this.statRow({ label: $r('app.string.debug_gesture_state'), value: this.resStr(gestureRes(this.gestureState)) })
+            this.statRow({ label: $r('app.string.debug_sample_rate'), value: `${this.sampleRate}/s` })
+            this.statRow({ label: $r('app.string.debug_send_rate'), value: `${this.sendRate}/s` })
+            this.statRow({ label: $r('app.string.debug_rtt'), value: this.rttText() })
+            this.statRow({ label: $r('app.string.debug_udp_fail'), value: `${this.udpSendFail}` })
+            this.statRow({ label: $r('app.string.debug_tcp_decode_fail'), value: `${this.recvDecodeFail}` })
+            this.statRow({ label: $r('app.string.debug_hmac_fail'), value: `${this.recvHmacFail}` })
+            this.statRow({ label: $r('app.string.debug_udp_ok'), value: `${this.udpSendOk}` })
+            this.statRow({ label: $r('app.string.debug_tcp_ok'), value: `${this.tcpSendOk}` })
+            this.statRow({ label: $r('app.string.debug_recv_ok'), value: `${this.recvOk}` })
           }
           .alignItems(HorizontalAlign.Start)
           .width('100%')

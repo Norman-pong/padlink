@@ -27,11 +27,18 @@
 - 宿主机 `padlinktoy` 对打容器内真实 padlinkd（跨真实 TCP/UDP 网络栈）：token 认证 ECHO 150/150 回包（P50 RTT 0.44ms）；`replay` 125/125 帧（版本协商 v1、TEXT 送达、0 ERR）；`fuzz` 1886 变异包后 daemon 存活（认证路径完好、恶意 TCP 被正确断开）。
 - **仍待真桌面会话**（⏳）：光标可见画圆（GNOME Wayland + libinput 消费）、evtest/libinput 取证（PROBE §4 目视 + §5/§6）、uaccess ACL、systemd user service 拉起。
 
+### 鸿蒙 APP 端到端验证（API26 模拟器 MateX7API26 ↔ 容器内真实 daemon，2026-10-05）
+- **全软件链路打通**：模拟器主控页触摸面 → 手势引擎 → UDP MOVE → 宿主网络 → 容器内 padlinkd → uinput → **内核 EV_REL 事件流**（辅助容器读 `/dev/input/event0` 实抓 124 EV_REL + 65 SYN_REPORT，事件 delta≈10.5 与 r=120 圆轨迹弦长数学吻合）。
+- 计数严格对账：Draw circle 每轮 daemon MOVE 恰 +72；触摸板滑动应用侧 UDP sends ok=839 与 daemon 端 839 一致；触摸采样率 122/s、发送 69/s。
+- 认证与心跳：token 认证上线、1Hz ECHO 心跳、Echo 自测 RTT 1–2ms、断开重连回环通过。
+- **模拟器验证中发现并修复的真实缺陷**：① `settings` 页已注册但无任何 UI 入口（FR-5 不可达）；② 状态胶囊压入系统状态栏导致点击被拦截（补 TYPE_SYSTEM 避让）；③ `module.json5` 漏声明 `ohos.permission.GET_NETWORK_INFO`（net.connection 全系接口需要，缺失报 201，连接直接失败）；④ 调试面板 statRow @Builder 按值传参导致统计区不随状态刷新（arkts-builder/faqs-arkui-1078 已知边界，改单参对象按引用）；⑤ daemon udp.go 补与 tcp.go 对称的逐包 verbose 日志（可观测性）。
+- **仍待真机**（⏳，模拟器无法替代）：真实多指触摸（多指 id 恒定、双指滚动/长按拖拽手感）、三指滑动切换、§11 盲测、延迟口径 P50≤40ms/P95≤80ms（§8 双口径）、语音端侧 ASR 真实识别、键盘经 fcitx 中文上屏。
+
 | 阶段 | 交付 | 通过标准 | 状态 |
 | --- | --- | --- | --- |
 | M0 | daemon 从零实现：协议层（对拍 testvectors）+ uinput 注入 + `--test` + udev/systemd 安装物 | `go test ./...` 全过 ✅；PROBE-LINUX.md 光标画圆通过 ⏳（内核层已验证 ✅，见上） | 代码完成（6713970/c562c09），桌面层验收待执行 |
-| M1 | 鸿蒙工程 + 触摸板链路 | 光标跟手 ⏳；§11.1 手势达标 ⏳；真机多指 id 恒定 ⏳ | 代码完成（d80fcb7/4b678ff/f3587fc），手势引擎 38 例单测 ✅ |
-| M2 | 发现 / 配对 / token / 重连 | 断连 30s 自动恢复 ⏳；错误确认码 5 次锁定 ✅（daemon 单测 + 容器内 token 认证实测 ✅） | 代码完成（74c288a） |
+| M1 | 鸿蒙工程 + 触摸板链路 | 光标跟手 ⏳；§11.1 手势达标 ⏳；真机多指 id 恒定 ⏳（**链路已获模拟器级端到端验证 ✅**：触摸→手势→UDP→daemon→uinput→内核事件，见上） | 代码完成（d80fcb7/4b678ff/f3587fc），手势引擎 38 例单测 ✅ |
+| M2 | 发现 / 配对 / token / 重连 | 断连 30s 自动恢复 ⏳；错误确认码 5 次锁定 ✅（daemon 单测 + 容器内 token 认证实测 + 模拟器认证/心跳/重连回环 ✅） | 代码完成（74c288a） |
 | M3 | 键盘区（HID usage 映射） | Ctrl+C/V、Super、Alt+Tab、中文经 fcitx 可用 ⏳ | 代码完成（5a4ecf1），粘滞序列单测 ✅ |
 | M4 | 语音听写 | §11.4：50 字 2 次内上屏，剪贴板内容不变 ⏳ | 代码完成（21c967c），ASR 三陷阱参数显式落参 ✅ |
 | M5 | 调优收口 | 延迟 P50≤40ms / P95≤80ms ⏳（传输层 RTT 分量已由 padlinktoy 实测，端到端待真机）；`devecocli build` 通过 ✅ | 收口完成（合成轨迹按钮/padlinktoy/文档） |

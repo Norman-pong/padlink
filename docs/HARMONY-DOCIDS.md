@@ -18,7 +18,7 @@
 | 完整路径 | 关键事实 |
 | --- | --- |
 | `API参考/网络/Network_Kit_网络服务/ArkTS_API/ohos_net_socket_Socket连接_/js-apis-socket` | UDPSocket（constructUDPSocketInstance/bind/send）、TCPSocket、WebSocket；仅可发 string/ArrayBuffer（search 关键词用 "UDPSocket" 命中） |
-| `API参考/网络/Network_Kit_网络服务/ArkTS_API/ohos_net_connection_网络连接管理_/js-apis-net-connection` | getAllNets / getNetCapabilitiesSync（筛 BEARER_WIFI）/ NetHandle.bindSocket（锁定出口网络） |
+| `API参考/网络/Network_Kit_网络服务/ArkTS_API/ohos_net_connection_网络连接管理_/js-apis-net-connection` | getAllNets / getNetCapabilitiesSync（筛 BEARER_WIFI）/ NetHandle.bindSocket（锁定出口网络）；**全系接口需要 `ohos.permission.GET_NETWORK_INFO` 声明，缺失报 201 Permission denied（模拟器实测踩坑）** |
 | `FAQ/网络/网络_Network/如何限制UDPSocket通过特定网络发送广播/faqs-network-96` | 广播完整姿势：bind `0.0.0.0` → **bind 成功后** `setExtraOptions({broadcast:true})` → `netHandle.bindSocket(udpSocket)`；bindSocket 可多次调用绑定多个 Socket |
 | `FAQ/网络/网络_Network/Socket通信时_如何根据使用场景正确转换数据类型/faqs-network-86` | ArrayBuffer ↔ string 转换规范（协议编解码要用） |
 | `FAQ/网络/网络_Network/如何解决Socket_bind失败问题/faqs-network-115` | bind 错误码：2301013 Permission denied / 2301099 Address not available（联调排障） |
@@ -69,6 +69,15 @@
 | `API参考/硬件/Driver_Development_Kit_驱动开发服务/C_API/模块/HidDdk/capi-hidddk` | HID DDK 是**主机侧**能力（在本机内创建虚拟 HID / 访问外接 HID），不能让手机对外扮演 HID 外设——蓝牙外设路线排除的官方证据 |
 | `FAQ/UI框架/组件使用/如何打开键鼠穿越功能开关/faqs-arkui-377` | "键鼠穿越/共享"为 HarmonyOS 设备间系统能力，不开放三方、不面向 Ubuntu |
 | `API参考/网络/Connectivity_Kit_短距通信服务/ArkTS_API/ohos_bluetooth_ble_蓝牙ble模块_/js-apis-bluetooth-ble` | BLE GattServer 存在但无 HID Profile 官方支持——手写 HOGP 属无承诺灰色地带，不采用 |
+
+---
+
+## 八、ArkUI 状态管理 V2 与 @Builder 观察边界（调试面板 Realtime 冻结踩坑）
+
+| 完整路径 | 关键事实 |
+| --- | --- |
+| `FAQ/UI框架/UI界面/Builder装饰器参数传递限制与使用方式介绍/faqs-arkui-1078` | **@Builder 按值传递参数时，参数（含状态变量）改变不会引起 @Builder 内 UI 刷新**；要刷新必须按引用传递（单参数 + 调用处直接传对象字面量）或按回调传递（UIUtils.makeBinding，API20+）。模拟器实测踩坑：DebugPanelPage statRow(label, value) 双参按值 → Realtime 区自打开起冻结，改单参对象字面量后恢复 |
+| `开发指南/ArkUI_方舟UI框架/UI开发_ArkTS声明式开发范式/学习UI范式基本语法/组件扩展/Builder装饰器_自定义构建函数/arkts-builder` | 按引用传递仅「单参数且调用处直接传对象字面量」生效（≥2 参数或值/引用混传均不刷新）；@ObservedV2/@Trace 类实例**按值**传参仍具深度观测（改 @Trace 属性可刷新 Builder 内 UI）；@ComponentV2 下全局 Builder 传 @ObservedV2 实例必须按值（引用传递会被 ArkTS 语法拦截） |
 
 ---
 

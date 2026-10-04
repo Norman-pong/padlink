@@ -96,6 +96,17 @@ export struct DiscoverPage {
         } else {
           this.listView()
         }
+        // 设置页入口（FR-5）：主机管理/灵敏度/调试开关的可达路径（此前 settings 已注册但无入口）。
+        Row() {
+          Blank()
+          Text($r('app.string.page_settings'))
+            .fontSize($r('sys.float.ohos_id_text_size_body2'))
+            .fontColor($r('sys.color.font_emphasize'))
+            .onClick(() => {
+              this.pathStack.pushPathByName('settings', null);
+            })
+        }
+        .width('100%')
       }
       .width('100%')
       .height('100%')

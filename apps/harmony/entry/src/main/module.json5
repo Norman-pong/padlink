@@ -20,6 +20,11 @@
         "name": "ohos.permission.INTERNET"
       },
       {
+        // net.connection 全系接口（getAllNets/bindSocket，faqs-network-96 路径）需要此权限
+        //（js-apis-net-connection「需要权限」节；模拟器实测缺失报 201 Permission denied）
+        "name": "ohos.permission.GET_NETWORK_INFO"
+      },
+      {
         "name": "ohos.permission.MICROPHONE",
         "reason": "$string:mic_permission_reason",
         "usedScene": {
