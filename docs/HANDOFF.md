@@ -20,14 +20,21 @@
 
 ## 里程碑（通过标准即验收）
 
-| 阶段 | 交付 | 通过标准 |
-| --- | --- | --- |
-| M0 | daemon 从零实现：协议层（对拍 testvectors）+ uinput 注入 + `--test` + udev/systemd 安装物 | `go test ./...` 全过；PROBE-LINUX.md 光标画圆通过 |
-| M1 | 鸿蒙工程（`devecocli create --app-name padlink --api-level 26`）+ 触摸板链路 | 光标跟手；§11.1 手势达标；真机多指 id 恒定 |
-| M2 | 发现 / 配对 / token / 重连 | 断连 30s 自动恢复；错误确认码 5 次锁定 |
-| M3 | 键盘区（HID usage 映射） | Ctrl+C/V、Super、Alt+Tab、中文经 fcitx 可用 |
-| M4 | 语音听写 | §11.4：50 字 2 次内上屏，剪贴板内容不变 |
-| M5 | 调优收口 | 延迟 P50≤40ms / P95≤80ms；`devecocli build` 通过 |
+> **状态（2026-10-05）：M0–M4 代码全部落地并通过离线验证门**（daemon：`go vet`/`go test -race`/双架构交叉编译；鸿蒙：`devecocli build` 全量构建 + deveco 静态检查零诊断 + 黄金向量 27 例与纯逻辑单测 100+ 例全绿）。下表"通过标准"中标 ✅ 的为已离线验证项，标 ⏳ 的依赖真机，待按下表执行。
+
+| 阶段 | 交付 | 通过标准 | 状态 |
+| --- | --- | --- | --- |
+| M0 | daemon 从零实现：协议层（对拍 testvectors）+ uinput 注入 + `--test` + udev/systemd 安装物 | `go test ./...` 全过 ✅；PROBE-LINUX.md 光标画圆通过 ⏳ | 代码完成（6713970/c562c09），真机验收待执行 |
+| M1 | 鸿蒙工程 + 触摸板链路 | 光标跟手 ⏳；§11.1 手势达标 ⏳；真机多指 id 恒定 ⏳ | 代码完成（d80fcb7/e7f612c/dcd685a），手势引擎 38 例单测 ✅ |
+| M2 | 发现 / 配对 / token / 重连 | 断连 30s 自动恢复 ⏳；错误确认码 5 次锁定 ✅（daemon 单测） | 代码完成（897124d） |
+| M3 | 键盘区（HID usage 映射） | Ctrl+C/V、Super、Alt+Tab、中文经 fcitx 可用 ⏳ | 代码完成（a25886a），粘滞序列单测 ✅ |
+| M4 | 语音听写 | §11.4：50 字 2 次内上屏，剪贴板内容不变 ⏳ | 代码完成（ef8d470），ASR 三陷阱参数显式落参 ✅ |
+| M5 | 调优收口 | 延迟 P50≤40ms / P95≤80ms ⏳；`devecocli build` 通过 ✅ | 收口完成（合成轨迹按钮/文档） |
+
+### 真机验收待办（代码已就绪，按序执行）
+1. **Ubuntu 26.04 GNOME Wayland**：按 `docs/PROBE-LINUX.md` §0–§7 逐条执行（uaccess → systemd → `padlinkd --test` 光标画圆/敲键/滚动 → evtest/libinput 取证）。
+2. **鸿蒙真机**：`devecocli run` 部署 → 发现/配对 → 触摸板手势 §11.1–11.3 → 语音 §11.4 → 延迟双口径（调试面板 + 120fps 录屏，§8）。
+3. 联调分层纪律：`padlinkd --test`（无手机）→ 调试面板 echo/合成轨迹（无注入）→ 真触摸。
 
 ## 关键坑 → 文档 ID
 

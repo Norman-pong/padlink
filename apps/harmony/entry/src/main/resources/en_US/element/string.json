@@ -1,147 +1,588 @@
 {
   "string": [
-    { "name": "module_desc", "value": "PadLink main module" },
-    { "name": "EntryAbility_desc", "value": "PadLink: use your phone as a touchpad/keyboard/voice input device for your computer" },
-    { "name": "EntryAbility_label", "value": "PadLink" },
-    { "name": "page_discover", "value": "Discover & Pair" },
-    { "name": "page_settings", "value": "Settings" },
-    { "name": "page_debug", "value": "Debug Panel" },
-    { "name": "discover_searching", "value": "Searching for hosts…" },
-    { "name": "discover_connecting", "value": "Connecting to host…" },
-    { "name": "discover_found_title", "value": "Nearby hosts" },
-    { "name": "discover_refresh", "value": "Rescan" },
-    { "name": "discover_retry", "value": "Retry" },
-    { "name": "discover_quick", "value": "Quick connect to last host" },
-    { "name": "discover_paired_count", "value": "Paired" },
-    { "name": "discover_empty_title", "value": "No hosts found nearby" },
-    { "name": "discover_empty_hint", "value": "Make sure padlinkd is running on your computer and both devices are on the same LAN" },
-    { "name": "pair_code_hint", "value": "Check the pairing code on your computer (desktop notification, or run padlinkctl pair)" },
-    { "name": "pair_verifying", "value": "Verifying code…" },
-    { "name": "pair_success", "value": "Paired successfully" },
-    { "name": "pair_success_hint", "value": "Returning to the main page…" },
-    { "name": "pair_failed_title", "value": "Pairing failed" },
-    { "name": "pair_reinitiate", "value": "Restart pairing" },
-    { "name": "pair_cancel", "value": "Cancel" },
-    { "name": "pair_code_invalid", "value": "The code must be 4 digits" },
-    { "name": "pair_nak_wrong_code", "value": "Wrong code, please try again" },
-    { "name": "pair_nak_expired", "value": "The code has expired, please restart pairing" },
-    { "name": "pair_nak_too_many", "value": "Too many attempts, this round is voided. Please restart pairing" },
-    { "name": "pair_nak_no_session", "value": "No pairing in progress on the host. Start it on the host or tap \"Restart pairing\"" },
-    { "name": "pair_nak_full", "value": "The host has reached its paired-client limit" },
-    { "name": "pair_nak_unknown", "value": "Pairing failed (unknown reason), please restart" },
-    { "name": "state_reconnect_btn", "value": "Reconnect" },
-    { "name": "tab_touchpad", "value": "Touchpad" },
-    { "name": "tab_keyboard", "value": "Keyboard" },
-    { "name": "tab_voice", "value": "Voice" },
-    { "name": "mic_permission_reason", "value": "Microphone is used only for hold-to-talk dictation: audio is captured while the button is held and typed as text on your computer" },
-    { "name": "voice_btn_label", "value": "Hold to talk" },
-    { "name": "voice_btn_a11y", "value": "Hold to talk" },
-    { "name": "voice_a11y_hint", "value": "Press and hold to record; release to recognize the speech and type it on your computer" },
-    { "name": "voice_hold_hint", "value": "Hold to talk, release to type" },
-    { "name": "voice_need_connect", "value": "Connect to the host before using voice" },
-    { "name": "voice_phase_initializing", "value": "Starting recognizer…" },
-    { "name": "voice_phase_listening", "value": "Listening, please speak…" },
-    { "name": "voice_phase_recognizing", "value": "Recognizing…" },
-    { "name": "voice_phase_sending", "value": "Sending…" },
-    { "name": "voice_phase_done", "value": "Typed on computer" },
-    { "name": "voice_empty_hint", "value": "Nothing recognized" },
-    { "name": "voice_err_mic_permission", "value": "Microphone permission denied. Enable it in Settings to use voice" },
-    { "name": "voice_open_settings", "value": "Open Settings" },
-    { "name": "voice_err_busy", "value": "Recognizer is busy, try again shortly" },
-    { "name": "voice_err_create_failed", "value": "Failed to init speech engine, please retry" },
-    { "name": "voice_err_start_failed", "value": "Failed to start recognition, please retry" },
-    { "name": "voice_err_max_audio", "value": "Audio too long, try shorter sentences" },
-    { "name": "voice_err_engine", "value": "Speech engine not ready, please retry" },
-    { "name": "voice_err_recognize", "value": "Recognition error, please retry" },
-    { "name": "voice_err_unknown", "value": "Voice recognition error, please retry" },
-    { "name": "voice_err_send_failed", "value": "Send failed (connection issue). Text kept for resend" },
-    { "name": "voice_resend", "value": "Resend" },
-    { "name": "kb_key_esc", "value": "Esc" },
-    { "name": "kb_key_tab", "value": "Tab" },
-    { "name": "kb_key_caps", "value": "Caps Lock" },
-    { "name": "kb_key_shift", "value": "Shift" },
-    { "name": "kb_key_ctrl", "value": "Ctrl" },
-    { "name": "kb_key_alt", "value": "Alt" },
-    { "name": "kb_key_super", "value": "Super" },
-    { "name": "kb_key_enter", "value": "Enter" },
-    { "name": "kb_key_backspace", "value": "Backspace" },
-    { "name": "kb_key_space", "value": "Space" },
-    { "name": "kb_key_up", "value": "Up arrow" },
-    { "name": "kb_key_down", "value": "Down arrow" },
-    { "name": "kb_key_left", "value": "Left arrow" },
-    { "name": "kb_key_right", "value": "Right arrow" },
-    { "name": "kb_key_minus", "value": "hyphen" },
-    { "name": "kb_key_semicolon", "value": "semicolon" },
-    { "name": "kb_key_quote", "value": "apostrophe" },
-    { "name": "kb_key_comma", "value": "comma" },
-    { "name": "kb_key_period", "value": "period" },
-    { "name": "kb_key_slash", "value": "slash" },
-    { "name": "kb_sym_exclamation", "value": "exclamation mark" },
-    { "name": "kb_sym_at", "value": "at sign" },
-    { "name": "kb_sym_hash", "value": "number sign" },
-    { "name": "kb_sym_dollar", "value": "dollar sign" },
-    { "name": "kb_sym_percent", "value": "percent sign" },
-    { "name": "kb_sym_caret", "value": "caret" },
-    { "name": "kb_sym_ampersand", "value": "ampersand" },
-    { "name": "kb_sym_asterisk", "value": "asterisk" },
-    { "name": "kb_sym_lparen", "value": "left parenthesis" },
-    { "name": "kb_sym_rparen", "value": "right parenthesis" },
-    { "name": "kb_sym_underscore", "value": "underscore" },
-    { "name": "kb_sym_colon", "value": "colon" },
-    { "name": "kb_sym_dquote", "value": "double quote" },
-    { "name": "kb_sym_less", "value": "less-than sign" },
-    { "name": "kb_sym_greater", "value": "greater-than sign" },
-    { "name": "kb_sym_question", "value": "question mark" },
-    { "name": "kb_layer_to_symbols", "value": "Switch to symbol layer" },
-    { "name": "kb_layer_to_letters", "value": "Switch to letter layer" },
-    { "name": "kb_a11y_modifier_hint", "value": "Tap to latch; combines with other modifiers; tap again to release; auto-releases after the next key" },
-    { "name": "kb_a11y_layer_hint", "value": "Toggles between the letter and symbol layers" },
-    { "name": "state_idle", "value": "Disconnected" },
-    { "name": "state_connected", "value": "Connected" },
-    { "name": "state_reconnecting", "value": "Reconnecting" },
-    { "name": "state_lost", "value": "Lost" },
-    { "name": "state_discovering", "value": "Discovering" },
-    { "name": "state_pairing", "value": "Pairing" },
-    { "name": "settings_sensitivity", "value": "Sensitivity" },
-    { "name": "settings_natural_scroll", "value": "Natural scrolling" },
-    { "name": "settings_debug", "value": "Debug panel" },
-    { "name": "settings_debug_hint", "value": "When on, tap the version 5 times under About to open the debug panel" },
-    { "name": "settings_about", "value": "About" },
-    { "name": "settings_version", "value": "Version" },
-    { "name": "protocol_version", "value": "Protocol version: v1" },
-    { "name": "gesture_idle", "value": "Idle" },
-    { "name": "gesture_single_pending", "value": "Single pending" },
-    { "name": "gesture_cursor", "value": "Cursor" },
-    { "name": "gesture_dragging", "value": "Dragging" },
-    { "name": "gesture_hold_multi", "value": "Button held" },
-    { "name": "gesture_two_pending", "value": "Two pending" },
-    { "name": "gesture_scrolling", "value": "Scrolling" },
-    { "name": "gesture_three_pending", "value": "Three pending" },
-    { "name": "debug_realtime", "value": "Realtime" },
-    { "name": "debug_conn_state", "value": "Connection" },
-    { "name": "debug_gesture_state", "value": "Gesture state" },
-    { "name": "debug_sample_rate", "value": "Touch sample rate" },
-    { "name": "debug_send_rate", "value": "Send rate" },
-    { "name": "debug_rtt", "value": "RTT" },
-    { "name": "debug_udp_ok", "value": "UDP sends ok" },
-    { "name": "debug_udp_fail", "value": "UDP send failures" },
-    { "name": "debug_tcp_ok", "value": "TCP sends ok" },
-    { "name": "debug_tcp_decode_fail", "value": "TCP decode failures" },
-    { "name": "debug_hmac_fail", "value": "HMAC failures" },
-    { "name": "debug_recv_ok", "value": "Packets received" },
-    { "name": "debug_echo_test", "value": "Echo self-test" },
-    { "name": "debug_echo_run", "value": "Send 10" },
-    { "name": "debug_need_connect", "value": "Connect to a host first" },
-    { "name": "debug_manual_connect", "value": "Manual connect (M1)" },
-    { "name": "debug_ip_hint", "value": "Host IP, e.g. 192.168.1.10" },
-    { "name": "debug_port_hint", "value": "Port (default 53021)" },
-    { "name": "debug_token_hint", "value": "Auth token (64 hex chars)" },
-    { "name": "debug_connect", "value": "Connect" },
-    { "name": "debug_disconnect", "value": "Disconnect" },
-    { "name": "debug_connecting", "value": "Connecting..." },
-    { "name": "debug_connected", "value": "Connected" },
-    { "name": "debug_disconnected", "value": "Disconnected" },
-    { "name": "debug_input_invalid", "value": "Connect failed: enter a valid host IP and port (1-65535)" },
-    { "name": "debug_token_invalid", "value": "Connect failed: token must be 64 hex chars (32 bytes)" }
+    {
+      "name": "module_desc",
+      "value": "PadLink main module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "PadLink: use your phone as a touchpad/keyboard/voice input device for your computer"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "PadLink"
+    },
+    {
+      "name": "page_discover",
+      "value": "Discover & Pair"
+    },
+    {
+      "name": "page_settings",
+      "value": "Settings"
+    },
+    {
+      "name": "page_debug",
+      "value": "Debug Panel"
+    },
+    {
+      "name": "discover_searching",
+      "value": "Searching for hosts…"
+    },
+    {
+      "name": "discover_connecting",
+      "value": "Connecting to host…"
+    },
+    {
+      "name": "discover_found_title",
+      "value": "Nearby hosts"
+    },
+    {
+      "name": "discover_refresh",
+      "value": "Rescan"
+    },
+    {
+      "name": "discover_retry",
+      "value": "Retry"
+    },
+    {
+      "name": "discover_quick",
+      "value": "Quick connect to last host"
+    },
+    {
+      "name": "discover_paired_count",
+      "value": "Paired"
+    },
+    {
+      "name": "discover_empty_title",
+      "value": "No hosts found nearby"
+    },
+    {
+      "name": "discover_empty_hint",
+      "value": "Make sure padlinkd is running on your computer and both devices are on the same LAN"
+    },
+    {
+      "name": "pair_code_hint",
+      "value": "Check the pairing code on your computer (desktop notification, or run padlinkctl pair)"
+    },
+    {
+      "name": "pair_verifying",
+      "value": "Verifying code…"
+    },
+    {
+      "name": "pair_success",
+      "value": "Paired successfully"
+    },
+    {
+      "name": "pair_success_hint",
+      "value": "Returning to the main page…"
+    },
+    {
+      "name": "pair_failed_title",
+      "value": "Pairing failed"
+    },
+    {
+      "name": "pair_reinitiate",
+      "value": "Restart pairing"
+    },
+    {
+      "name": "pair_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "pair_code_invalid",
+      "value": "The code must be 4 digits"
+    },
+    {
+      "name": "pair_nak_wrong_code",
+      "value": "Wrong code, please try again"
+    },
+    {
+      "name": "pair_nak_expired",
+      "value": "The code has expired, please restart pairing"
+    },
+    {
+      "name": "pair_nak_too_many",
+      "value": "Too many attempts, this round is voided. Please restart pairing"
+    },
+    {
+      "name": "pair_nak_no_session",
+      "value": "No pairing in progress on the host. Start it on the host or tap \"Restart pairing\""
+    },
+    {
+      "name": "pair_nak_full",
+      "value": "The host has reached its paired-client limit"
+    },
+    {
+      "name": "pair_nak_unknown",
+      "value": "Pairing failed (unknown reason), please restart"
+    },
+    {
+      "name": "state_reconnect_btn",
+      "value": "Reconnect"
+    },
+    {
+      "name": "tab_touchpad",
+      "value": "Touchpad"
+    },
+    {
+      "name": "tab_keyboard",
+      "value": "Keyboard"
+    },
+    {
+      "name": "tab_voice",
+      "value": "Voice"
+    },
+    {
+      "name": "mic_permission_reason",
+      "value": "Microphone is used only for hold-to-talk dictation: audio is captured while the button is held and typed as text on your computer"
+    },
+    {
+      "name": "voice_btn_label",
+      "value": "Hold to talk"
+    },
+    {
+      "name": "voice_btn_a11y",
+      "value": "Hold to talk"
+    },
+    {
+      "name": "voice_a11y_hint",
+      "value": "Press and hold to record; release to recognize the speech and type it on your computer"
+    },
+    {
+      "name": "voice_hold_hint",
+      "value": "Hold to talk, release to type"
+    },
+    {
+      "name": "voice_need_connect",
+      "value": "Connect to the host before using voice"
+    },
+    {
+      "name": "voice_phase_initializing",
+      "value": "Starting recognizer…"
+    },
+    {
+      "name": "voice_phase_listening",
+      "value": "Listening, please speak…"
+    },
+    {
+      "name": "voice_phase_recognizing",
+      "value": "Recognizing…"
+    },
+    {
+      "name": "voice_phase_sending",
+      "value": "Sending…"
+    },
+    {
+      "name": "voice_phase_done",
+      "value": "Typed on computer"
+    },
+    {
+      "name": "voice_empty_hint",
+      "value": "Nothing recognized"
+    },
+    {
+      "name": "voice_err_mic_permission",
+      "value": "Microphone permission denied. Enable it in Settings to use voice"
+    },
+    {
+      "name": "voice_open_settings",
+      "value": "Open Settings"
+    },
+    {
+      "name": "voice_err_busy",
+      "value": "Recognizer is busy, try again shortly"
+    },
+    {
+      "name": "voice_err_create_failed",
+      "value": "Failed to init speech engine, please retry"
+    },
+    {
+      "name": "voice_err_start_failed",
+      "value": "Failed to start recognition, please retry"
+    },
+    {
+      "name": "voice_err_max_audio",
+      "value": "Audio too long, try shorter sentences"
+    },
+    {
+      "name": "voice_err_engine",
+      "value": "Speech engine not ready, please retry"
+    },
+    {
+      "name": "voice_err_recognize",
+      "value": "Recognition error, please retry"
+    },
+    {
+      "name": "voice_err_unknown",
+      "value": "Voice recognition error, please retry"
+    },
+    {
+      "name": "voice_err_send_failed",
+      "value": "Send failed (connection issue). Text kept for resend"
+    },
+    {
+      "name": "voice_resend",
+      "value": "Resend"
+    },
+    {
+      "name": "kb_key_esc",
+      "value": "Esc"
+    },
+    {
+      "name": "kb_key_tab",
+      "value": "Tab"
+    },
+    {
+      "name": "kb_key_caps",
+      "value": "Caps Lock"
+    },
+    {
+      "name": "kb_key_shift",
+      "value": "Shift"
+    },
+    {
+      "name": "kb_key_ctrl",
+      "value": "Ctrl"
+    },
+    {
+      "name": "kb_key_alt",
+      "value": "Alt"
+    },
+    {
+      "name": "kb_key_super",
+      "value": "Super"
+    },
+    {
+      "name": "kb_key_enter",
+      "value": "Enter"
+    },
+    {
+      "name": "kb_key_backspace",
+      "value": "Backspace"
+    },
+    {
+      "name": "kb_key_space",
+      "value": "Space"
+    },
+    {
+      "name": "kb_key_up",
+      "value": "Up arrow"
+    },
+    {
+      "name": "kb_key_down",
+      "value": "Down arrow"
+    },
+    {
+      "name": "kb_key_left",
+      "value": "Left arrow"
+    },
+    {
+      "name": "kb_key_right",
+      "value": "Right arrow"
+    },
+    {
+      "name": "kb_key_minus",
+      "value": "hyphen"
+    },
+    {
+      "name": "kb_key_semicolon",
+      "value": "semicolon"
+    },
+    {
+      "name": "kb_key_quote",
+      "value": "apostrophe"
+    },
+    {
+      "name": "kb_key_comma",
+      "value": "comma"
+    },
+    {
+      "name": "kb_key_period",
+      "value": "period"
+    },
+    {
+      "name": "kb_key_slash",
+      "value": "slash"
+    },
+    {
+      "name": "kb_sym_exclamation",
+      "value": "exclamation mark"
+    },
+    {
+      "name": "kb_sym_at",
+      "value": "at sign"
+    },
+    {
+      "name": "kb_sym_hash",
+      "value": "number sign"
+    },
+    {
+      "name": "kb_sym_dollar",
+      "value": "dollar sign"
+    },
+    {
+      "name": "kb_sym_percent",
+      "value": "percent sign"
+    },
+    {
+      "name": "kb_sym_caret",
+      "value": "caret"
+    },
+    {
+      "name": "kb_sym_ampersand",
+      "value": "ampersand"
+    },
+    {
+      "name": "kb_sym_asterisk",
+      "value": "asterisk"
+    },
+    {
+      "name": "kb_sym_lparen",
+      "value": "left parenthesis"
+    },
+    {
+      "name": "kb_sym_rparen",
+      "value": "right parenthesis"
+    },
+    {
+      "name": "kb_sym_underscore",
+      "value": "underscore"
+    },
+    {
+      "name": "kb_sym_colon",
+      "value": "colon"
+    },
+    {
+      "name": "kb_sym_dquote",
+      "value": "double quote"
+    },
+    {
+      "name": "kb_sym_less",
+      "value": "less-than sign"
+    },
+    {
+      "name": "kb_sym_greater",
+      "value": "greater-than sign"
+    },
+    {
+      "name": "kb_sym_question",
+      "value": "question mark"
+    },
+    {
+      "name": "kb_layer_to_symbols",
+      "value": "Switch to symbol layer"
+    },
+    {
+      "name": "kb_layer_to_letters",
+      "value": "Switch to letter layer"
+    },
+    {
+      "name": "kb_a11y_modifier_hint",
+      "value": "Tap to latch; combines with other modifiers; tap again to release; auto-releases after the next key"
+    },
+    {
+      "name": "kb_a11y_layer_hint",
+      "value": "Toggles between the letter and symbol layers"
+    },
+    {
+      "name": "state_idle",
+      "value": "Disconnected"
+    },
+    {
+      "name": "state_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "state_reconnecting",
+      "value": "Reconnecting"
+    },
+    {
+      "name": "state_lost",
+      "value": "Lost"
+    },
+    {
+      "name": "state_discovering",
+      "value": "Discovering"
+    },
+    {
+      "name": "state_pairing",
+      "value": "Pairing"
+    },
+    {
+      "name": "settings_sensitivity",
+      "value": "Sensitivity"
+    },
+    {
+      "name": "settings_natural_scroll",
+      "value": "Natural scrolling"
+    },
+    {
+      "name": "settings_debug",
+      "value": "Debug panel"
+    },
+    {
+      "name": "settings_debug_hint",
+      "value": "When on, tap the version 5 times under About to open the debug panel"
+    },
+    {
+      "name": "settings_about",
+      "value": "About"
+    },
+    {
+      "name": "settings_version",
+      "value": "Version"
+    },
+    {
+      "name": "protocol_version",
+      "value": "Protocol version: v1"
+    },
+    {
+      "name": "gesture_idle",
+      "value": "Idle"
+    },
+    {
+      "name": "gesture_single_pending",
+      "value": "Single pending"
+    },
+    {
+      "name": "gesture_cursor",
+      "value": "Cursor"
+    },
+    {
+      "name": "gesture_dragging",
+      "value": "Dragging"
+    },
+    {
+      "name": "gesture_hold_multi",
+      "value": "Button held"
+    },
+    {
+      "name": "gesture_two_pending",
+      "value": "Two pending"
+    },
+    {
+      "name": "gesture_scrolling",
+      "value": "Scrolling"
+    },
+    {
+      "name": "gesture_three_pending",
+      "value": "Three pending"
+    },
+    {
+      "name": "debug_realtime",
+      "value": "Realtime"
+    },
+    {
+      "name": "debug_conn_state",
+      "value": "Connection"
+    },
+    {
+      "name": "debug_gesture_state",
+      "value": "Gesture state"
+    },
+    {
+      "name": "debug_sample_rate",
+      "value": "Touch sample rate"
+    },
+    {
+      "name": "debug_send_rate",
+      "value": "Send rate"
+    },
+    {
+      "name": "debug_rtt",
+      "value": "RTT"
+    },
+    {
+      "name": "debug_udp_ok",
+      "value": "UDP sends ok"
+    },
+    {
+      "name": "debug_udp_fail",
+      "value": "UDP send failures"
+    },
+    {
+      "name": "debug_tcp_ok",
+      "value": "TCP sends ok"
+    },
+    {
+      "name": "debug_tcp_decode_fail",
+      "value": "TCP decode failures"
+    },
+    {
+      "name": "debug_hmac_fail",
+      "value": "HMAC failures"
+    },
+    {
+      "name": "debug_recv_ok",
+      "value": "Packets received"
+    },
+    {
+      "name": "debug_echo_test",
+      "value": "Echo self-test"
+    },
+    {
+      "name": "debug_echo_run",
+      "value": "Send 10"
+    },
+    {
+      "name": "debug_need_connect",
+      "value": "Connect to a host first"
+    },
+    {
+      "name": "debug_manual_connect",
+      "value": "Manual connect (M1)"
+    },
+    {
+      "name": "debug_ip_hint",
+      "value": "Host IP, e.g. 192.168.1.10"
+    },
+    {
+      "name": "debug_port_hint",
+      "value": "Port (default 53021)"
+    },
+    {
+      "name": "debug_token_hint",
+      "value": "Auth token (64 hex chars)"
+    },
+    {
+      "name": "debug_connect",
+      "value": "Connect"
+    },
+    {
+      "name": "debug_disconnect",
+      "value": "Disconnect"
+    },
+    {
+      "name": "debug_connecting",
+      "value": "Connecting..."
+    },
+    {
+      "name": "debug_connected",
+      "value": "Connected"
+    },
+    {
+      "name": "debug_disconnected",
+      "value": "Disconnected"
+    },
+    {
+      "name": "debug_input_invalid",
+      "value": "Connect failed: enter a valid host IP and port (1-65535)"
+    },
+    {
+      "name": "debug_token_invalid",
+      "value": "Connect failed: token must be 64 hex chars (32 bytes)"
+    },
+    {
+      "name": "debug_traj_test",
+      "value": "Synthetic trajectory"
+    },
+    {
+      "name": "debug_traj_run",
+      "value": "Draw circle"
+    },
+    {
+      "name": "debug_traj_done",
+      "value": "Trajectory sent (72 points; cursor should draw a circle and return)"
+    }
   ]
 }

@@ -1,147 +1,588 @@
 {
   "string": [
-    { "name": "module_desc", "value": "口袋键鼠主模块" },
-    { "name": "EntryAbility_desc", "value": "口袋键鼠：手机作为电脑的触摸板/键盘/语音输入设备" },
-    { "name": "EntryAbility_label", "value": "口袋键鼠" },
-    { "name": "page_discover", "value": "发现与配对" },
-    { "name": "page_settings", "value": "设置" },
-    { "name": "page_debug", "value": "调试面板" },
-    { "name": "discover_searching", "value": "正在搜索主机…" },
-    { "name": "discover_connecting", "value": "正在连接主机…" },
-    { "name": "discover_found_title", "value": "附近的主机" },
-    { "name": "discover_refresh", "value": "重新扫描" },
-    { "name": "discover_retry", "value": "重试" },
-    { "name": "discover_quick", "value": "快速连接上次的主机" },
-    { "name": "discover_paired_count", "value": "已配对" },
-    { "name": "discover_empty_title", "value": "附近没有发现主机" },
-    { "name": "discover_empty_hint", "value": "请确认电脑已运行 padlinkd，且与手机在同一局域网" },
-    { "name": "pair_code_hint", "value": "请在电脑上查看确认码（桌面通知，或终端运行 padlinkctl pair）" },
-    { "name": "pair_verifying", "value": "正在验证确认码…" },
-    { "name": "pair_success", "value": "配对成功" },
-    { "name": "pair_success_hint", "value": "正在返回主控页…" },
-    { "name": "pair_failed_title", "value": "配对失败" },
-    { "name": "pair_reinitiate", "value": "重新发起配对" },
-    { "name": "pair_cancel", "value": "取消" },
-    { "name": "pair_code_invalid", "value": "确认码须为 4 位数字" },
-    { "name": "pair_nak_wrong_code", "value": "确认码错误，请重新输入" },
-    { "name": "pair_nak_expired", "value": "确认码已过期，请重新发起配对" },
-    { "name": "pair_nak_too_many", "value": "错误次数过多，本轮配对已作废，请重新发起" },
-    { "name": "pair_nak_no_session", "value": "主机没有进行中的配对，请先在主机发起，或点「重新发起配对」" },
-    { "name": "pair_nak_full", "value": "主机配对数已满" },
-    { "name": "pair_nak_unknown", "value": "配对失败（未知原因），请重新发起" },
-    { "name": "state_reconnect_btn", "value": "重新连接" },
-    { "name": "tab_touchpad", "value": "触摸板" },
-    { "name": "tab_keyboard", "value": "键盘" },
-    { "name": "tab_voice", "value": "语音" },
-    { "name": "mic_permission_reason", "value": "麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑" },
-    { "name": "voice_btn_label", "value": "按住说话" },
-    { "name": "voice_btn_a11y", "value": "按住说话" },
-    { "name": "voice_a11y_hint", "value": "按住开始录音，松手后识别文字并输入到电脑" },
-    { "name": "voice_hold_hint", "value": "按住说话，松手自动上屏" },
-    { "name": "voice_need_connect", "value": "请先连接主机后再使用语音" },
-    { "name": "voice_phase_initializing", "value": "正在启动识别…" },
-    { "name": "voice_phase_listening", "value": "正在聆听，请说话…" },
-    { "name": "voice_phase_recognizing", "value": "识别中…" },
-    { "name": "voice_phase_sending", "value": "正在上屏…" },
-    { "name": "voice_phase_done", "value": "已上屏" },
-    { "name": "voice_empty_hint", "value": "未识别到内容" },
-    { "name": "voice_err_mic_permission", "value": "麦克风权限被拒绝，无法使用语音听写" },
-    { "name": "voice_open_settings", "value": "去设置开启" },
-    { "name": "voice_err_busy", "value": "识别服务忙碌，请稍后重试" },
-    { "name": "voice_err_create_failed", "value": "语音引擎初始化失败，请重试" },
-    { "name": "voice_err_start_failed", "value": "启动识别失败，请重试" },
-    { "name": "voice_err_max_audio", "value": "语音过长，请分句后再试" },
-    { "name": "voice_err_engine", "value": "语音引擎未就绪，请重试" },
-    { "name": "voice_err_recognize", "value": "识别过程出错，请重试" },
-    { "name": "voice_err_unknown", "value": "语音识别出错，请重试" },
-    { "name": "voice_err_send_failed", "value": "上屏失败（连接异常），文本已保留可重发" },
-    { "name": "voice_resend", "value": "重发" },
-    { "name": "kb_key_esc", "value": "Esc" },
-    { "name": "kb_key_tab", "value": "Tab" },
-    { "name": "kb_key_caps", "value": "大写锁定" },
-    { "name": "kb_key_shift", "value": "Shift" },
-    { "name": "kb_key_ctrl", "value": "Ctrl" },
-    { "name": "kb_key_alt", "value": "Alt" },
-    { "name": "kb_key_super", "value": "Super" },
-    { "name": "kb_key_enter", "value": "回车" },
-    { "name": "kb_key_backspace", "value": "退格" },
-    { "name": "kb_key_space", "value": "空格" },
-    { "name": "kb_key_up", "value": "上方向键" },
-    { "name": "kb_key_down", "value": "下方向键" },
-    { "name": "kb_key_left", "value": "左方向键" },
-    { "name": "kb_key_right", "value": "右方向键" },
-    { "name": "kb_key_minus", "value": "连字符" },
-    { "name": "kb_key_semicolon", "value": "分号" },
-    { "name": "kb_key_quote", "value": "单引号" },
-    { "name": "kb_key_comma", "value": "逗号" },
-    { "name": "kb_key_period", "value": "句号" },
-    { "name": "kb_key_slash", "value": "斜杠" },
-    { "name": "kb_sym_exclamation", "value": "感叹号" },
-    { "name": "kb_sym_at", "value": "at 符" },
-    { "name": "kb_sym_hash", "value": "井号" },
-    { "name": "kb_sym_dollar", "value": "美元符号" },
-    { "name": "kb_sym_percent", "value": "百分号" },
-    { "name": "kb_sym_caret", "value": "脱字符" },
-    { "name": "kb_sym_ampersand", "value": "and 符号" },
-    { "name": "kb_sym_asterisk", "value": "星号" },
-    { "name": "kb_sym_lparen", "value": "左圆括号" },
-    { "name": "kb_sym_rparen", "value": "右圆括号" },
-    { "name": "kb_sym_underscore", "value": "下划线" },
-    { "name": "kb_sym_colon", "value": "冒号" },
-    { "name": "kb_sym_dquote", "value": "双引号" },
-    { "name": "kb_sym_less", "value": "小于号" },
-    { "name": "kb_sym_greater", "value": "大于号" },
-    { "name": "kb_sym_question", "value": "问号" },
-    { "name": "kb_layer_to_symbols", "value": "切换到符号层" },
-    { "name": "kb_layer_to_letters", "value": "切换到字母层" },
-    { "name": "kb_a11y_modifier_hint", "value": "点按点亮保持，可多键叠加；再点取消；触发其他键后自动复位" },
-    { "name": "kb_a11y_layer_hint", "value": "点按在字母层与符号层之间切换" },
-    { "name": "state_idle", "value": "未连接" },
-    { "name": "state_connected", "value": "已连接" },
-    { "name": "state_reconnecting", "value": "重连中" },
-    { "name": "state_lost", "value": "失联" },
-    { "name": "state_discovering", "value": "发现中" },
-    { "name": "state_pairing", "value": "配对中" },
-    { "name": "settings_sensitivity", "value": "灵敏度" },
-    { "name": "settings_natural_scroll", "value": "自然滚动" },
-    { "name": "settings_debug", "value": "调试面板" },
-    { "name": "settings_debug_hint", "value": "开启后，「关于」内连点版本号 5 次可进入调试页" },
-    { "name": "settings_about", "value": "关于" },
-    { "name": "settings_version", "value": "版本" },
-    { "name": "protocol_version", "value": "协议版本：v1" },
-    { "name": "gesture_idle", "value": "空闲" },
-    { "name": "gesture_single_pending", "value": "单指待定" },
-    { "name": "gesture_cursor", "value": "光标移动" },
-    { "name": "gesture_dragging", "value": "长按拖拽" },
-    { "name": "gesture_hold_multi", "value": "按键保持" },
-    { "name": "gesture_two_pending", "value": "双指待定" },
-    { "name": "gesture_scrolling", "value": "滚动" },
-    { "name": "gesture_three_pending", "value": "三指待定" },
-    { "name": "debug_realtime", "value": "实时数据" },
-    { "name": "debug_conn_state", "value": "连接状态" },
-    { "name": "debug_gesture_state", "value": "手势状态" },
-    { "name": "debug_sample_rate", "value": "触摸采样率" },
-    { "name": "debug_send_rate", "value": "发送速率" },
-    { "name": "debug_rtt", "value": "RTT" },
-    { "name": "debug_udp_ok", "value": "UDP 发送成功" },
-    { "name": "debug_udp_fail", "value": "UDP 发送失败" },
-    { "name": "debug_tcp_ok", "value": "TCP 发送成功" },
-    { "name": "debug_tcp_decode_fail", "value": "TCP 解码失败" },
-    { "name": "debug_hmac_fail", "value": "HMAC 校验失败" },
-    { "name": "debug_recv_ok", "value": "接收成功" },
-    { "name": "debug_echo_test", "value": "Echo 自测" },
-    { "name": "debug_echo_run", "value": "发 10 个" },
-    { "name": "debug_need_connect", "value": "请先连接主机" },
-    { "name": "debug_manual_connect", "value": "手动连接（M1 联调）" },
-    { "name": "debug_ip_hint", "value": "主机 IP，如 192.168.1.10" },
-    { "name": "debug_port_hint", "value": "端口（默认 53021）" },
-    { "name": "debug_token_hint", "value": "认证 Token（64 位 hex）" },
-    { "name": "debug_connect", "value": "连接" },
-    { "name": "debug_disconnect", "value": "断开" },
-    { "name": "debug_connecting", "value": "连接中…" },
-    { "name": "debug_connected", "value": "已连接" },
-    { "name": "debug_disconnected", "value": "已断开" },
-    { "name": "debug_input_invalid", "value": "连接失败：请输入有效的主机 IP 与端口（1–65535）" },
-    { "name": "debug_token_invalid", "value": "连接失败：Token 须为 64 位十六进制（32 字节）" }
+    {
+      "name": "module_desc",
+      "value": "口袋键鼠主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "口袋键鼠：手机作为电脑的触摸板/键盘/语音输入设备"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "口袋键鼠"
+    },
+    {
+      "name": "page_discover",
+      "value": "发现与配对"
+    },
+    {
+      "name": "page_settings",
+      "value": "设置"
+    },
+    {
+      "name": "page_debug",
+      "value": "调试面板"
+    },
+    {
+      "name": "discover_searching",
+      "value": "正在搜索主机…"
+    },
+    {
+      "name": "discover_connecting",
+      "value": "正在连接主机…"
+    },
+    {
+      "name": "discover_found_title",
+      "value": "附近的主机"
+    },
+    {
+      "name": "discover_refresh",
+      "value": "重新扫描"
+    },
+    {
+      "name": "discover_retry",
+      "value": "重试"
+    },
+    {
+      "name": "discover_quick",
+      "value": "快速连接上次的主机"
+    },
+    {
+      "name": "discover_paired_count",
+      "value": "已配对"
+    },
+    {
+      "name": "discover_empty_title",
+      "value": "附近没有发现主机"
+    },
+    {
+      "name": "discover_empty_hint",
+      "value": "请确认电脑已运行 padlinkd，且与手机在同一局域网"
+    },
+    {
+      "name": "pair_code_hint",
+      "value": "请在电脑上查看确认码（桌面通知，或终端运行 padlinkctl pair）"
+    },
+    {
+      "name": "pair_verifying",
+      "value": "正在验证确认码…"
+    },
+    {
+      "name": "pair_success",
+      "value": "配对成功"
+    },
+    {
+      "name": "pair_success_hint",
+      "value": "正在返回主控页…"
+    },
+    {
+      "name": "pair_failed_title",
+      "value": "配对失败"
+    },
+    {
+      "name": "pair_reinitiate",
+      "value": "重新发起配对"
+    },
+    {
+      "name": "pair_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "pair_code_invalid",
+      "value": "确认码须为 4 位数字"
+    },
+    {
+      "name": "pair_nak_wrong_code",
+      "value": "确认码错误，请重新输入"
+    },
+    {
+      "name": "pair_nak_expired",
+      "value": "确认码已过期，请重新发起配对"
+    },
+    {
+      "name": "pair_nak_too_many",
+      "value": "错误次数过多，本轮配对已作废，请重新发起"
+    },
+    {
+      "name": "pair_nak_no_session",
+      "value": "主机没有进行中的配对，请先在主机发起，或点「重新发起配对」"
+    },
+    {
+      "name": "pair_nak_full",
+      "value": "主机配对数已满"
+    },
+    {
+      "name": "pair_nak_unknown",
+      "value": "配对失败（未知原因），请重新发起"
+    },
+    {
+      "name": "state_reconnect_btn",
+      "value": "重新连接"
+    },
+    {
+      "name": "tab_touchpad",
+      "value": "触摸板"
+    },
+    {
+      "name": "tab_keyboard",
+      "value": "键盘"
+    },
+    {
+      "name": "tab_voice",
+      "value": "语音"
+    },
+    {
+      "name": "mic_permission_reason",
+      "value": "麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑"
+    },
+    {
+      "name": "voice_btn_label",
+      "value": "按住说话"
+    },
+    {
+      "name": "voice_btn_a11y",
+      "value": "按住说话"
+    },
+    {
+      "name": "voice_a11y_hint",
+      "value": "按住开始录音，松手后识别文字并输入到电脑"
+    },
+    {
+      "name": "voice_hold_hint",
+      "value": "按住说话，松手自动上屏"
+    },
+    {
+      "name": "voice_need_connect",
+      "value": "请先连接主机后再使用语音"
+    },
+    {
+      "name": "voice_phase_initializing",
+      "value": "正在启动识别…"
+    },
+    {
+      "name": "voice_phase_listening",
+      "value": "正在聆听，请说话…"
+    },
+    {
+      "name": "voice_phase_recognizing",
+      "value": "识别中…"
+    },
+    {
+      "name": "voice_phase_sending",
+      "value": "正在上屏…"
+    },
+    {
+      "name": "voice_phase_done",
+      "value": "已上屏"
+    },
+    {
+      "name": "voice_empty_hint",
+      "value": "未识别到内容"
+    },
+    {
+      "name": "voice_err_mic_permission",
+      "value": "麦克风权限被拒绝，无法使用语音听写"
+    },
+    {
+      "name": "voice_open_settings",
+      "value": "去设置开启"
+    },
+    {
+      "name": "voice_err_busy",
+      "value": "识别服务忙碌，请稍后重试"
+    },
+    {
+      "name": "voice_err_create_failed",
+      "value": "语音引擎初始化失败，请重试"
+    },
+    {
+      "name": "voice_err_start_failed",
+      "value": "启动识别失败，请重试"
+    },
+    {
+      "name": "voice_err_max_audio",
+      "value": "语音过长，请分句后再试"
+    },
+    {
+      "name": "voice_err_engine",
+      "value": "语音引擎未就绪，请重试"
+    },
+    {
+      "name": "voice_err_recognize",
+      "value": "识别过程出错，请重试"
+    },
+    {
+      "name": "voice_err_unknown",
+      "value": "语音识别出错，请重试"
+    },
+    {
+      "name": "voice_err_send_failed",
+      "value": "上屏失败（连接异常），文本已保留可重发"
+    },
+    {
+      "name": "voice_resend",
+      "value": "重发"
+    },
+    {
+      "name": "kb_key_esc",
+      "value": "Esc"
+    },
+    {
+      "name": "kb_key_tab",
+      "value": "Tab"
+    },
+    {
+      "name": "kb_key_caps",
+      "value": "大写锁定"
+    },
+    {
+      "name": "kb_key_shift",
+      "value": "Shift"
+    },
+    {
+      "name": "kb_key_ctrl",
+      "value": "Ctrl"
+    },
+    {
+      "name": "kb_key_alt",
+      "value": "Alt"
+    },
+    {
+      "name": "kb_key_super",
+      "value": "Super"
+    },
+    {
+      "name": "kb_key_enter",
+      "value": "回车"
+    },
+    {
+      "name": "kb_key_backspace",
+      "value": "退格"
+    },
+    {
+      "name": "kb_key_space",
+      "value": "空格"
+    },
+    {
+      "name": "kb_key_up",
+      "value": "上方向键"
+    },
+    {
+      "name": "kb_key_down",
+      "value": "下方向键"
+    },
+    {
+      "name": "kb_key_left",
+      "value": "左方向键"
+    },
+    {
+      "name": "kb_key_right",
+      "value": "右方向键"
+    },
+    {
+      "name": "kb_key_minus",
+      "value": "连字符"
+    },
+    {
+      "name": "kb_key_semicolon",
+      "value": "分号"
+    },
+    {
+      "name": "kb_key_quote",
+      "value": "单引号"
+    },
+    {
+      "name": "kb_key_comma",
+      "value": "逗号"
+    },
+    {
+      "name": "kb_key_period",
+      "value": "句号"
+    },
+    {
+      "name": "kb_key_slash",
+      "value": "斜杠"
+    },
+    {
+      "name": "kb_sym_exclamation",
+      "value": "感叹号"
+    },
+    {
+      "name": "kb_sym_at",
+      "value": "at 符"
+    },
+    {
+      "name": "kb_sym_hash",
+      "value": "井号"
+    },
+    {
+      "name": "kb_sym_dollar",
+      "value": "美元符号"
+    },
+    {
+      "name": "kb_sym_percent",
+      "value": "百分号"
+    },
+    {
+      "name": "kb_sym_caret",
+      "value": "脱字符"
+    },
+    {
+      "name": "kb_sym_ampersand",
+      "value": "and 符号"
+    },
+    {
+      "name": "kb_sym_asterisk",
+      "value": "星号"
+    },
+    {
+      "name": "kb_sym_lparen",
+      "value": "左圆括号"
+    },
+    {
+      "name": "kb_sym_rparen",
+      "value": "右圆括号"
+    },
+    {
+      "name": "kb_sym_underscore",
+      "value": "下划线"
+    },
+    {
+      "name": "kb_sym_colon",
+      "value": "冒号"
+    },
+    {
+      "name": "kb_sym_dquote",
+      "value": "双引号"
+    },
+    {
+      "name": "kb_sym_less",
+      "value": "小于号"
+    },
+    {
+      "name": "kb_sym_greater",
+      "value": "大于号"
+    },
+    {
+      "name": "kb_sym_question",
+      "value": "问号"
+    },
+    {
+      "name": "kb_layer_to_symbols",
+      "value": "切换到符号层"
+    },
+    {
+      "name": "kb_layer_to_letters",
+      "value": "切换到字母层"
+    },
+    {
+      "name": "kb_a11y_modifier_hint",
+      "value": "点按点亮保持，可多键叠加；再点取消；触发其他键后自动复位"
+    },
+    {
+      "name": "kb_a11y_layer_hint",
+      "value": "点按在字母层与符号层之间切换"
+    },
+    {
+      "name": "state_idle",
+      "value": "未连接"
+    },
+    {
+      "name": "state_connected",
+      "value": "已连接"
+    },
+    {
+      "name": "state_reconnecting",
+      "value": "重连中"
+    },
+    {
+      "name": "state_lost",
+      "value": "失联"
+    },
+    {
+      "name": "state_discovering",
+      "value": "发现中"
+    },
+    {
+      "name": "state_pairing",
+      "value": "配对中"
+    },
+    {
+      "name": "settings_sensitivity",
+      "value": "灵敏度"
+    },
+    {
+      "name": "settings_natural_scroll",
+      "value": "自然滚动"
+    },
+    {
+      "name": "settings_debug",
+      "value": "调试面板"
+    },
+    {
+      "name": "settings_debug_hint",
+      "value": "开启后，「关于」内连点版本号 5 次可进入调试页"
+    },
+    {
+      "name": "settings_about",
+      "value": "关于"
+    },
+    {
+      "name": "settings_version",
+      "value": "版本"
+    },
+    {
+      "name": "protocol_version",
+      "value": "协议版本：v1"
+    },
+    {
+      "name": "gesture_idle",
+      "value": "空闲"
+    },
+    {
+      "name": "gesture_single_pending",
+      "value": "单指待定"
+    },
+    {
+      "name": "gesture_cursor",
+      "value": "光标移动"
+    },
+    {
+      "name": "gesture_dragging",
+      "value": "长按拖拽"
+    },
+    {
+      "name": "gesture_hold_multi",
+      "value": "按键保持"
+    },
+    {
+      "name": "gesture_two_pending",
+      "value": "双指待定"
+    },
+    {
+      "name": "gesture_scrolling",
+      "value": "滚动"
+    },
+    {
+      "name": "gesture_three_pending",
+      "value": "三指待定"
+    },
+    {
+      "name": "debug_realtime",
+      "value": "实时数据"
+    },
+    {
+      "name": "debug_conn_state",
+      "value": "连接状态"
+    },
+    {
+      "name": "debug_gesture_state",
+      "value": "手势状态"
+    },
+    {
+      "name": "debug_sample_rate",
+      "value": "触摸采样率"
+    },
+    {
+      "name": "debug_send_rate",
+      "value": "发送速率"
+    },
+    {
+      "name": "debug_rtt",
+      "value": "RTT"
+    },
+    {
+      "name": "debug_udp_ok",
+      "value": "UDP 发送成功"
+    },
+    {
+      "name": "debug_udp_fail",
+      "value": "UDP 发送失败"
+    },
+    {
+      "name": "debug_tcp_ok",
+      "value": "TCP 发送成功"
+    },
+    {
+      "name": "debug_tcp_decode_fail",
+      "value": "TCP 解码失败"
+    },
+    {
+      "name": "debug_hmac_fail",
+      "value": "HMAC 校验失败"
+    },
+    {
+      "name": "debug_recv_ok",
+      "value": "接收成功"
+    },
+    {
+      "name": "debug_echo_test",
+      "value": "Echo 自测"
+    },
+    {
+      "name": "debug_echo_run",
+      "value": "发 10 个"
+    },
+    {
+      "name": "debug_need_connect",
+      "value": "请先连接主机"
+    },
+    {
+      "name": "debug_manual_connect",
+      "value": "手动连接（M1 联调）"
+    },
+    {
+      "name": "debug_ip_hint",
+      "value": "主机 IP，如 192.168.1.10"
+    },
+    {
+      "name": "debug_port_hint",
+      "value": "端口（默认 53021）"
+    },
+    {
+      "name": "debug_token_hint",
+      "value": "认证 Token（64 位 hex）"
+    },
+    {
+      "name": "debug_connect",
+      "value": "连接"
+    },
+    {
+      "name": "debug_disconnect",
+      "value": "断开"
+    },
+    {
+      "name": "debug_connecting",
+      "value": "连接中…"
+    },
+    {
+      "name": "debug_connected",
+      "value": "已连接"
+    },
+    {
+      "name": "debug_disconnected",
+      "value": "已断开"
+    },
+    {
+      "name": "debug_input_invalid",
+      "value": "连接失败：请输入有效的主机 IP 与端口（1–65535）"
+    },
+    {
+      "name": "debug_token_invalid",
+      "value": "连接失败：Token 须为 64 位十六进制（32 字节）"
+    },
+    {
+      "name": "debug_traj_test",
+      "value": "合成轨迹自测"
+    },
+    {
+      "name": "debug_traj_run",
+      "value": "画圆"
+    },
+    {
+      "name": "debug_traj_done",
+      "value": "轨迹发送完成（72 点，光标应画圆回原位）"
+    }
   ]
 }

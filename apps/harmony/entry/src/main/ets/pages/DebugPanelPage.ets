@@ -16,6 +16,11 @@ const TAG: string = 'PadLink.Debug';
 const DOMAIN: number = 0x5050;
 const ECHO_TEST_COUNT: number = 10;
 
+// 合成轨迹参数（FR-7）：72 点近似圆、半径 120 计数、8ms 步进（约 0.6s 画完）。
+const TRAJ_SEGMENTS: number = 72;
+const TRAJ_RADIUS: number = 120;
+const TRAJ_STEP_MS: number = 8;
+
 // GestureStateName（0..7）→ 文案资源（$r 需字面量，不用拼名）。
 function gestureRes(state: number): string {
   if (state === GestureStateName.SINGLE_PENDING) {
@@ -81,6 +86,11 @@ export struct DebugPanelPage {
   @Local echoRunning: boolean = false;
   @Local echoRtts: number[] = [];
 
+  // 合成轨迹自测（FR-7）：发送圆形 MOVE 序列，验证 UDP 数据面到 daemon 注入的端到端链路
+  @Local trajRunning: boolean = false;
+  private trajIdx: number = 0;
+  private trajTimer: number = -1;
+
   // 手动连接区（四态：空闲/loading/成功/失败；断开提示复用 statusText）
   @Local ip: string = '';
   @Local portText: string = '53021';
@@ -115,6 +125,11 @@ export struct DebugPanelPage {
     if (this.refreshTimer >= 0) {
       clearInterval(this.refreshTimer);
       this.refreshTimer = -1;
+    }
+    if (this.trajTimer >= 0) {
+      clearInterval(this.trajTimer);
+      this.trajTimer = -1;
+      this.trajRunning = false;
     }
     this.conn.removeRttListener(this.rttCb);
   }
@@ -160,6 +175,37 @@ export struct DebugPanelPage {
     for (let i = 0; i < ECHO_TEST_COUNT; i++) {
       this.conn.transport.sendEcho();
     }
+  }
+
+  // 合成轨迹：相邻圆周点差分为相对位移（净位移为零，光标画圆后回原位），
+  // 8ms 间隔逐点发送（约 0.6s 画完，肉眼可辨），替代真机 --test 的链路层验证。
+  private runTrajectoryTest(): void {
+    if (this.trajRunning) {
+      return;
+    }
+    if (!this.conn.isConnected()) {
+      this.showStatus(this.resStr('debug_need_connect'), false);
+      return;
+    }
+    this.trajIdx = 0;
+    this.trajRunning = true;
+    let prevX: number = TRAJ_RADIUS;
+    let prevY: number = 0;
+    this.trajTimer = setInterval(() => {
+      this.trajIdx++;
+      const a: number = 2 * Math.PI * this.trajIdx / TRAJ_SEGMENTS;
+      const x: number = Math.round(TRAJ_RADIUS * Math.cos(a));
+      const y: number = Math.round(TRAJ_RADIUS * Math.sin(a));
+      this.conn.transport.sendMove(Math.trunc(x - prevX), Math.trunc(y - prevY));
+      prevX = x;
+      prevY = y;
+      if (this.trajIdx >= TRAJ_SEGMENTS) {
+        clearInterval(this.trajTimer);
+        this.trajTimer = -1;
+        this.trajRunning = false;
+        this.showStatus(this.resStr('debug_traj_done'), true);
+      }
+    }, TRAJ_STEP_MS);
   }
 
   private showStatus(text: string, ok: boolean): void {
@@ -277,6 +323,28 @@ export struct DebugPanelPage {
             }
           }
           .alignItems(HorizontalAlign.Start)
+          .width('100%')
+
+          Divider().color($r('sys.color.comp_divider'))
+
+          // ---- 合成轨迹自测（FR-7：验证 UDP 数据面到 daemon 注入端到端） ----
+          Row() {
+            Text($r('app.string.debug_traj_test'))
+              .fontSize($r('sys.float.ohos_id_text_size_body1'))
+              .fontColor($r('sys.color.font_primary'))
+            Blank()
+            Button($r('app.string.debug_traj_run'))
+              .enabled(!this.trajRunning)
+              .onClick(() => {
+                this.runTrajectoryTest();
+              })
+            if (this.trajRunning) {
+              LoadingProgress()
+                .width(24)
+                .height(24)
+                .color($r('sys.color.brand'))
+            }
+          }
           .width('100%')
 
           Divider().color($r('sys.color.comp_divider'))
