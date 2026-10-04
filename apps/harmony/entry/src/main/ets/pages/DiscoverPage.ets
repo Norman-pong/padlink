@@ -20,12 +20,20 @@ export struct DiscoverPage {
     this.pairing.onPaired = (): void => {
       this.schedulePop();
     };
+    // 配对成功但本机主机列表已满（4 台）未入库：轻提示引导先到设置删除（连接本身不受影响）
+    this.pairing.onHostsFull = (): void => {
+      this.getUIContext().getPromptAction().showToast({
+        message: this.resStr('pair_hosts_full'),
+        duration: 2000,
+      });
+    };
     this.pairing.onPageEnter();
   }
 
   aboutToDisappear(): void {
     this.pairing.onPageLeave();
     this.pairing.onPaired = null;
+    this.pairing.onHostsFull = null;
     if (this.popTimer >= 0) {
       clearTimeout(this.popTimer);
       this.popTimer = -1;

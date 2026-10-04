@@ -10,6 +10,7 @@ import { hexToBytes } from '../common/net/HexCodec';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { HostInfo } from '../common/viewmodel/SettingsModel';
+import { HostsFullError } from '../common/viewmodel/HostsStore';
 import { pageResStr } from './Res';
 
 const TAG: string = 'PadLink.Debug';
@@ -238,7 +239,13 @@ export struct DebugPanelPage {
       h.port = port;
       h.tokenHex = this.tokenHex.trim();
       h.name = ip;
-      this.settings.saveLastHost(h).catch((err: BusinessError) => {
+      this.settings.saveLastHost(h).catch((err: Error) => {
+        // 保存失败不影响本会话，状态行给原因（满 4 台给「先删除」提示，可删除后重试保存）
+        if (err instanceof HostsFullError) {
+          this.showStatus(this.resStr('debug_hosts_full'), false);
+          return;
+        }
+        this.showStatus(`${this.resStr('debug_save_fail')}（${err.message}）`, false);
         hilog.warn(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
       });
     } catch (err) {

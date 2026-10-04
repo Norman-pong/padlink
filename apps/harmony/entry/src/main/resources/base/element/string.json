@@ -583,6 +583,82 @@
     {
       "name": "debug_traj_done",
       "value": "轨迹发送完成（72 点，光标应画圆回原位）"
+    },
+    {
+      "name": "settings_hosts_section",
+      "value": "已配对主机"
+    },
+    {
+      "name": "settings_hosts_loading",
+      "value": "正在加载主机…"
+    },
+    {
+      "name": "settings_hosts_load_fail",
+      "value": "主机列表加载失败"
+    },
+    {
+      "name": "settings_hosts_empty",
+      "value": "暂无已配对主机，可在「发现与配对」中连接主机"
+    },
+    {
+      "name": "settings_hosts_default",
+      "value": "默认"
+    },
+    {
+      "name": "settings_host_rename",
+      "value": "重命名"
+    },
+    {
+      "name": "settings_host_set_default",
+      "value": "设为默认"
+    },
+    {
+      "name": "settings_host_save",
+      "value": "保存"
+    },
+    {
+      "name": "settings_host_delete",
+      "value": "删除"
+    },
+    {
+      "name": "settings_host_delete_title",
+      "value": "删除主机"
+    },
+    {
+      "name": "settings_host_delete_confirm",
+      "value": "删除后不再自动重连该主机，确定删除？"
+    },
+    {
+      "name": "settings_host_name_hint",
+      "value": "主机名称（非空，不超过 64 字节）"
+    },
+    {
+      "name": "settings_host_name_invalid",
+      "value": "名称不能为空，且不超过 64 字节"
+    },
+    {
+      "name": "settings_host_renamed",
+      "value": "已重命名"
+    },
+    {
+      "name": "settings_host_deleted",
+      "value": "已删除"
+    },
+    {
+      "name": "settings_host_default_done",
+      "value": "已设为默认"
+    },
+    {
+      "name": "pair_hosts_full",
+      "value": "配对主机已满（最多 4 台），本次连接仍可用，请先在设置中删除"
+    },
+    {
+      "name": "debug_hosts_full",
+      "value": "主机档案未保存：已配对主机已满（最多 4 台），请先在设置中删除"
+    },
+    {
+      "name": "debug_save_fail",
+      "value": "主机档案保存失败"
     }
   ]
 }

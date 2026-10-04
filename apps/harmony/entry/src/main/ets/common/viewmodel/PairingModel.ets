@@ -12,6 +12,7 @@ import type { DiscoveredHost } from '../net/DiscoverCore';
 import { hexToBytes, bytesToHex } from '../net/HexCodec';
 import type { SettingsModel } from './SettingsModel';
 import { HostInfo } from './SettingsModel';
+import { HostsFullError } from './HostsStore';
 import { nakReasonKey, validatePairCode, parsePairNakReason, pairOkToken,
   buildPairReqInitJson, buildPairReqCodeBytes, sanitizeDeviceName } from './PairingCore';
 import { PacketType } from '../proto/PacketType';
@@ -68,6 +69,8 @@ export class PairingModel {
   public readonly snapshot: PairingSnapshot = new PairingSnapshot();
   // 配对/快连成功回调（页面借此短暂停留后返回主控页；PairingModel 非 @ObservedV2，不用 @Monitor 深路径）。
   public onPaired: (() => void) | null = null;
+  // 配对成功但档案保存被拒（本机列表满 4 台）回调：页面 toast 提示先删除；连接本身不受影响。
+  public onHostsFull: (() => void) | null = null;
 
   private conn: ConnectionManager;
   private settings: SettingsModel;
@@ -298,6 +301,14 @@ export class PairingModel {
     h.port = this.selected.port;
     h.tokenHex = bytesToHex(token);
     this.settings.saveLastHost(h).catch((err: Error) => {
+      if (err instanceof HostsFullError) {
+        // 满 4 台未入库：本会话仍可用（token 已绑定 CONNECTED），页面轻提示引导先删除
+        hilog.warn(DOMAIN, TAG, 'saveLastHost full: %{public}s', err.message);
+        if (this.onHostsFull !== null) {
+          this.onHostsFull();
+        }
+        return;
+      }
       // 保存失败不影响本会话使用（token 已绑定 CONNECTED），记日志便于排查
       hilog.error(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
     });

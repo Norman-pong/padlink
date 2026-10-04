@@ -583,6 +583,82 @@
     {
       "name": "debug_traj_done",
       "value": "Trajectory sent (72 points; cursor should draw a circle and return)"
+    },
+    {
+      "name": "settings_hosts_section",
+      "value": "Paired hosts"
+    },
+    {
+      "name": "settings_hosts_loading",
+      "value": "Loading hosts..."
+    },
+    {
+      "name": "settings_hosts_load_fail",
+      "value": "Failed to load hosts"
+    },
+    {
+      "name": "settings_hosts_empty",
+      "value": "No paired hosts yet. Connect to a host in Discover first"
+    },
+    {
+      "name": "settings_hosts_default",
+      "value": "Default"
+    },
+    {
+      "name": "settings_host_rename",
+      "value": "Rename"
+    },
+    {
+      "name": "settings_host_set_default",
+      "value": "Set default"
+    },
+    {
+      "name": "settings_host_save",
+      "value": "Save"
+    },
+    {
+      "name": "settings_host_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "settings_host_delete_title",
+      "value": "Delete host"
+    },
+    {
+      "name": "settings_host_delete_confirm",
+      "value": "This host will no longer auto-reconnect. Delete it?"
+    },
+    {
+      "name": "settings_host_name_hint",
+      "value": "Host name (non-empty, max 64 bytes)"
+    },
+    {
+      "name": "settings_host_name_invalid",
+      "value": "Name must be non-empty and at most 64 bytes"
+    },
+    {
+      "name": "settings_host_renamed",
+      "value": "Renamed"
+    },
+    {
+      "name": "settings_host_deleted",
+      "value": "Deleted"
+    },
+    {
+      "name": "settings_host_default_done",
+      "value": "Set as default"
+    },
+    {
+      "name": "pair_hosts_full",
+      "value": "Paired host list is full (max 4). This connection still works; delete one in Settings first"
+    },
+    {
+      "name": "debug_hosts_full",
+      "value": "Host profile not saved: paired host list is full (max 4). Delete one in Settings first"
+    },
+    {
+      "name": "debug_save_fail",
+      "value": "Failed to save host profile"
     }
   ]
 }
