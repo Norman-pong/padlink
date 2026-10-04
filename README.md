@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `daemon/` | padlinkd 守护进程 + padlinkctl CLI（协议/注入/配对/文本注入） | `cd daemon && go vet ./... && go test ./...`；交叉编译 `GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinkd-linux-amd64 ./cmd/padlinkd` |
 | `daemon/dist/` | udev uaccess 规则 + systemd user unit（安装物） | 安装步骤见 `daemon/README.md` |
+| `daemon/cmd/padlinktoy/` | 联调工具三件套（record/replay 录制回放、协议 fuzz、ECHO RTT 压测，PRD §2.2 `tools/`） | `go -C daemon run ./cmd/padlinktoy -h`；用法见 `daemon/README.md`「联调工具」 |
 | `apps/harmony/` | 鸿蒙 APP（API 26：触摸板/键盘/语音三功能区） | `cd apps/harmony && devecocli build` |
 | `tools/prototest/` | 协议黄金向量对拍（ArkTS 侧） | `node tools/prototest/run.mjs` |
 | `tools/etstest/` | 鸿蒙纯逻辑单测（gesture/net/viewmodel/keyboard/voice） | `node tools/etstest/run.mjs <目录>` |

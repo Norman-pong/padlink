@@ -51,7 +51,7 @@ const (
 	NakFull      uint8 = 4
 )
 
-// Config 可调参数；零值字段取默认值。
+// Config 可调参数；零值字段取默认值（Port=0 为系统临时端口，DefaultPort 由调用方显式传入）。
 type Config struct {
 	Port          int
 	ReadTimeout   time.Duration // 10s 无包判失联
@@ -105,9 +105,6 @@ type Server struct {
 // New 构造服务。onText 处理已认证 TEXT 事件（剪贴板注入路径），可为 nil（丢弃计数）；
 // 它在注入 goroutine 内被调用，可安全使用 inj（CtrlV）。
 func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.Injector, onText func(string) error) *Server {
-	if cfg.Port == 0 {
-		cfg.Port = DefaultPort
-	}
 	if cfg.ReadTimeout <= 0 {
 		cfg.ReadTimeout = DefaultReadTimeout
 	}

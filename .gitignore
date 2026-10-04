@@ -27,3 +27,7 @@ signing/
 node_modules/
 *.log
 tmp/
+
+# Go 本地构建误产物（go build 无 -o 时落在模块根）
+daemon/padlinkd
+daemon/padlinktoy

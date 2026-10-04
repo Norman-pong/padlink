@@ -16,6 +16,7 @@ PadLink 的 Linux 守护进程（Go，无 cgo、零第三方依赖单二进制�
 | `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON） |
 | `cmd/padlinkd` | 守护进程入口（`--test` 自测 + 常驻模式） |
 | `cmd/padlinkctl` | CLI：status / pair / clients / unpair |
+| `cmd/padlinktoy` | 联调工具三件套：record/replay 合成录制回放、fuzz 协议变异模糊测试、latency ECHO RTT 压测（PRD §2.2 `tools/` 的 daemon 侧承载） |
 | `dist/udev`、`dist/systemd` | 安装物（uaccess 规则、user 级 service） |
 
 ## 构建与测试
@@ -29,6 +30,8 @@ GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinkd-linux-amd64 ./cmd/padlinkd
 GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinkd-linux-arm64 ./cmd/padlinkd
 GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinkctl-linux-amd64 ./cmd/padlinkctl
 GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinkctl-linux-arm64 ./cmd/padlinkctl
+GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinktoy-linux-amd64 ./cmd/padlinktoy
+GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlinktoy
 ```
 
 ## 安装（Ubuntu 26.04 / GNOME Wayland）
@@ -134,6 +137,64 @@ padlinkctl unpair 1a2b3c4d
 序列对齐 `docs/PROBE-LINUX.md` §4：光标画 2 个 r=200px 圆（各 120 段精确闭合）→ 左键点击 → 敲出 `pl`（走 HID→KEY 映射）→ hi-res 滚动 +2 格 / -1 格；成功打印 `padlinkd --test PASSED`（退出码 0），任何错误非零退出并输出原因。
 
 滚动语义：`REL_WHEEL_HI_RES` 必发（单位 1/120 格），同帧按内核惯例补发 legacy `REL_WHEEL = dy/120`（向零取整、不跨帧累积）；GNOME/mutter 只消费 HI_RES 路径。详见 `docs/RESEARCH-WAYLAND.md` §1。
+
+## 联调工具（padlinktoy）
+
+PRD §2.2 的 `tools/`（录回放器、协议 fuzz、延迟压测）由 daemon 模块承载为单一二进制 `cmd/padlinktoy`：与 daemon 共用 `internal/proto` 协议实现（字节级单源不旁路）、零第三方依赖，Linux/macOS 均可构建运行，作为 PRD §7.3 联调分层（`--test` → echo/合成流量 → 真触摸）的中间层验证工具。
+
+```sh
+go -C daemon build -o dist/bin/padlinktoy ./cmd/padlinktoy   # 或 go -C daemon run ./cmd/padlinktoy <子命令> -h
+```
+
+token 一律经 `-token`（hex）或环境变量 `PADLINK_TOKEN` 提供；不写日志、不入录制文件。
+
+### record — 合成录制 → .plrec
+
+```sh
+padlinktoy record -o demo.plrec                       # 默认序列：画圆 r=200/120 段 + 滚动 3 格 + 左右键单击 + 文本
+padlinktoy record --circle 120 90 --scroll 2 --buttons --type "你好" --gap-ms 8 -o demo.plrec
+padlinktoy record --circle 200 120 -token $PADLINK_TOKEN -o sealed.plrec   # 带 token：帧就地封签（sealed）
+```
+
+生成 seal 后的事件帧序列，按 daemon 约定分通道：MOVE/SCROLL → UDP 帧，BUTTON/KEY/TEXT → TCP 帧。圆周 MOVE 为相邻点差分（净位移恒为零，可作回放闭环断言）。
+
+### replay — 回放 .plrec 到目标 daemon
+
+```sh
+padlinktoy replay -f demo.plrec -host 192.168.1.10 -token $PADLINK_TOKEN
+padlinktoy replay -f sealed.plrec -host 192.168.1.10 --speed 2.0
+```
+
+流程：TCP 建连 → 未认证 HELLO → 按时间戳节奏发送（UDP 帧走 UDP 单播，TCP 帧走已 seal 的 TCP）→ 封签 BYE 优雅退出；打印各类型帧数 / 发送失败数 / ERR 收到数 / 耗时。raw 录制回放必须提供 token（发送前现场封签）；sealed 录制原样发送（token 仅用于封签 BYE，须与录制时相同）。
+
+### fuzz — 协议变异模糊测试
+
+```sh
+padlinktoy fuzz -host 192.168.1.10 --seconds 10 --rate 500
+padlinktoy fuzz -host 192.168.1.10 -token $PADLINK_TOKEN --seconds 30   # 叠加认证路径变异
+```
+
+变异策略：合法帧随机 1/2/4/8 位翻转、19B 头内任意截断、payload_len 放大/缩小、magic/ver/flags 篡改、未知 type、超长 payload、非法 UTF-8 TEXT、FlagAuth 随机置位 + 随机 HMAC；TCP 侧叠加粘包/半包（分片写）与超量注入，UDP 侧混入 HELLO（非回环目标附加广播 HELLO）。结束后连发 3 个 ECHO（有 token 则 seal）做活性判定：ECHO 回包 / ERR 响应 / 无响应分别报告，无响应以非零退出码区分。
+
+断言口径：fuzz 不得使 daemon panic/挂死（活性判定覆盖）；daemon 侧丢弃计数无法从外部读取，以活性 + 响应行为为准。
+
+### latency — ECHO RTT 压测
+
+```sh
+padlinktoy latency -host 192.168.1.10 -token $PADLINK_TOKEN --hz 50 --duration 10s
+padlinktoy latency -host 192.168.1.10 -token $PADLINK_TOKEN --load --json
+```
+
+TCP 封签 ECHO 按 `--hz` 发送并等回包算 RTT，输出 min/P50/P90/P95/P99/max 与丢包数；`--load` 叠加 1000/s UDP MOVE 背景负载测 RTT 退化；`--json` 输出机器可读结果。**口径**：此为**传输层 RTT** 分量；触摸→光标端到端延迟按 PRD §8 需真机录屏逐帧口径测量。
+
+### .plrec 文件格式
+
+自描述、不含 token（帧内容为 `protocol/` 线协议帧）：
+
+```text
+行 1（ASCII）: PLREC <版本> <raw|sealed>\n   # raw=帧未封签（回放需 token 现场封签）；sealed=帧已封签（原样发送）
+每帧: rel_ms:8B BE | chan:2B BE（0=UDP, 1=TCP） | len:2B BE | frame:len B   # len ≤ 19+1400
+```
 
 ## 安全约定
 

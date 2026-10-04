@@ -135,6 +135,15 @@ func newTestServer(t *testing.T, mutate func(*Config)) *testSrv {
 
 // ---- TCP 测试客户端 ----
 
+// TestPortZeroEphemeral 钉住 Start 的承诺：Config.Port=0 绑定系统临时端口
+// （此前 New 误归一成 DefaultPort，文档与行为矛盾且并行测试互抢 53021）。
+func TestPortZeroEphemeral(t *testing.T) {
+	ts := newTestServer(t, nil)
+	if p := ts.srv.Port(); p <= 0 || p == DefaultPort {
+		t.Fatalf("Port=0 应绑定临时端口，实得 %d", p)
+	}
+}
+
 type tcpClient struct {
 	t    *testing.T
 	conn net.Conn
