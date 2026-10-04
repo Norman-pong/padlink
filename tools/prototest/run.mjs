@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // PadLink ArkTS 协议层对拍 harness（零依赖，node >= 26 直接运行）。
-// 流程：把 apps/harmony/entry/src/main/ets/common/proto/*.ets 复制到临时目录改名为 .ts
-// 并把相对导入补上 .ts 扩展名（node 无法直接加载 .ets），动态 import 后跑
+// 流程：用共享库 tools/etsrun/load.mjs 把 apps/harmony/entry/src/main/ets/common/proto/
+// 复制到临时目录（.ets→.ts、相对导入补 .ts 扩展名），动态 import 后跑
 // protocol/testvectors.json 全量黄金向量 + 追加负例。全过退出码 0，任一失败退出码 1。
 import { createHmac } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadEtsTree, unloadEtsTree } from '../etsrun/load.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const protoDir = join(repoRoot, 'apps', 'harmony', 'entry', 'src', 'main', 'ets', 'common', 'proto');
@@ -34,19 +34,9 @@ function hexFromBytes(ab) {
   return Buffer.from(new Uint8Array(ab)).toString('hex');
 }
 
-const tmpRoot = mkdtempSync(join(tmpdir(), 'padlink-prototest-'));
+const tmpRoot = loadEtsTree(protoDir, 'padlink-prototest-');
 try {
-  // 1. 复制 .ets → .ts，相对导入补 .ts 扩展名
-  for (const f of readdirSync(protoDir)) {
-    if (!f.endsWith('.ets')) {
-      continue;
-    }
-    const src = readFileSync(join(protoDir, f), 'utf8');
-    const rewritten = src.replace(/from '(\.[^']*)'/g, (_m, p) => `from '${p}.ts'`);
-    writeFileSync(join(tmpRoot, `${f.slice(0, -4)}.ts`), rewritten);
-  }
-
-  // 2. 动态加载编解码模块与 node:crypto HMAC 实现
+  // 动态加载编解码模块与 node:crypto HMAC 实现（.ets 已由共享库转为 .ts）
   const mod = async (name) => import(pathToFileURL(join(tmpRoot, `${name}.ts`)).href);
   const PacketType = (await mod('PacketType')).PacketType;
   const Packet = await mod('Packet');
@@ -327,7 +317,7 @@ try {
     check('追加负例 空输入 → Truncated', !res.ok && res.kind === Codec.DecodeError.Truncated, `kind=${res.kind}`);
   }
 } finally {
-  rmSync(tmpRoot, { recursive: true, force: true });
+  unloadEtsTree(tmpRoot);
 }
 
 if (failures > 0) {
