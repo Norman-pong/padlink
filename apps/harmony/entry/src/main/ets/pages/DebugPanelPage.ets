@@ -6,14 +6,15 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GestureStateName } from '../common/gesture/GestureEngine';
 import { ConnState } from '../common/net/ConnectionManager';
 import type { ConnectionManager, RttListener } from '../common/net/ConnectionManager';
+import { hexToBytes } from '../common/net/HexCodec';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { HostInfo } from '../common/viewmodel/SettingsModel';
+import { pageResStr } from './Res';
 
 const TAG: string = 'PadLink.Debug';
 const DOMAIN: number = 0x5050;
 const ECHO_TEST_COUNT: number = 10;
-const TOKEN_HEX_LEN: number = 64; // 32 字节 token
 
 // GestureStateName（0..7）→ 文案资源（$r 需字面量，不用拼名）。
 function gestureRes(state: number): string {
@@ -54,21 +55,7 @@ function connRes(state: number): string {
   return 'state_idle';
 }
 
-// hex 字符串 → 字节；非法（奇数长/非 hex 字符）返回 null（外部输入校验）。
-function hexToBytes(hex: string): Uint8Array | null {
-  if (hex.length === 0 || hex.length % 2 !== 0) {
-    return null;
-  }
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    const v = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    if (Number.isNaN(v)) {
-      return null;
-    }
-    out[i] = v;
-  }
-  return out;
-}
+// hex 字符串 → 字节：见 common/net/HexCodec（与 M2 配对/快速连接共用）。
 
 @ComponentV2
 export struct DebugPanelPage {
@@ -225,12 +212,7 @@ export struct DebugPanelPage {
   }
 
   private resStr(name: string): string {
-    const ctx = this.getUIContext().getHostContext();
-    if (ctx === undefined) {
-      return '';
-    }
-    // getStringSync(Resource) 自 API20 废弃（js-apis-resource-manager），改用 getStringByNameSync
-    return ctx.resourceManager.getStringByNameSync(name);
+    return pageResStr(this.getUIContext(), name);
   }
 
   @Builder

@@ -107,6 +107,15 @@ export class UdpChannel {
       hilog.warn(DOMAIN, TAG, 'udp close fail: %{public}d %{public}s', err.code, err.message);
     });
   }
+
+  // 重连/复用前重建底层 socket：close 后的 UDPSocket 实例不可再 bind（同 TcpChannel.reset 理由）；
+  // onMessage 挂在通道字段上，重建后由 open() 重新挂接。
+  public reset(): void {
+    this.close();
+    this.sock = socket.constructUDPSocketInstance();
+    this.opened = false;
+    this.closed = false;
+  }
 }
 
 // TCP 通道：connect + 收包粘包分帧（19B 头 payload_len）。
@@ -217,6 +226,11 @@ export class Transport {
     this.provider = new CryptoHmacProvider(token);
   }
 
+  // 清空 token（M2 无 token 配对连接）：HELLO/PAIR_REQ 按协议不封签直发。
+  public clearToken(): void {
+    this.provider = null;
+  }
+
   public hasToken(): boolean {
     return this.provider !== null;
   }
@@ -237,6 +251,8 @@ export class Transport {
     this.tcp.onFramingError = () => {
       this.stats.recvDecodeFail++;
     };
+    // 上一会话 close 过的 UDP 实例不可复用，统一重建（首次 open 时为 no-op）
+    this.udp.reset();
     return this.udp.open().then(() => this.tcp.connect(host, tcpPort, TCP_CONNECT_TIMEOUT_MS));
   }
 
@@ -276,6 +292,12 @@ export class Transport {
       return Promise.resolve();
     }
     seal(pkt, this.provider);
+    return this.sendUnsealed(pkt);
+  }
+
+  // 无 token 会话（配对流）专用：不封签直发 TCP。仅限协议规定不认证的报文（HELLO 首包 / PAIR_REQ）；
+  // 失败计数+日志不上抛（与 sendReliable 同口径，调用方以回包/超时判定结果）。
+  public sendUnsealed(pkt: Packet): Promise<void> {
     const wire: ArrayBuffer = encode(pkt);
     return this.tcp.send(wire).then(() => {
       this.stats.tcpSendOk++;
@@ -291,13 +313,9 @@ export class Transport {
     this.sendReliable(pkt);
   }
 
-  // HELLO：payload 2B 大端 ver（版本协商，token 认证自首包 seal 开始）。
+  // HELLO：payload 2B 大端 ver（版本协商）。按协议 TCP 首包必须为未认证 HELLO，恒不封签。
   public sendHello(): Promise<void> {
-    const p = new Uint8Array(2);
-    p[0] = (Protocol.VER >> 8) & 0xff;
-    p[1] = Protocol.VER & 0xff;
-    const pkt: Packet = newRaw(PacketType.HELLO, this.nextSeq(), p.buffer as ArrayBuffer);
-    return this.sendReliable(pkt);
+    return this.sendUnsealed(buildHelloPacket(this.nextSeq()));
   }
 
   public sendBye(): void {
@@ -306,6 +324,8 @@ export class Transport {
   }
 
   // 收包管线：decode → FlagAuth 时常数时间验签 → 业务分发；两类失败分别计数（调试面板展示）。
+  // 无 token 分支（M2 配对流）：PAIR_OK 封签用的是刚签发、本端尚未绑定的 token，
+  // 此时不做本地验签直接上抛，由 PairingModel 以 payload 中的新 token verifyHmac 端到端自证。
   private handleWire(frame: ArrayBuffer): void {
     const r = decode(frame);
     if (!r.ok || r.packet === null) {
@@ -313,8 +333,8 @@ export class Transport {
       return;
     }
     const pkt: Packet = r.packet;
-    if ((pkt.flags & PacketFlag.AUTH) !== 0) {
-      if (this.provider === null || !verifyHmac(pkt, this.provider)) {
+    if ((pkt.flags & PacketFlag.AUTH) !== 0 && this.provider !== null) {
+      if (!verifyHmac(pkt, this.provider)) {
         this.stats.recvHmacFail++;
         return;
       }
@@ -324,4 +344,12 @@ export class Transport {
       this.onPacket(pkt);
     }
   }
+}
+
+// HELLO 报文构造（TCP 首包握手与 UDP 发现广播共用）：payload 2B 大端 ver。
+export function buildHelloPacket(seq: number): Packet {
+  const p = new Uint8Array(2);
+  p[0] = (Protocol.VER >> 8) & 0xff;
+  p[1] = Protocol.VER & 0xff;
+  return newRaw(PacketType.HELLO, seq, p.buffer as ArrayBuffer);
 }

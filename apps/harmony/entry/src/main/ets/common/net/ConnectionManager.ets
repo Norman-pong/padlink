@@ -110,7 +110,9 @@ export class ConnectionManager {
   }
 
   // 手动连接（M1）：TCP 建连 + HELLO 握手 → CONNECTED → 心跳。失败抛错（文案进 UI 提示）。
-  public async connect(host: string, port: number, udpPort: number, token: Uint8Array): Promise<void> {
+  // autoRetry=true（FR-6 静默自动重连）：首连失败不抛错、不回 IDLE，转入 RECONNECTING 退避重试。
+  public async connect(host: string, port: number, udpPort: number, token: Uint8Array,
+    autoRetry: boolean = false): Promise<void> {
     const myEpoch: number = this.beginSession();
     this.transport.setToken(token);
     this.hostAddr = host;
@@ -123,6 +125,10 @@ export class ConnectionManager {
       await this.transport.open(host, udpPort, port);
     } catch (err) {
       const e = err as BusinessError;
+      if (autoRetry && this.epoch === myEpoch) {
+        this.enterReconnectingFromInitial(`连接失败：${e.code} ${e.message}`);
+        return;
+      }
       this.teardown(this.epoch === myEpoch);
       this.snapshot.state = ConnState.IDLE;
       throw new Error(`连接失败：${e.code} ${e.message}`);
@@ -136,10 +142,57 @@ export class ConnectionManager {
       return;
     }
     if (!helloOk) {
+      if (autoRetry && this.epoch === myEpoch) {
+        this.enterReconnectingFromInitial('握手超时：未收到 daemon 的 HELLO 应答');
+        return;
+      }
       this.teardown(true);
       this.snapshot.state = ConnState.IDLE;
       throw new Error('握手超时：未收到 daemon 的 HELLO 应答');
     }
+    this.enterConnected();
+  }
+
+  // 无 token 配对连接（M2）：TCP 建连 + 未认证 HELLO 握手 → PAIRING（不启动心跳——
+  // ECHO 属认证语义，须待 completePairing 绑定新 token 后开始）。失败抛错回 IDLE。
+  public async connectForPairing(host: string, port: number, udpPort: number): Promise<void> {
+    const myEpoch: number = this.beginSession();
+    this.transport.clearToken();
+    this.hostAddr = host;
+    this.udpPortN = udpPort;
+    this.tcpPortN = port;
+    this.snapshot.lastError = '';
+    this.snapshot.rttMs = -1;
+    try {
+      await this.transport.open(host, udpPort, port);
+    } catch (err) {
+      const e = err as BusinessError;
+      this.teardown(this.epoch === myEpoch);
+      this.snapshot.state = ConnState.IDLE;
+      throw new Error(`连接失败：${e.code} ${e.message}`);
+    }
+    if (this.epoch !== myEpoch) {
+      return;
+    }
+    this.transport.sendHello();
+    const helloOk: boolean = await this.awaitHello(ConnPolicy.HELLO_TIMEOUT_MS);
+    if (this.epoch !== myEpoch) {
+      return;
+    }
+    if (!helloOk) {
+      this.teardown(true);
+      this.snapshot.state = ConnState.IDLE;
+      throw new Error('握手超时：未收到 daemon 的 HELLO 应答');
+    }
+    this.snapshot.state = ConnState.PAIRING;
+  }
+
+  // PAIR_OK 验签通过后调用：绑定新 token 并进入 CONNECTED（启动心跳）。
+  public completePairing(token: Uint8Array): void {
+    if (this.snapshot.state !== ConnState.PAIRING) {
+      return;
+    }
+    this.transport.setToken(token);
     this.enterConnected();
   }
 
@@ -185,6 +238,14 @@ export class ConnectionManager {
     this.startHeartbeat();
   }
 
+  // 首连失败转重连（FR-6 autoRetry）：释放 socket 后进 RECONNECTING 退避循环（至多 MAX_RECONNECT_FAILURES → LOST）。
+  private enterReconnectingFromInitial(reason: string): void {
+    this.teardown(true);
+    this.snapshot.state = ConnState.RECONNECTING;
+    this.snapshot.lastError = reason;
+    this.scheduleReconnect();
+  }
+
   private enterReconnecting(reason: string): void {
     if (this.manualClose || this.snapshot.state !== ConnState.CONNECTED) {
       return;
@@ -227,6 +288,12 @@ export class ConnectionManager {
       }
       if (!helloOk) {
         throw new Error('握手超时');
+      }
+      // 首连失败路径可能已 teardown(true) 关闭 UDP 数据面，重连成功前补开（保持 MOVE/SCROLL 通道）
+      this.transport.udp.reset();
+      await this.transport.udp.open();
+      if (this.epoch !== myEpoch) {
+        return;
       }
       this.enterConnected();
     } catch (err) {

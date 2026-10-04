@@ -176,15 +176,38 @@ export struct MainControlPage {
         .height('100%')
 
         // 状态浮层（FR-6）：THIN 材质悬浮胶囊，@ObservedV2 快照驱动，点击进调试页。
-        Row() {
-          Text(this.stateRes())
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.font_primary'))
-          Text(this.rttText())
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.font_secondary'))
-            .margin({ left: 8 })
+        // 非 CONNECTED 态文案区分：RECONNECTING 展示原因与轮次；LOST 额外给「重新连接」按钮跳发现页。
+        Column({ space: 4 }) {
+          Row() {
+            Text(this.stateRes())
+              .fontSize($r('sys.float.ohos_id_text_size_body3'))
+              .fontColor($r('sys.color.font_primary'))
+            if (this.conn.snapshot.state === ConnState.CONNECTED) {
+              Text(this.rttText())
+                .fontSize($r('sys.float.ohos_id_text_size_body3'))
+                .fontColor($r('sys.color.font_secondary'))
+                .margin({ left: 8 })
+            }
+          }
+          if (this.conn.snapshot.state === ConnState.RECONNECTING
+            && this.conn.snapshot.lastError.length > 0) {
+            // lastError 携带原因/轮次（tryReconnect 写入「重连失败（第 N 次）」），满足浮层轮次展示
+            Text(this.conn.snapshot.lastError)
+              .fontSize($r('sys.float.ohos_id_text_size_body2'))
+              .fontColor($r('sys.color.font_secondary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          if (this.conn.snapshot.state === ConnState.LOST) {
+            Button($r('app.string.state_reconnect_btn'))
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .height(28)
+              .onClick(() => {
+                this.pathStack.pushPathByName('discover', null);
+              })
+          }
         }
+        .alignItems(HorizontalAlign.End)
         .padding({ left: 12, right: 12, top: 6, bottom: 6 })
         .borderRadius(18)
         .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
