@@ -13,6 +13,8 @@ import type { BusinessError } from '@kit.BasicServicesKit';
 import { ConnState } from '../common/net/ConnectionManager';
 import type { ConnectionManager } from '../common/net/ConnectionManager';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
+import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
+import { KeyboardPage } from './KeyboardPage';
 
 const SIDE_MARGIN_VP: number = 12; // 左右经验边距：侧边手势区无 API 可查，真机待校准
 
@@ -20,6 +22,7 @@ const SIDE_MARGIN_VP: number = 12; // 左右经验边距：侧边手势区无 AP
 export struct MainControlPage {
   @Require @Param conn: ConnectionManager;
   @Require @Param touchpad: TouchpadModel;
+  @Require @Param keyboard: KeyboardModel;
   @Require @Param pathStack: NavPathStack;
 
   @Local curTabIndex: number = 0;
@@ -147,14 +150,13 @@ export struct MainControlPage {
           .tabBar($r('app.string.tab_touchpad'))
 
           TabContent() {
+            // 自绘 QWERTY 键盘（PRD §4.4）：KeyCap 直接发 HID usage，不经系统输入法。
             Column() {
-              Text($r('app.string.keyboard_placeholder'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_secondary'))
+              KeyboardPage({ model: this.keyboard })
             }
             .width('100%')
             .height('100%')
-            .justifyContent(FlexAlign.Center)
+            .padding({ bottom: this.bottomAvoidVp })
           }
           .tabBar($r('app.string.tab_keyboard'))
 

@@ -7,6 +7,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ConnectionManager } from '../common/net/ConnectionManager';
 import { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { TouchpadModel } from '../common/viewmodel/TouchpadModel';
+import { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { PairingModel } from '../common/viewmodel/PairingModel';
 import { tryAutoReconnect } from '../common/viewmodel/AutoConnect';
 import { MainControlPage } from './MainControlPage';
@@ -24,10 +25,12 @@ struct Index {
   conn: ConnectionManager = new ConnectionManager();
   settings: SettingsModel = new SettingsModel();
   touchpad: TouchpadModel = new TouchpadModel();
+  keyboard: KeyboardModel = new KeyboardModel();
   pairing: PairingModel = new PairingModel(this.conn, this.settings);
 
   aboutToAppear(): void {
     this.touchpad.bindTransport(this.conn.transport);
+    this.keyboard.bindTransport(this.conn.transport);
     const ctx = this.getUIContext().getHostContext();
     if (ctx !== undefined) {
       this.settings.init(ctx).then(() => {
@@ -41,7 +44,7 @@ struct Index {
 
   build() {
     Navigation(this.pathStack) {
-      MainControlPage({ conn: this.conn, touchpad: this.touchpad, pathStack: this.pathStack })
+      MainControlPage({ conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard, pathStack: this.pathStack })
     }
     .mode(NavigationMode.Stack)
     .hideTitleBar(true)
