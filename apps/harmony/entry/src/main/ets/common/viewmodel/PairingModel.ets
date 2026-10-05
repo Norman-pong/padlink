@@ -93,6 +93,12 @@ export class PairingModel {
   // 进入发现页：刷新快速连接入口；空闲态自动发起一次发现。
   public onPageEnter(): void {
     this.refreshQuickLabel();
+    // 上一趟配对残留的 PAIRED（成功视图已在弹出前展示过）按全新进入处理：清结果重扫，
+    // 否则已配对用户再进发现页只会看到定格的成功视图，无法发起新配对。
+    if (this.snapshot.phase === PairPhase.PAIRED) {
+      this.snapshot.phase = PairPhase.IDLE;
+      this.snapshot.hosts = [];
+    }
     if (this.snapshot.phase === PairPhase.IDLE && this.snapshot.hosts.length === 0) {
       this.startDiscovery();
     }
@@ -110,23 +116,33 @@ export class PairingModel {
   // ---- 流程方法 ----
 
   // UDP 广播发现（窗口内收集全部应答，按 IP 去重）。
+  // conn 浮层态只在断开态（IDLE/LOST）下挂 DISCOVERING：已连接/重连中的会话不被发现窗口
+  // 改写（CONNECTED 被踩成 IDLE 会让主控页误判离线、RECONNECTING 被踩会掐断重连链）；
+  // 回收时只认仍是 DISCOVERING 的态（防覆盖窗口内由其他路径完成的连接态迁移）。
   public async startDiscovery(): Promise<void> {
     if (this.snapshot.phase === PairPhase.DISCOVERING) {
       return;
     }
     this.resetError();
     this.snapshot.phase = PairPhase.DISCOVERING;
-    this.conn.snapshot.state = ConnState.DISCOVERING; // 浮层展示（发现窗口由本模型驱动）
+    const s: number = this.conn.snapshot.state;
+    if (s === ConnState.IDLE || s === ConnState.LOST || s === ConnState.DISCOVERING) {
+      this.conn.snapshot.state = ConnState.DISCOVERING; // 浮层展示（发现窗口由本模型驱动）
+    }
     try {
       const hosts: DiscoveredHost[] = await this.discoverer.discover(DiscoverPolicy.WINDOW_MS, DEFAULT_PORT);
       this.snapshot.hosts = hosts;
       this.snapshot.phase = PairPhase.IDLE;
-      this.conn.snapshot.state = ConnState.IDLE;
+      if (this.conn.snapshot.state === ConnState.DISCOVERING) {
+        this.conn.snapshot.state = ConnState.IDLE;
+      }
     } catch (err) {
       this.snapshot.hosts = [];
       this.snapshot.errorText = `发现失败：${(err as Error).message}`;
       this.snapshot.phase = PairPhase.FAILED;
-      this.conn.snapshot.state = ConnState.IDLE;
+      if (this.conn.snapshot.state === ConnState.DISCOVERING) {
+        this.conn.snapshot.state = ConnState.IDLE;
+      }
     }
   }
 
@@ -230,11 +246,19 @@ export class PairingModel {
     }
   }
 
-  // 取消：断开配对会话回列表视图。
+  // 取消：断开配对会话回列表视图。纯发现（DISCOVERING）尚未选中主机、不持有连接，
+  // 只回退发现浮层态——已连接的会话不因路过发现页被拆；配对各态（CONNECTING 起）
+  // 连接归本流程所有，照常断开回收。
   public cancel(): void {
     this.pairWaiter = null;
     this.selected = null;
-    this.conn.disconnect();
+    if (this.snapshot.phase === PairPhase.DISCOVERING) {
+      if (this.conn.snapshot.state === ConnState.DISCOVERING) {
+        this.conn.snapshot.state = ConnState.IDLE;
+      }
+    } else {
+      this.conn.disconnect();
+    }
     this.snapshot.phase = PairPhase.IDLE;
     this.snapshot.code = '';
     this.resetError();

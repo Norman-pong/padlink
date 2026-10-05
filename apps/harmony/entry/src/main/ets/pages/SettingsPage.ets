@@ -1,7 +1,7 @@
 // 设置页（FR-5 / FR-7）：灵敏度 Slider（0.5–2.0 步进 0.1，实时生效+持久化）、
 // 自然滚动开关、已配对主机管理（列表/重命名/删除/设默认，四态：加载/空态/列表/轻提示反馈）、
 // 调试面板开关（控制版本号连点入口显隐）、关于区（应用版本+协议版本）。
-// 隐藏入口（FR-7）：调试开关开启时，版本号 Text 连点 5 次（400ms 内累计）跳调试页。
+// 隐藏入口（FR-7）：调试开关开启时，版本号 Text 连点 5 次（1500ms 窗口内累计，过快连点才可能触发，防误触）跳调试页。
 // 应用版本经 bundleManager.getBundleInfoForSelfSync 读取（js-apis-bundlemanager，API10+）。
 // 弹窗/反馈 API（文档现查）：删除二次确认走 UIContext.showAlertDialog（AlertDialog.show 自
 // API18 废弃，ts-methods-alert-dialog-box / arkts-fixes-style-dialog）；操作反馈走
@@ -18,12 +18,14 @@ import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import { HostInfo, validateHostName } from '../common/viewmodel/HostsStore';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
+import { GroupCard, GroupHeader } from './GroupCard';
+import { PressedRow } from './PressedRow';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
 const TAG: string = 'PadLink.SettingsPage';
 const DOMAIN: number = 0x5050;
-const VERSION_TAP_WINDOW_MS: number = 400;
+const VERSION_TAP_WINDOW_MS: number = 1500;
 const VERSION_TAP_COUNT: number = 5;
 const TOAST_MS: number = 2000;
 const DIVIDER_WIDTH_VP: number = 0.5; // D3：分隔线规格与分组卡规范对齐
@@ -212,7 +214,7 @@ export struct SettingsPage {
     });
   }
 
-  // 版本号连点 5 次（400ms 内累计）→ 调试页（FR-7 隐藏入口；调试开关关闭时入口整体隐藏）。
+  // 版本号连点 5 次（VERSION_TAP_WINDOW_MS 窗口内累计）→ 调试页（FR-7 隐藏入口；调试开关关闭时入口整体隐藏）。
   private onVersionClick(): void {
     const now: number = new Date().getTime();
     this.tapTimes = this.tapTimes.filter((t: number): boolean => now - t <= VERSION_TAP_WINDOW_MS);
@@ -227,91 +229,105 @@ export struct SettingsPage {
     HdsNavDestination() {
       Stack() {
         Scroll(this.scroller) {
+          // D3 分组列表：组头（caption）+ 分组卡（GroupCard 单源），四组——触控/主机/调试/关于。
           Column({ space: 16 }) {
-            // 灵敏度
+            // ---- 触控 ----
             Column({ space: 8 }) {
-              Row() {
-                Text($r('app.string.settings_sensitivity'))
-                  .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                  .fontColor($r('sys.color.font_primary'))
-                Blank()
-                Text(this.sensValue.toFixed(1))
-                  .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                  .fontColor($r('sys.color.font_secondary'))
-              }
-              .width('100%')
-              Slider({ value: this.sensValue, min: 0.5, max: 2.0, step: 0.1 })
+              GroupHeader($r('app.string.settings_group_touchpad'))
+              GroupCard() {
+                Row() {
+                  Text($r('app.string.settings_sensitivity'))
+                    .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                    .fontColor($r('sys.color.font_primary'))
+                  Blank()
+                  Text(this.sensValue.toFixed(1))
+                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                    .fontColor($r('sys.color.font_secondary'))
+                }
                 .width('100%')
-                .onChange((value: number, mode: SliderChangeMode) => {
-                  this.onSensChange(value, mode);
-                })
+                Slider({ value: this.sensValue, min: 0.5, max: 2.0, step: 0.1 })
+                  .width('100%')
+                  .onChange((value: number, mode: SliderChangeMode) => {
+                    this.onSensChange(value, mode);
+                  })
+                Divider()
+                  .strokeWidth(DIVIDER_WIDTH_VP)
+                  .color($r('sys.color.comp_divider'))
+                // 自然滚动（开关行：Toggle 无障碍名补行标题，读屏播报「自然滚动，开关，已开启」）
+                Row() {
+                  Text($r('app.string.settings_natural_scroll'))
+                    .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                    .fontColor($r('sys.color.font_primary'))
+                    .layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.naturalOn })
+                    .onChange((isOn: boolean) => {
+                      this.onNaturalChange(isOn);
+                    })
+                    .accessibilityText($r('app.string.settings_natural_scroll'))
+                }
+                .width('100%')
+              }
             }
             .alignItems(HorizontalAlign.Start)
             .width('100%')
 
-            // 自然滚动（开关行：Toggle 无障碍名补行标题，读屏播报「自然滚动，开关，已开启」）
-            Row() {
-              Text($r('app.string.settings_natural_scroll'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_primary'))
-                .layoutWeight(1)
-              Toggle({ type: ToggleType.Switch, isOn: this.naturalOn })
-                .onChange((isOn: boolean) => {
-                  this.onNaturalChange(isOn);
-                })
-                .accessibilityText($r('app.string.settings_natural_scroll'))
-            }
-            .width('100%')
-
-            // 已配对主机（FR-5 主机管理）
-            this.hostsSection()
-
-            // 调试面板开关
-            Row() {
-              Column({ space: 4 }) {
-                Text($r('app.string.settings_debug'))
-                  .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                  .fontColor($r('sys.color.font_primary'))
-                Text($r('app.string.settings_debug_hint'))
-                  .fontSize($r('sys.float.ohos_id_text_size_body3'))
-                  .fontColor($r('sys.color.font_secondary'))
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-              Toggle({ type: ToggleType.Switch, isOn: this.debugOn })
-                .onChange((isOn: boolean) => {
-                  this.onDebugChange(isOn);
-                })
-                .accessibilityText($r('app.string.settings_debug'))
-            }
-            .width('100%')
-            .alignItems(VerticalAlign.Center)
-
-            Divider()
-              .strokeWidth(DIVIDER_WIDTH_VP)
-              .color($r('sys.color.comp_divider'))
-
-            // 关于（FR-7 隐藏入口挂在版本行）
+            // ---- 已配对主机（FR-5 主机管理） ----
             Column({ space: 8 }) {
-              Text($r('app.string.settings_about'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_primary'))
-              if (this.debugOn) {
-                Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
-                  .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                  .fontColor($r('sys.color.font_secondary'))
-                  .onClick(() => {
-                    this.onVersionClick();
-                  })
-                  .accessibilityDescription($r('app.string.settings_version_a11y_hint'))
-              } else {
-                Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
+              GroupHeader($r('app.string.settings_hosts_section'))
+              this.hostsSection()
+            }
+            .alignItems(HorizontalAlign.Start)
+            .width('100%')
+
+            // ---- 调试 ----
+            Column({ space: 8 }) {
+              GroupHeader($r('app.string.settings_group_debug'))
+              GroupCard() {
+                Row() {
+                  Column({ space: 4 }) {
+                    Text($r('app.string.settings_debug'))
+                      .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                      .fontColor($r('sys.color.font_primary'))
+                    Text($r('app.string.settings_debug_hint'))
+                      .fontSize($r('sys.float.ohos_id_text_size_body3'))
+                      .fontColor($r('sys.color.font_secondary'))
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.debugOn })
+                    .onChange((isOn: boolean) => {
+                      this.onDebugChange(isOn);
+                    })
+                    .accessibilityText($r('app.string.settings_debug'))
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+              }
+            }
+            .alignItems(HorizontalAlign.Start)
+            .width('100%')
+
+            // ---- 关于（FR-7 隐藏入口挂在版本行） ----
+            Column({ space: 8 }) {
+              GroupHeader($r('app.string.settings_about'))
+              GroupCard() {
+                if (this.debugOn) {
+                  Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
+                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                    .fontColor($r('sys.color.font_secondary'))
+                    .onClick(() => {
+                      this.onVersionClick();
+                    })
+                    .accessibilityDescription($r('app.string.settings_version_a11y_hint'))
+                } else {
+                  Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
+                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                    .fontColor($r('sys.color.font_secondary'))
+                }
+                Text($r('app.string.protocol_version'))
                   .fontSize($r('sys.float.ohos_id_text_size_body2'))
                   .fontColor($r('sys.color.font_secondary'))
               }
-              Text($r('app.string.protocol_version'))
-                .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                .fontColor($r('sys.color.font_secondary'))
             }
             .alignItems(HorizontalAlign.Start)
             .width('100%')
@@ -353,10 +369,8 @@ export struct SettingsPage {
 
   @Builder
   hostsSection() {
+    // 组头由调用处 GroupHeader 承担；这里只产四态内容（卡面规格与 GroupCard 同源：12 内边距/12 圆角/primary）。
     Column({ space: 8 }) {
-      Text($r('app.string.settings_hosts_section'))
-        .fontSize($r('sys.float.ohos_id_text_size_body1'))
-        .fontColor($r('sys.color.font_primary'))
       if (this.hostsLoading) {
         // 加载态
         Row({ space: 12 }) {
@@ -409,6 +423,28 @@ export struct SettingsPage {
           }, (h: HostInfo) => `${h.ip}:${h.port}`)
         }
         .width('100%')
+      }
+      // 发现页入口行：连接态下配对第二台主机的唯一可达路径（发现页 menu 槽只通向设置）。
+      PressedRow({
+        a11yText: this.resStr('page_discover'),
+        onActivated: (): void => {
+          this.pathStack.pushPathByName('discover', null);
+        }
+      }) {
+        Row({ space: 12 }) {
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(22)
+            .fontColor([$r('sys.color.brand')])
+          Text($r('app.string.page_discover'))
+            .fontSize($r('sys.float.ohos_id_text_size_body1'))
+            .fontColor($r('sys.color.brand'))
+            .layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_forward'))
+            .fontSize(20)
+            .fontColor([$r('sys.color.icon_tertiary')])
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
       }
     }
     .alignItems(HorizontalAlign.Start)

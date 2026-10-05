@@ -110,17 +110,6 @@ export struct DiscoverPage {
         } else {
           this.listView()
         }
-        // 设置页入口（FR-5）：主机管理/灵敏度/调试开关的可达路径（此前 settings 已注册但无入口）。
-        Row() {
-          Blank()
-          Text($r('app.string.page_settings'))
-            .fontSize($r('sys.float.ohos_id_text_size_body2'))
-            .fontColor($r('sys.color.font_emphasize'))
-            .onClick(() => {
-              this.pathStack.pushPathByName('settings', null);
-            })
-        }
-        .width('100%')
       }
       .width('100%')
       .height('100%')
@@ -133,7 +122,20 @@ export struct DiscoverPage {
       // 栏下）——两者缺一不可（MateX7 实测）。
       style: scrollBlurTitleBarStyle(),
       content: {
-        title: { mainTitle: $r('app.string.page_discover') }
+        title: { mainTitle: $r('app.string.page_discover') },
+        // 设置入口走框架 menu 槽（硬约束 15：能进 menu 槽的一律进槽，替代页底裸文本行）；
+        // 图标传纯 ResourceStr 由框架按模糊态自适应着色；label 必填（溢出行只渲染 label）。
+        menu: {
+          value: [{
+            content: {
+              icon: $r('sys.symbol.gearshape'),
+              label: $r('app.string.page_settings'),
+              action: (): void => {
+                this.pathStack.pushPathByName('settings', null);
+              }
+            }
+          }]
+        }
       },
       avoidLayoutSafeArea: true,
       enableComponentSafeArea: true
@@ -199,24 +201,35 @@ export struct DiscoverPage {
   listView() {
     Column({ space: 12 }) {
       if (this.pairing.snapshot.quickLabel.length > 0) {
-        // 快速连接入口（lastHost 已有 token）：标题 + 主机标签，点击直连（PressedRow 按压态 + a11y）
+        // 快速连接入口（lastHost 已有 token）：链接符号 + 标题 + 主机标签，点击直连（PressedRow 按压态 + a11y）
         PressedRow({
           a11yText: `${this.resStr('discover_quick')}，${this.pairing.snapshot.quickLabel}`,
           onActivated: (): void => {
             this.pairing.quickConnect();
           }
         }) {
-          Column({ space: 4 }) {
-            Text($r('app.string.discover_quick'))
-              .fontSize($r('sys.float.ohos_id_text_size_body1'))
-              .fontColor($r('sys.color.font_primary'))
-            Text(this.pairing.snapshot.quickLabel)
-              .fontSize($r('sys.float.ohos_id_text_size_body2'))
-              .fontColor($r('sys.color.font_secondary'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Row({ space: 12 }) {
+            SymbolGlyph($r('sys.symbol.link'))
+              .fontSize(22)
+              .fontColor([$r('sys.color.brand')])
+            Column({ space: 4 }) {
+              Text($r('app.string.discover_quick'))
+                .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                .fontColor($r('sys.color.font_primary'))
+              Text(this.pairing.snapshot.quickLabel)
+                .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                .fontColor($r('sys.color.font_secondary'))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.chevron_forward'))
+              .fontSize(20)
+              .fontColor([$r('sys.color.icon_tertiary')])
           }
           .width('100%')
+          .alignItems(VerticalAlign.Center)
         }
       }
       if (this.pairing.snapshot.hosts.length > 0) {
@@ -241,19 +254,30 @@ export struct DiscoverPage {
                   this.pairing.selectHost(h);
                 }
               }) {
-                Column({ space: 4 }) {
-                  Text(h.name.length > 0 ? h.name : h.ip)
-                    .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                    .fontColor($r('sys.color.font_primary'))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(this.hostInfo(h))
-                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                    .fontColor($r('sys.color.font_secondary'))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Row({ space: 12 }) {
+                  SymbolGlyph($r('sys.symbol.computer'))
+                    .fontSize(22)
+                    .fontColor([$r('sys.color.icon_secondary')])
+                  Column({ space: 4 }) {
+                    Text(h.name.length > 0 ? h.name : h.ip)
+                      .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                      .fontColor($r('sys.color.font_primary'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Text(this.hostInfo(h))
+                      .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                      .fontColor($r('sys.color.font_secondary'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
+                  SymbolGlyph($r('sys.symbol.chevron_forward'))
+                    .fontSize(20)
+                    .fontColor([$r('sys.color.icon_tertiary')])
                 }
                 .width('100%')
+                .alignItems(VerticalAlign.Center)
               }
             }
           }, (h: DiscoveredHost) => h.ip)

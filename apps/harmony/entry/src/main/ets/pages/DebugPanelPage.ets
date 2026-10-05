@@ -16,6 +16,7 @@ import { HostInfo } from '../common/viewmodel/SettingsModel';
 import { HostsFullError } from '../common/viewmodel/HostsStore';
 import { pageResStr } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
+import { GroupCard, GroupHeader } from './GroupCard';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
@@ -310,129 +311,130 @@ export struct DebugPanelPage {
   build() {
     HdsNavDestination() {
       Scroll(this.scroller) {
+        // D3 分组列表：实时数据 / 自测 / 手动连接 三组卡（GroupCard 单源），去裸 Divider 分段。
         Column({ space: 16 }) {
           // ---- 实时数据（1Hz） ----
           Column({ space: 8 }) {
-            Row() {
-              Text($r('app.string.debug_realtime'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_primary'))
-              Blank()
-              Text(`t+${this.pageSec}s`)
-                .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                .fontColor($r('sys.color.font_secondary'))
-            }
-            .width('100%')
-            this.statRow({ label: $r('app.string.debug_conn_state'), value: this.resStr(connRes(this.conn.snapshot.state)) })
-            this.statRow({ label: $r('app.string.debug_gesture_state'), value: this.resStr(gestureRes(this.gestureState)) })
-            this.statRow({ label: $r('app.string.debug_sample_rate'), value: `${this.sampleRate}/s` })
-            this.statRow({ label: $r('app.string.debug_send_rate'), value: `${this.sendRate}/s` })
-            this.statRow({ label: $r('app.string.debug_rtt'), value: this.rttText() })
-            this.statRow({ label: $r('app.string.debug_udp_fail'), value: `${this.udpSendFail}` })
-            this.statRow({ label: $r('app.string.debug_tcp_decode_fail'), value: `${this.recvDecodeFail}` })
-            this.statRow({ label: $r('app.string.debug_hmac_fail'), value: `${this.recvHmacFail}` })
-            this.statRow({ label: $r('app.string.debug_udp_ok'), value: `${this.udpSendOk}` })
-            this.statRow({ label: $r('app.string.debug_tcp_ok'), value: `${this.tcpSendOk}` })
-            this.statRow({ label: $r('app.string.debug_recv_ok'), value: `${this.recvOk}` })
-          }
-          .alignItems(HorizontalAlign.Start)
-          .width('100%')
-
-          Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
-
-          // ---- echo 自测 ----
-          Column({ space: 8 }) {
-            Row() {
-              Text($r('app.string.debug_echo_test'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_primary'))
-              Blank()
-              Button($r('app.string.debug_echo_run'))
-                .onClick(() => {
-                  this.runEchoTest();
-                })
-            }
-            .width('100%')
-            if (this.echoRtts.length > 0) {
-              ForEach(this.echoRtts, (rtt: number, idx: number) => {
-                Text(`#${idx + 1}: ${rtt} ms`)
+            GroupHeader($r('app.string.debug_realtime'))
+            GroupCard() {
+              Row() {
+                Text($r('app.string.debug_realtime'))
+                  .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                  .fontColor($r('sys.color.font_primary'))
+                Blank()
+                Text(`t+${this.pageSec}s`)
                   .fontSize($r('sys.float.ohos_id_text_size_body2'))
                   .fontColor($r('sys.color.font_secondary'))
-              }, (rtt: number, idx: number) => `echo-${idx}-${rtt}`)
+              }
+              .width('100%')
+              this.statRow({ label: $r('app.string.debug_conn_state'), value: this.resStr(connRes(this.conn.snapshot.state)) })
+              this.statRow({ label: $r('app.string.debug_gesture_state'), value: this.resStr(gestureRes(this.gestureState)) })
+              this.statRow({ label: $r('app.string.debug_sample_rate'), value: `${this.sampleRate}/s` })
+              this.statRow({ label: $r('app.string.debug_send_rate'), value: `${this.sendRate}/s` })
+              this.statRow({ label: $r('app.string.debug_rtt'), value: this.rttText() })
+              this.statRow({ label: $r('app.string.debug_udp_fail'), value: `${this.udpSendFail}` })
+              this.statRow({ label: $r('app.string.debug_tcp_decode_fail'), value: `${this.recvDecodeFail}` })
+              this.statRow({ label: $r('app.string.debug_hmac_fail'), value: `${this.recvHmacFail}` })
+              this.statRow({ label: $r('app.string.debug_udp_ok'), value: `${this.udpSendOk}` })
+              this.statRow({ label: $r('app.string.debug_tcp_ok'), value: `${this.tcpSendOk}` })
+              this.statRow({ label: $r('app.string.debug_recv_ok'), value: `${this.recvOk}` })
             }
           }
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
-
-          // ---- 合成轨迹自测（FR-7：验证 UDP 数据面到 daemon 注入端到端） ----
-          Row() {
-            Text($r('app.string.debug_traj_test'))
-              .fontSize($r('sys.float.ohos_id_text_size_body1'))
-              .fontColor($r('sys.color.font_primary'))
-            Blank()
-            Button($r('app.string.debug_traj_run'))
-              .enabled(!this.trajRunning)
-              .onClick(() => {
-                this.runTrajectoryTest();
-              })
-            if (this.trajRunning) {
-              LoadingProgress()
-                .width(24)
-                .height(24)
-                .color($r('sys.color.brand'))
+          // ---- 自测（Echo 10 连发 + 合成轨迹） ----
+          Column({ space: 8 }) {
+            GroupHeader($r('app.string.debug_group_selftest'))
+            GroupCard() {
+              Row() {
+                Text($r('app.string.debug_echo_test'))
+                  .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                  .fontColor($r('sys.color.font_primary'))
+                Blank()
+                Button($r('app.string.debug_echo_run'))
+                  .onClick(() => {
+                    this.runEchoTest();
+                  })
+              }
+              .width('100%')
+              if (this.echoRtts.length > 0) {
+                ForEach(this.echoRtts, (rtt: number, idx: number) => {
+                  Text(`#${idx + 1}: ${rtt} ms`)
+                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                    .fontColor($r('sys.color.font_secondary'))
+                }, (rtt: number, idx: number) => `echo-${idx}-${rtt}`)
+              }
+              Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
+              // 合成轨迹自测（FR-7：验证 UDP 数据面到 daemon 注入端到端）
+              Row() {
+                Text($r('app.string.debug_traj_test'))
+                  .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                  .fontColor($r('sys.color.font_primary'))
+                Blank()
+                Button($r('app.string.debug_traj_run'))
+                  .enabled(!this.trajRunning)
+                  .onClick(() => {
+                    this.runTrajectoryTest();
+                  })
+                if (this.trajRunning) {
+                  LoadingProgress()
+                    .width(24)
+                    .height(24)
+                    .color($r('sys.color.brand'))
+                }
+              }
+              .width('100%')
             }
           }
+          .alignItems(HorizontalAlign.Start)
           .width('100%')
-
-          Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
 
           // ---- 手动连接区（M1 联调） ----
           Column({ space: 8 }) {
-            Text($r('app.string.debug_manual_connect'))
-              .fontSize($r('sys.float.ohos_id_text_size_body1'))
-              .fontColor($r('sys.color.font_primary'))
-            TextInput({ text: this.ip, placeholder: this.resStr('debug_ip_hint') })
-              .height(40)
-              .backgroundColor($r('sys.color.comp_background_tertiary'))
-              .onChange((v: string) => {
-                this.ip = v;
-              })
-            TextInput({ text: this.portText, placeholder: this.resStr('debug_port_hint') })
-              .height(40)
-              .backgroundColor($r('sys.color.comp_background_tertiary'))
-              .onChange((v: string) => {
-                this.portText = v;
-              })
-            TextInput({ text: this.tokenHex, placeholder: this.resStr('debug_token_hint') })
-              .height(40)
-              .backgroundColor($r('sys.color.comp_background_tertiary'))
-              .onChange((v: string) => {
-                this.tokenHex = v;
-              })
-            Row({ space: 12 }) {
-              Button(this.connecting ? $r('app.string.debug_connecting') : $r('app.string.debug_connect'))
-                .enabled(!this.connecting)
-                .onClick(() => {
-                  this.onConnectClick();
+            GroupHeader($r('app.string.debug_manual_connect'))
+            GroupCard() {
+              TextInput({ text: this.ip, placeholder: this.resStr('debug_ip_hint') })
+                .height(40)
+                .backgroundColor($r('sys.color.comp_background_tertiary'))
+                .onChange((v: string) => {
+                  this.ip = v;
                 })
-              Button($r('app.string.debug_disconnect'))
-                .buttonStyle(ButtonStyleMode.NORMAL)
-                .onClick(() => {
-                  this.onDisconnectClick();
+              TextInput({ text: this.portText, placeholder: this.resStr('debug_port_hint') })
+                .height(40)
+                .backgroundColor($r('sys.color.comp_background_tertiary'))
+                .onChange((v: string) => {
+                  this.portText = v;
                 })
-              if (this.connecting) {
-                LoadingProgress()
-                  .width(24)
-                  .height(24)
-                  .color($r('sys.color.brand'))
+              TextInput({ text: this.tokenHex, placeholder: this.resStr('debug_token_hint') })
+                .height(40)
+                .backgroundColor($r('sys.color.comp_background_tertiary'))
+                .onChange((v: string) => {
+                  this.tokenHex = v;
+                })
+              Row({ space: 12 }) {
+                Button(this.connecting ? $r('app.string.debug_connecting') : $r('app.string.debug_connect'))
+                  .enabled(!this.connecting)
+                  .onClick(() => {
+                    this.onConnectClick();
+                  })
+                Button($r('app.string.debug_disconnect'))
+                  .buttonStyle(ButtonStyleMode.NORMAL)
+                  .onClick(() => {
+                    this.onDisconnectClick();
+                  })
+                if (this.connecting) {
+                  LoadingProgress()
+                    .width(24)
+                    .height(24)
+                    .color($r('sys.color.brand'))
+                }
               }
-            }
-            if (this.statusText.length > 0) {
-              Text(this.statusText)
-                .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                .fontColor(this.statusOk ? $r('sys.color.font_primary') : $r('sys.color.font_emphasize'))
+              if (this.statusText.length > 0) {
+                Text(this.statusText)
+                  .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                  .fontColor(this.statusOk ? $r('sys.color.font_primary') : $r('sys.color.font_emphasize'))
+              }
             }
           }
           .alignItems(HorizontalAlign.Start)

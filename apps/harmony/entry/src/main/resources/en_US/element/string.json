@@ -409,6 +409,14 @@
       "value": "Sensitivity"
     },
     {
+      "name": "settings_group_touchpad",
+      "value": "Touchpad"
+    },
+    {
+      "name": "settings_group_debug",
+      "value": "Debugging"
+    },
+    {
       "name": "settings_natural_scroll",
       "value": "Natural scrolling"
     },
@@ -467,6 +475,10 @@
     {
       "name": "debug_realtime",
       "value": "Realtime"
+    },
+    {
+      "name": "debug_group_selftest",
+      "value": "Self-test"
     },
     {
       "name": "debug_conn_state",
@@ -659,6 +671,34 @@
     {
       "name": "a11y_capsule_format",
       "value": "%1$s, latency %2$s"
+    },
+    {
+      "name": "main_connect_host",
+      "value": "Connect host"
+    },
+    {
+      "name": "main_guide_offline_hint",
+      "value": "Pair a host and this screen becomes its touchpad"
+    },
+    {
+      "name": "main_hint_move",
+      "value": "One finger: move cursor · tap: left click"
+    },
+    {
+      "name": "main_hint_scroll",
+      "value": "Two fingers: scroll · tap: right click"
+    },
+    {
+      "name": "main_hint_switch",
+      "value": "Three fingers: swipe sideways to switch zones"
+    },
+    {
+      "name": "a11y_zone_format",
+      "value": "%1$s, zone %2$d of 3"
+    },
+    {
+      "name": "a11y_zone_switch_hint",
+      "value": "Double-tap to switch to this zone"
     },
     {
       "name": "voice_a11y_hold_to_speak",
