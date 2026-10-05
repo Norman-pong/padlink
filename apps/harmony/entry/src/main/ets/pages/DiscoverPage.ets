@@ -10,7 +10,7 @@ import { HdsNavDestination } from '@kit.UIDesignKit';
 import { PairPhase } from '../common/viewmodel/PairingModel';
 import type { PairingModel } from '../common/viewmodel/PairingModel';
 import type { DiscoveredHost } from '../common/net/DiscoverCore';
-import { pageResStr } from './Res';
+import { pageResStr, pageResFmt } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { PressedRow } from './PressedRow';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -73,7 +73,7 @@ export struct DiscoverPage {
   private errorText(): string {
     const snap = this.pairing.snapshot;
     if (snap.errorKey.length > 0) {
-      return this.resStr(snap.errorKey);
+      return pageResFmt(this.getUIContext(), snap.errorKey, snap.errorParams);
     }
     return snap.errorText;
   }
@@ -187,6 +187,14 @@ export struct DiscoverPage {
         .fontColor($r('sys.color.font_emphasize'))
         .textAlign(TextAlign.Center)
         .width('100%')
+      if (this.pairing.snapshot.errorHintKey.length > 0) {
+        // 补充引导（如快连失败：可回主控页等自动重连），与错误原因分行弱化展示
+        Text(this.resStr(this.pairing.snapshot.errorHintKey))
+          .fontSize($r('sys.float.ohos_id_text_size_body2'))
+          .fontColor($r('sys.color.font_secondary'))
+          .textAlign(TextAlign.Center)
+          .width('100%')
+      }
       Button($r('app.string.discover_retry'))
         .onClick(() => {
           this.pairing.retry();

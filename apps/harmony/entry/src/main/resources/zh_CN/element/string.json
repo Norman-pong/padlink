@@ -711,6 +711,86 @@
     {
       "name": "settings_version_a11y_hint",
       "value": "连续点按五次进入调试面板"
+    },
+    {
+      "name": "conn_tcp_closed",
+      "value": "TCP 连接已关闭"
+    },
+    {
+      "name": "conn_tcp_error_fmt",
+      "value": "TCP 错误 %1$s：%2$s"
+    },
+    {
+      "name": "conn_connect_failed_fmt",
+      "value": "连接失败：%1$s %2$s"
+    },
+    {
+      "name": "conn_hello_timeout",
+      "value": "握手超时：未收到 daemon 的 HELLO 应答"
+    },
+    {
+      "name": "conn_reconnect_attempt_fmt",
+      "value": "重连失败（第 %1$s 次）"
+    },
+    {
+      "name": "conn_reconnect_giveup",
+      "value": "重连失败次数达上限，已停止自动重连"
+    },
+    {
+      "name": "conn_heartbeat_timeout",
+      "value": "心跳连续 3 次超时"
+    },
+    {
+      "name": "conn_daemon_err_fmt",
+      "value": "主机返回错误：%1$s"
+    },
+    {
+      "name": "pair_discover_failed_fmt",
+      "value": "发现失败：%1$s"
+    },
+    {
+      "name": "pair_err_no_response",
+      "value": "主机无响应，请重新发起配对"
+    },
+    {
+      "name": "pair_err_bad_reply",
+      "value": "主机回包异常，请重新发起配对"
+    },
+    {
+      "name": "pair_err_credential_invalid",
+      "value": "本机保存的凭据已损坏，请重新配对"
+    },
+    {
+      "name": "pair_hint_auto_reconnect",
+      "value": "也可返回主控页等待自动重连"
+    },
+    {
+      "name": "pair_err_reply_format",
+      "value": "配对回包格式异常，请重新发起"
+    },
+    {
+      "name": "pair_err_reply_hmac",
+      "value": "配对回包校验失败，请重新发起"
+    },
+    {
+      "name": "settings_store_not_ready",
+      "value": "设置存储未初始化"
+    },
+    {
+      "name": "settings_host_invalid",
+      "value": "主机不存在或名称非法"
+    },
+    {
+      "name": "settings_host_missing",
+      "value": "主机不存在"
+    },
+    {
+      "name": "hosts_ip_empty",
+      "value": "主机 IP 不能为空"
+    },
+    {
+      "name": "hosts_full_fmt",
+      "value": "已配对主机已满（上限 %1$s 台），请先删除"
     }
   ]
 }

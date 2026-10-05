@@ -27,9 +27,11 @@ function findTestFiles(dir, out) {
   return out;
 }
 
-const tmpRoot = loadEtsTree(sourceDir, 'padlink-etstest-');
+// 整树复制 common/ 再聚焦目标子目录：跨子目录导入（如 viewmodel → ../ResError）
+// 需保持层级才能解析；测试发现范围仍限定 dirArg。
+const tmpRoot = loadEtsTree(commonDir, 'padlink-etstest-');
 try {
-  const tests = findTestFiles(tmpRoot, []).sort();
+  const tests = findTestFiles(join(tmpRoot, dirArg), []).sort();
   if (tests.length === 0) {
     console.error(`未发现 *.test.mjs / *.test.ts（common/${dirArg}）`);
     process.exit(1);

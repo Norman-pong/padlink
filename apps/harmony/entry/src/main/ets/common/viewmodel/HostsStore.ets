@@ -6,6 +6,7 @@
 // 顺延列表首个）、设默认；名称 ≤64B 校验复用 PairingCore.sanitizeDeviceName（同一
 // daemon MaxNameLen 约定）。
 import { sanitizeDeviceName, PairPolicy } from './PairingCore';
+import { ResError } from '../ResError';
 
 // 主机列表常量。
 export class HostsPolicy {
@@ -27,9 +28,9 @@ export class HostInfo {
 }
 
 // 列表已满且为新主机时抛出；调用方按 instanceof 给「先在设置中删除」提示。
-export class HostsFullError extends Error {
-  constructor(message: string) {
-    super(message);
+export class HostsFullError extends ResError {
+  constructor(limit: number) {
+    super('hosts_full_fmt', [String(limit)], `已配对主机已满（上限 ${limit} 台），请先删除`);
     this.name = 'HostsFullError';
   }
 }
@@ -151,7 +152,7 @@ export class HostsStore {
   // 插入或更新（按 ip+port 去重）并置为默认；新主机且列表已满抛 HostsFullError。
   public upsert(h: HostInfo): void {
     if (h.ip.length === 0) {
-      throw new Error('主机 IP 不能为空');
+      throw new ResError('hosts_ip_empty', [], '主机 IP 不能为空');
     }
     const copy = copyOf(h);
     const idx = this.indexOfAt(copy.ip, copy.port);
@@ -159,7 +160,7 @@ export class HostsStore {
       this.hosts[idx] = copy;
     } else {
       if (this.hosts.length >= HostsPolicy.LIMIT) {
-        throw new HostsFullError(`已配对主机已满（上限 ${HostsPolicy.LIMIT} 台），请先删除`);
+        throw new HostsFullError(HostsPolicy.LIMIT);
       }
       this.hosts.push(copy);
     }

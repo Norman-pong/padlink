@@ -20,6 +20,7 @@ import { HostInfo, validateHostName } from '../common/viewmodel/HostsStore';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
 import { PressedRow } from './PressedRow';
+import { pageErrText } from './Res';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
@@ -95,7 +96,7 @@ export struct SettingsPage {
     }).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'listHosts fail: %{public}s', err.message);
       this.hosts = [];
-      this.hostsError = err.message;
+      this.hostsError = pageErrText(this.getUIContext(), err);
       this.hostsLoading = false;
     });
   }
@@ -142,7 +143,7 @@ export struct SettingsPage {
       this.toast(this.resStr('settings_host_renamed'));
       this.refreshHosts();
     }).catch((err: Error) => {
-      this.renameError = err.message;
+      this.renameError = pageErrText(this.getUIContext(), err);
     });
   }
 
@@ -172,7 +173,7 @@ export struct SettingsPage {
       this.toast(this.resStr('settings_host_deleted'));
       this.refreshHosts();
     }).catch((err: Error) => {
-      this.toast(err.message);
+      this.toast(pageErrText(this.getUIContext(), err));
     });
   }
 
@@ -182,7 +183,7 @@ export struct SettingsPage {
       this.toast(this.resStr('settings_host_default_done'));
       this.refreshHosts();
     }).catch((err: Error) => {
-      this.toast(err.message);
+      this.toast(pageErrText(this.getUIContext(), err));
     });
   }
 

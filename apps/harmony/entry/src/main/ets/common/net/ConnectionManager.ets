@@ -9,6 +9,7 @@ import { PacketType } from '../proto/PacketType';
 import type { Packet } from '../proto/Packet';
 import { utf8DecodeStrict } from '../proto/Utf8';
 import { Transport, TCP_CONNECT_TIMEOUT_MS } from './Transport';
+import { ResError } from '../ResError';
 
 const TAG: string = 'PadLink.ConnMgr';
 const DOMAIN: number = 0x5050;
@@ -44,7 +45,9 @@ export class ConnectionState {
   @Trace state: number = ConnState.IDLE;
   // 最近一次 ECHO 往返毫秒；-1 表示未知（未连接/尚无回包）。
   @Trace rttMs: number = -1;
-  @Trace lastError: string = '';
+  // 最近一次失败原因（string.json 资源键 + 参数，页面解析为当前语言文案；''= 无）。
+  @Trace lastErrorKey: string = '';
+  @Trace lastErrorParams: string[] = [];
   // 当前重连轮次（1 起；CONNECTED 时归零）。
   @Trace reconnectAttempt: number = 0;
 }
@@ -78,10 +81,10 @@ export class ConnectionManager {
       this.handlePacket(pkt);
     };
     this.transport.tcp.onClosed = () => {
-      this.onTcpDown('TCP 连接已关闭');
+      this.onTcpDown('conn_tcp_closed');
     };
     this.transport.tcp.onError = (err: BusinessError) => {
-      this.onTcpDown(`TCP 错误 ${err.code}: ${err.message}`);
+      this.onTcpDown('conn_tcp_error_fmt', [String(err.code), err.message]);
     };
   }
 
@@ -118,7 +121,8 @@ export class ConnectionManager {
     this.hostAddr = host;
     this.udpPortN = udpPort;
     this.tcpPortN = port;
-    this.snapshot.lastError = '';
+    this.snapshot.lastErrorKey = '';
+    this.snapshot.lastErrorParams = [];
     this.snapshot.rttMs = -1;
     // 连接进行中保持 IDLE：加载态由发起页（手动连接区）自管 connecting 标志。
     try {
@@ -126,12 +130,12 @@ export class ConnectionManager {
     } catch (err) {
       const e = err as BusinessError;
       if (autoRetry && this.epoch === myEpoch) {
-        this.enterReconnectingFromInitial(`连接失败：${e.code} ${e.message}`);
+        this.enterReconnectingFromInitial('conn_connect_failed_fmt', [String(e.code), e.message]);
         return;
       }
       this.teardown(this.epoch === myEpoch);
       this.snapshot.state = ConnState.IDLE;
-      throw new Error(`连接失败：${e.code} ${e.message}`);
+      throw new ResError('conn_connect_failed_fmt', [String(e.code), e.message], `连接失败：${e.code} ${e.message}`);
     }
     if (this.epoch !== myEpoch) {
       return; // 会话已被新的 connect/disconnect 取代
@@ -143,12 +147,12 @@ export class ConnectionManager {
     }
     if (!helloOk) {
       if (autoRetry && this.epoch === myEpoch) {
-        this.enterReconnectingFromInitial('握手超时：未收到 daemon 的 HELLO 应答');
+        this.enterReconnectingFromInitial('conn_hello_timeout');
         return;
       }
       this.teardown(true);
       this.snapshot.state = ConnState.IDLE;
-      throw new Error('握手超时：未收到 daemon 的 HELLO 应答');
+      throw new ResError('conn_hello_timeout', [], '握手超时：未收到 daemon 的 HELLO 应答');
     }
     this.enterConnected();
   }
@@ -161,7 +165,8 @@ export class ConnectionManager {
     this.hostAddr = host;
     this.udpPortN = udpPort;
     this.tcpPortN = port;
-    this.snapshot.lastError = '';
+    this.snapshot.lastErrorKey = '';
+    this.snapshot.lastErrorParams = [];
     this.snapshot.rttMs = -1;
     try {
       await this.transport.open(host, udpPort, port);
@@ -169,7 +174,7 @@ export class ConnectionManager {
       const e = err as BusinessError;
       this.teardown(this.epoch === myEpoch);
       this.snapshot.state = ConnState.IDLE;
-      throw new Error(`连接失败：${e.code} ${e.message}`);
+      throw new ResError('conn_connect_failed_fmt', [String(e.code), e.message], `连接失败：${e.code} ${e.message}`);
     }
     if (this.epoch !== myEpoch) {
       return;
@@ -182,7 +187,7 @@ export class ConnectionManager {
     if (!helloOk) {
       this.teardown(true);
       this.snapshot.state = ConnState.IDLE;
-      throw new Error('握手超时：未收到 daemon 的 HELLO 应答');
+      throw new ResError('conn_hello_timeout', [], '握手超时：未收到 daemon 的 HELLO 应答');
     }
     this.snapshot.state = ConnState.PAIRING;
   }
@@ -234,26 +239,29 @@ export class ConnectionManager {
     this.backoffIdx = 0;
     this.snapshot.state = ConnState.CONNECTED;
     this.snapshot.reconnectAttempt = 0;
-    this.snapshot.lastError = '';
+    this.snapshot.lastErrorKey = '';
+    this.snapshot.lastErrorParams = [];
     this.startHeartbeat();
   }
 
   // 首连失败转重连（FR-6 autoRetry）：释放 socket 后进 RECONNECTING 退避循环（至多 MAX_RECONNECT_FAILURES → LOST）。
-  private enterReconnectingFromInitial(reason: string): void {
+  private enterReconnectingFromInitial(reasonKey: string, reasonParams: string[] = []): void {
     this.teardown(true);
     this.snapshot.state = ConnState.RECONNECTING;
-    this.snapshot.lastError = reason;
+    this.snapshot.lastErrorKey = reasonKey;
+    this.snapshot.lastErrorParams = reasonParams;
     this.scheduleReconnect();
   }
 
-  private enterReconnecting(reason: string): void {
+  private enterReconnecting(reasonKey: string, reasonParams: string[] = []): void {
     if (this.manualClose || this.snapshot.state !== ConnState.CONNECTED) {
       return;
     }
     this.stopHeartbeat();
     this.backoffIdx = 0;
     this.snapshot.state = ConnState.RECONNECTING;
-    this.snapshot.lastError = reason;
+    this.snapshot.lastErrorKey = reasonKey;
+    this.snapshot.lastErrorParams = reasonParams;
     this.scheduleReconnect();
   }
 
@@ -287,7 +295,7 @@ export class ConnectionManager {
         return;
       }
       if (!helloOk) {
-        throw new Error('握手超时');
+        throw new ResError('conn_hello_timeout', [], '握手超时');
       }
       // 首连失败路径可能已 teardown(true) 关闭 UDP 数据面，重连成功前补开（保持 MOVE/SCROLL 通道）
       this.transport.udp.reset();
@@ -302,19 +310,21 @@ export class ConnectionManager {
       }
       const e = err as BusinessError;
       hilog.warn(DOMAIN, TAG, 'reconnect fail: %{public}s', e.message !== undefined ? e.message : '');
-      this.snapshot.lastError = `重连失败（第 ${this.backoffIdx} 次）`;
+      this.snapshot.lastErrorKey = 'conn_reconnect_attempt_fmt';
+      this.snapshot.lastErrorParams = [String(this.backoffIdx)];
       if (this.backoffIdx >= ConnPolicy.MAX_RECONNECT_FAILURES) {
-        this.enterLost('重连失败次数达上限，已停止自动重连');
+        this.enterLost('conn_reconnect_giveup');
       } else {
         this.scheduleReconnect();
       }
     }
   }
 
-  private enterLost(reason: string): void {
+  private enterLost(reasonKey: string, reasonParams: string[] = []): void {
     this.teardown(true);
     this.snapshot.state = ConnState.LOST;
-    this.snapshot.lastError = reason;
+    this.snapshot.lastErrorKey = reasonKey;
+    this.snapshot.lastErrorParams = reasonParams;
   }
 
   // 释放一切：心跳/重连定时器清空，两 socket 关闭（closeBoth=false 时保留连接供重连续用）。
@@ -342,7 +352,7 @@ export class ConnectionManager {
         this.awaitingReply = false;
         this.missed++;
         if (this.missed >= ConnPolicy.MAX_MISSED) {
-          this.enterReconnecting('心跳连续 3 次超时');
+          this.enterReconnecting('conn_heartbeat_timeout');
           return;
         }
       }
@@ -358,9 +368,9 @@ export class ConnectionManager {
     }
   }
 
-  private onTcpDown(reason: string): void {
+  private onTcpDown(reasonKey: string, reasonParams: string[] = []): void {
     if (this.snapshot.state === ConnState.CONNECTED) {
-      this.enterReconnecting(reason);
+      this.enterReconnecting(reasonKey, reasonParams);
     }
   }
 
@@ -404,7 +414,8 @@ export class ConnectionManager {
     }
     if (pkt.type === PacketType.ERR) {
       const text: string | null = utf8DecodeStrict(new Uint8Array(pkt.payload));
-      this.snapshot.lastError = text !== null ? `daemon ERR: ${text}` : `daemon ERR（${pkt.payload.byteLength}B）`;
+      this.snapshot.lastErrorKey = 'conn_daemon_err_fmt';
+      this.snapshot.lastErrorParams = [text !== null ? text : `${pkt.payload.byteLength}B`];
       return;
     }
     if (pkt.type === PacketType.PAIR_REQ || pkt.type === PacketType.PAIR_OK

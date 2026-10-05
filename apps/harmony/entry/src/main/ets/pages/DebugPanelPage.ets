@@ -14,7 +14,7 @@ import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { HostInfo } from '../common/viewmodel/SettingsModel';
 import { HostsFullError } from '../common/viewmodel/HostsStore';
-import { pageResStr } from './Res';
+import { pageResStr, pageErrText } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -271,11 +271,11 @@ export struct DebugPanelPage {
           this.showStatus(this.resStr('debug_hosts_full'), false);
           return;
         }
-        this.showStatus(`${this.resStr('debug_save_fail')}（${err.message}）`, false);
+        this.showStatus(`${this.resStr('debug_save_fail')}（${pageErrText(this.getUIContext(), err)}）`, false);
         hilog.warn(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
       });
     } catch (err) {
-      this.showStatus((err as Error).message, false); // 失败态：给原因，可重试
+      this.showStatus(pageErrText(this.getUIContext(), err as Error), false); // 失败态：给原因，可重试
     } finally {
       this.connecting = false;
     }

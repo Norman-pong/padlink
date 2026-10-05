@@ -10,6 +10,7 @@ import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { HostInfo, HostsKVStore, HostsPolicy, HostsStore } from './HostsStore';
+import { ResError } from '../ResError';
 
 // 旧版单档案键（迁移源；迁移成功后删除）。
 const LEGACY_KEYS: string[] = ['lastHost_ip', 'lastHost_port', 'lastHost_tokenHex', 'lastHost_name'];
@@ -40,7 +41,7 @@ class PreferencesKv implements HostsKVStore {
   public putString(key: string, value: string): void {
     const store = this.store;
     if (store === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     this.pending.push(store.put(key, value));
   }
@@ -49,7 +50,7 @@ class PreferencesKv implements HostsKVStore {
   public async flush(): Promise<void> {
     const store = this.store;
     if (store === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     const writes = this.pending;
     this.pending = [];
@@ -126,7 +127,7 @@ export class SettingsModel {
   public async saveLastHost(h: HostInfo): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     hs.upsert(h);
     await this.flushPending();
@@ -136,7 +137,7 @@ export class SettingsModel {
   public async listHosts(): Promise<HostInfo[]> {
     const hs = this.hostsStore;
     if (hs === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     return hs.listHosts();
   }
@@ -144,10 +145,10 @@ export class SettingsModel {
   public async renameHost(ip: string, port: number, newName: string): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     if (!hs.renameHost(ip, port, newName)) {
-      throw new Error('主机不存在或名称非法');
+      throw new ResError('settings_host_invalid', [], '主机不存在或名称非法');
     }
     await this.flushPending();
   }
@@ -156,10 +157,10 @@ export class SettingsModel {
   public async removeHost(ip: string, port: number): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     if (!hs.removeHost(ip, port)) {
-      throw new Error('主机不存在');
+      throw new ResError('settings_host_missing', [], '主机不存在');
     }
     await this.flushPending();
   }
@@ -168,10 +169,10 @@ export class SettingsModel {
   public async setDefault(ip: string, port: number): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     if (!hs.setDefault(ip, port)) {
-      throw new Error('主机不存在');
+      throw new ResError('settings_host_missing', [], '主机不存在');
     }
     await this.flushPending();
   }
@@ -225,7 +226,7 @@ export class SettingsModel {
 
   private async putAndFlush(key: string, value: preferences.ValueType): Promise<void> {
     if (this.store === null) {
-      throw new Error('设置存储未初始化');
+      throw new ResError('settings_store_not_ready', [], '设置存储未初始化');
     }
     try {
       const store = this.store;

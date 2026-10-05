@@ -16,6 +16,7 @@ import { HostsFullError } from './HostsStore';
 import { nakReasonKey, validatePairCode, parsePairNakReason, pairOkToken,
   buildPairReqInitJson, buildPairReqCodeBytes, sanitizeDeviceName } from './PairingCore';
 import { PacketType } from '../proto/PacketType';
+import { ResError } from '../ResError';
 import { newRaw } from '../proto/Packet';
 import type { Packet } from '../proto/Packet';
 import { utf8Encode } from '../proto/Utf8';
@@ -61,6 +62,10 @@ export class PairingSnapshot {
   @Trace errorText: string = '';
   // 静态错误文案资源键（PAIR_NAK 映射；页面 getStringByNameSync 取）。
   @Trace errorKey: string = '';
+  // errorKey 的格式化参数（%1$s 按序替换；无参时为空数组）。
+  @Trace errorParams: string[] = [];
+  // 补充提示资源键（如快连失败时的自动重连引导；''= 无）。
+  @Trace errorHintKey: string = '';
   // 确认码输入镜像（4 格回显 + 输满自动提交）。
   @Trace code: string = '';
 }
@@ -138,7 +143,7 @@ export class PairingModel {
       }
     } catch (err) {
       this.snapshot.hosts = [];
-      this.snapshot.errorText = `发现失败：${(err as Error).message}`;
+      this.setKeyError('pair_discover_failed_fmt', [(err as Error).message]);
       this.snapshot.phase = PairPhase.FAILED;
       if (this.conn.snapshot.state === ConnState.DISCOVERING) {
         this.conn.snapshot.state = ConnState.IDLE;
@@ -156,7 +161,7 @@ export class PairingModel {
     try {
       await this.conn.connectForPairing(host.ip, host.port, DEFAULT_PORT);
     } catch (err) {
-      this.snapshot.errorText = (err as Error).message;
+      this.setConnError(err as Error);
       this.snapshot.phase = PairPhase.FAILED;
       return;
     }
@@ -216,7 +221,7 @@ export class PairingModel {
       return; // 已取消/已被新流程取代
     }
     if (reply === null) {
-      this.snapshot.errorText = '主机无响应，请重新发起配对';
+      this.setKeyError('pair_err_no_response');
       this.snapshot.phase = PairPhase.PENDING_CODE;
       return;
     }
@@ -228,7 +233,7 @@ export class PairingModel {
       return;
     }
     if (reply.type !== PacketType.PAIR_OK) {
-      this.snapshot.errorText = '主机回包异常，请重新发起配对';
+      this.setKeyError('pair_err_bad_reply');
       this.snapshot.phase = PairPhase.PENDING_CODE;
       return;
     }
@@ -284,7 +289,7 @@ export class PairingModel {
     }
     const token = hexToBytes(host.tokenHex);
     if (token === null || host.ip.length === 0) {
-      this.snapshot.errorText = '本机保存的凭据已损坏，请重新配对';
+      this.setKeyError('pair_err_credential_invalid');
       this.snapshot.phase = PairPhase.FAILED;
       return;
     }
@@ -292,7 +297,8 @@ export class PairingModel {
     try {
       await this.conn.connect(host.ip, host.port, host.port, token, false);
     } catch (err) {
-      this.snapshot.errorText = `${(err as Error).message}（也可返回主控页等待自动重连）`;
+      this.setConnError(err as Error);
+      this.snapshot.errorHintKey = 'pair_hint_auto_reconnect';
       this.snapshot.phase = PairPhase.FAILED;
       return;
     }
@@ -307,14 +313,14 @@ export class PairingModel {
     }
     const token = pairOkToken(reply.payload);
     if (token === null) {
-      this.snapshot.errorText = '配对回包格式异常，请重新发起';
+      this.setKeyError('pair_err_reply_format');
       this.snapshot.phase = PairPhase.PENDING_CODE;
       return;
     }
     // 端到端自证：PAIR_OK 用刚签发的 token 封签，验签失败按 NAK 处理
     if (!verifyHmac(reply, new CryptoHmacProvider(token))) {
       hilog.warn(DOMAIN, TAG, 'PAIR_OK hmac verify fail');
-      this.snapshot.errorText = '配对回包校验失败，请重新发起';
+      this.setKeyError('pair_err_reply_hmac');
       this.snapshot.code = '';
       this.snapshot.phase = PairPhase.PENDING_CODE;
       return;
@@ -381,6 +387,26 @@ export class PairingModel {
   private resetError(): void {
     this.snapshot.errorText = '';
     this.snapshot.errorKey = '';
+    this.snapshot.errorParams = [];
+    this.snapshot.errorHintKey = '';
+  }
+
+  // 静态文案错误：清动态文案，写资源键 + 参数（页面经 pageResFmt 解析为当前语言）。
+  private setKeyError(key: string, params: string[] = []): void {
+    this.snapshot.errorText = '';
+    this.snapshot.errorKey = key;
+    this.snapshot.errorParams = params;
+  }
+
+  // 连接层错误：ResError 转资源键；其余（系统 BusinessError 等）原样展示 message。
+  private setConnError(err: Error): void {
+    if (err instanceof ResError) {
+      this.setKeyError(err.resKey, err.resParams);
+    } else {
+      this.snapshot.errorKey = '';
+      this.snapshot.errorParams = [];
+      this.snapshot.errorText = err.message;
+    }
   }
 
   private refreshQuickLabel(): void {

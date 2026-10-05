@@ -21,7 +21,7 @@ import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { KeyboardPage } from './KeyboardPage';
 import { VoicePage } from './VoicePage';
 import type { VoiceModel } from '../common/voice/VoiceModel';
-import { pageResStr } from './Res';
+import { pageResStr, pageResFmt } from './Res';
 
 // 触摸面/胶囊度量单源（hds-components §一.2：禁散落魔数，本页全部边距在此收敛）。
 const SIDE_MARGIN_VP: number = 12; // 触摸面左右经验边距：侧边手势区无 API 可查，真机待校准
@@ -373,9 +373,10 @@ export struct MainControlPage {
               }
             }
             if (this.conn.snapshot.state === ConnState.RECONNECTING
-              && this.conn.snapshot.lastError.length > 0) {
-              // lastError 携带原因/轮次（tryReconnect 写入「重连失败（第 N 次）」），满足浮层轮次展示
-              Text(this.conn.snapshot.lastError)
+              && this.conn.snapshot.lastErrorKey.length > 0) {
+              // lastErrorKey/Params 携带原因/轮次（如「重连失败（第 N 次）」），满足浮层轮次展示
+              Text(pageResFmt(this.getUIContext(), this.conn.snapshot.lastErrorKey,
+                this.conn.snapshot.lastErrorParams))
                 .fontSize($r('sys.float.ohos_id_text_size_body2'))
                 .fontColor($r('sys.color.font_secondary'))
                 .maxLines(1)

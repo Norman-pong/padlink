@@ -711,6 +711,86 @@
     {
       "name": "settings_version_a11y_hint",
       "value": "Tap five times to open the debug panel"
+    },
+    {
+      "name": "conn_tcp_closed",
+      "value": "TCP connection closed"
+    },
+    {
+      "name": "conn_tcp_error_fmt",
+      "value": "TCP error %1$s: %2$s"
+    },
+    {
+      "name": "conn_connect_failed_fmt",
+      "value": "Connection failed: %1$s %2$s"
+    },
+    {
+      "name": "conn_hello_timeout",
+      "value": "Handshake timed out: no HELLO reply from the daemon"
+    },
+    {
+      "name": "conn_reconnect_attempt_fmt",
+      "value": "Reconnect failed (attempt %1$s)"
+    },
+    {
+      "name": "conn_reconnect_giveup",
+      "value": "Retry limit reached; auto-reconnect stopped"
+    },
+    {
+      "name": "conn_heartbeat_timeout",
+      "value": "Heartbeat timed out 3 times in a row"
+    },
+    {
+      "name": "conn_daemon_err_fmt",
+      "value": "Host returned an error: %1$s"
+    },
+    {
+      "name": "pair_discover_failed_fmt",
+      "value": "Discovery failed: %1$s"
+    },
+    {
+      "name": "pair_err_no_response",
+      "value": "No response from the host; start pairing again"
+    },
+    {
+      "name": "pair_err_bad_reply",
+      "value": "Unexpected reply from the host; start pairing again"
+    },
+    {
+      "name": "pair_err_credential_invalid",
+      "value": "The saved credential is corrupted; pair again"
+    },
+    {
+      "name": "pair_hint_auto_reconnect",
+      "value": "You can also return to the main page and wait for auto-reconnect"
+    },
+    {
+      "name": "pair_err_reply_format",
+      "value": "Malformed pairing reply; start pairing again"
+    },
+    {
+      "name": "pair_err_reply_hmac",
+      "value": "Pairing reply verification failed; start pairing again"
+    },
+    {
+      "name": "settings_store_not_ready",
+      "value": "Settings storage is not initialized"
+    },
+    {
+      "name": "settings_host_invalid",
+      "value": "Host not found or name invalid"
+    },
+    {
+      "name": "settings_host_missing",
+      "value": "Host not found"
+    },
+    {
+      "name": "hosts_ip_empty",
+      "value": "Host IP cannot be empty"
+    },
+    {
+      "name": "hosts_full_fmt",
+      "value": "Paired hosts limit reached (%1$s max); delete one first"
     }
   ]
 }
