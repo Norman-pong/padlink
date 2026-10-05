@@ -42,6 +42,8 @@ const A11Y_KEYS: string[] = [
 ];
 
 // 单键帽：按压高亮自管；active（粘滞修饰/符号层点亮）用系统 token 强调色 + 反白文字。
+// 动效取舍（motion.md §一 归层律）：按键物理隐喻 = 按压底色反馈（lit 底色），不加跟手缩放——
+// 缩放是圆钮/卡片类浮层的形变隐喻，键帽按压保持几何稳定更符合物理键盘直觉（D9 定案）。
 @ComponentV2
 struct KeyCap {
   @Param label: string = '';
@@ -296,7 +298,12 @@ export struct KeyboardPage {
         .layoutWeight(3.2)
 
         Column({ space: KEY_GAP_VP }) {
-          this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP, 1)
+          // ↑ 独占一行：KeyCap.layoutWeight 是行内水平分权，裸放进垂直 Column 会变成
+          // 纵向权重被拉满整列高度（折叠态实测 42vp 键帽被拉伸到 ~590vp）。
+          Row() {
+            this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP, 1)
+          }
+          .width('100%')
           Row({ space: KEY_GAP_VP }) {
             this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT, 1)
             this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN, 1)

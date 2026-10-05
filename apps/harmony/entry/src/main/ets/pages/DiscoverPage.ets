@@ -2,10 +2,19 @@
 // 选中连接 → 大号 4 位确认码输入（输满自动提交）→ PAIR_OK 保存 lastHost 回主控页。
 // 四态齐备（发现中/列表/空态/失败重试），全程无白屏无假死；已有 lastHost 时页顶给快速连接入口。
 // UI 文案全部走 string.json（中英双份，lore 约束）；PAIR_NAK 文案键由 PairingCore 映射。
+// HDS（D5）：HdsNavDestination 根容器 + 滚动模糊标题栏（样式单源见 HdsTitleBar.ets）+
+// bindToScrollable 绑定主机列表 Scroller；内容区在标题栏下方（enableComponentSafeArea 承担
+// 状态栏避让），列表 clip(false)+cachedCount 让滚动内容穿透到标题栏下方显影模糊
+// （ui-design-navigation-dynamic-blur 官方模式）。页底色/卡面 token 对齐 D3 分组列表规范。
+import { HdsNavDestination } from '@kit.UIDesignKit';
 import { PairPhase } from '../common/viewmodel/PairingModel';
 import type { PairingModel } from '../common/viewmodel/PairingModel';
 import type { DiscoveredHost } from '../common/net/DiscoverCore';
 import { pageResStr } from './Res';
+import { scrollBlurTitleBarStyle } from './HdsTitleBar';
+import { PressedRow } from './PressedRow';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
 const PAIRED_STAY_MS: number = 800; // 成功提示停留时长，之后返回主控页
 
@@ -14,9 +23,13 @@ export struct DiscoverPage {
   @Require @Param pathStack: NavPathStack;
   @Require @Param pairing: PairingModel;
 
+  private scroller: Scroller = new Scroller(); // 主机列表滚动器（标题栏滚动模糊联动）
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
   private popTimer: number = -1;
 
   aboutToAppear(): void {
+    // 确认码 TextInput + 下方按钮：RESIZE 键盘避让（faqs-arkui-1073）
+    this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
     this.pairing.onPaired = (): void => {
       this.schedulePop();
     };
@@ -31,6 +44,7 @@ export struct DiscoverPage {
   }
 
   aboutToDisappear(): void {
+    restoreKeyboardAvoidMode(this.getUIContext(), this.kbPrev);
     this.pairing.onPageLeave();
     this.pairing.onPaired = null;
     this.pairing.onHostsFull = null;
@@ -79,7 +93,7 @@ export struct DiscoverPage {
   }
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column({ space: 16 }) {
         if (this.pairing.snapshot.phase === PairPhase.DISCOVERING) {
           this.progressView($r('app.string.discover_searching'))
@@ -112,7 +126,20 @@ export struct DiscoverPage {
       .height('100%')
       .padding(16)
     }
-    .title($r('app.string.page_discover'))
+    .titleBar({
+      // 全屏窗口组合（hds-components §一.2，硬约束 4）：主控页常驻 layoutFullScreen，子页
+      // 窗口实为全屏形态。avoidLayoutSafeArea 管标题栏自身避让状态栏（缺它 MINI 栏塌陷
+      // 17vp、返回键压入状态栏）；enableComponentSafeArea 管内容避开标题栏（缺它内容钻入
+      // 栏下）——两者缺一不可（MateX7 实测）。
+      style: scrollBlurTitleBarStyle(),
+      content: {
+        title: { mainTitle: $r('app.string.page_discover') }
+      },
+      avoidLayoutSafeArea: true,
+      enableComponentSafeArea: true
+    })
+    .bindToScrollable([this.scroller])
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // D3 分组列表页底色（覆盖标题栏区域，防上下拼色）
   }
 
   @Builder
@@ -172,25 +199,25 @@ export struct DiscoverPage {
   listView() {
     Column({ space: 12 }) {
       if (this.pairing.snapshot.quickLabel.length > 0) {
-        // 快速连接入口（lastHost 已有 token）：标题 + 主机标签，点击直连
-        Column({ space: 4 }) {
-          Text($r('app.string.discover_quick'))
-            .fontSize($r('sys.float.ohos_id_text_size_body1'))
-            .fontColor($r('sys.color.font_primary'))
-          Text(this.pairing.snapshot.quickLabel)
-            .fontSize($r('sys.float.ohos_id_text_size_body2'))
-            .fontColor($r('sys.color.font_secondary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        // 快速连接入口（lastHost 已有 token）：标题 + 主机标签，点击直连（PressedRow 按压态 + a11y）
+        PressedRow({
+          a11yText: `${this.resStr('discover_quick')}，${this.pairing.snapshot.quickLabel}`,
+          onActivated: (): void => {
+            this.pairing.quickConnect();
+          }
+        }) {
+          Column({ space: 4 }) {
+            Text($r('app.string.discover_quick'))
+              .fontSize($r('sys.float.ohos_id_text_size_body1'))
+              .fontColor($r('sys.color.font_primary'))
+            Text(this.pairing.snapshot.quickLabel)
+              .fontSize($r('sys.float.ohos_id_text_size_body2'))
+              .fontColor($r('sys.color.font_secondary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .width('100%')
         }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding(12)
-        .borderRadius(12)
-        .backgroundColor($r('sys.color.comp_background_tertiary'))
-        .onClick(() => {
-          this.pairing.quickConnect();
-        })
       }
       if (this.pairing.snapshot.hosts.length > 0) {
         Row() {
@@ -205,34 +232,38 @@ export struct DiscoverPage {
             })
         }
         .width('100%')
-        List({ space: 8 }) {
+        List({ space: 8, scroller: this.scroller }) {
           ForEach(this.pairing.snapshot.hosts, (h: DiscoveredHost) => {
             ListItem() {
-              Column({ space: 4 }) {
-                Text(h.name.length > 0 ? h.name : h.ip)
-                  .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                  .fontColor($r('sys.color.font_primary'))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(`${h.os} · daemon ${h.daemon} · ${this.resStr('discover_paired_count')} ${h.paired}`)
-                  .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                  .fontColor($r('sys.color.font_secondary'))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              PressedRow({
+                a11yText: `${h.name.length > 0 ? h.name : h.ip}，${this.hostInfo(h)}`,
+                onActivated: (): void => {
+                  this.pairing.selectHost(h);
+                }
+              }) {
+                Column({ space: 4 }) {
+                  Text(h.name.length > 0 ? h.name : h.ip)
+                    .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                    .fontColor($r('sys.color.font_primary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(this.hostInfo(h))
+                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                    .fontColor($r('sys.color.font_secondary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .width('100%')
               }
-              .alignItems(HorizontalAlign.Start)
-              .width('100%')
-              .padding(12)
-              .borderRadius(12)
-              .backgroundColor($r('sys.color.comp_background_tertiary'))
-              .onClick(() => {
-                this.pairing.selectHost(h);
-              })
             }
           }, (h: DiscoveredHost) => h.ip)
         }
-        .layoutWeight(1)
         .width('100%')
+        .layoutWeight(1)
+        // 穿透到标题栏下方显影滚动模糊（ui-design-navigation-dynamic-blur）：
+        // 关闭列表裁剪让滚出视口的内容仍渲染进栏区；cachedCount 保穿透项不因虚拟化消失。
+        .clip(false)
+        .cachedCount(3, true)
       } else {
         // 空态：无主机 + 排查提示 + 重扫
         Column({ space: 12 }) {
@@ -255,6 +286,11 @@ export struct DiscoverPage {
     }
     .width('100%')
     .layoutWeight(1)
+  }
+
+  // 主机行副文案：os · daemon 版本 · 已配对数（展示与无障碍播报共用）。
+  private hostInfo(h: DiscoveredHost): string {
+    return `${h.os} · daemon ${h.daemon} · ${this.resStr('discover_paired_count')} ${h.paired}`;
   }
 
   @Builder

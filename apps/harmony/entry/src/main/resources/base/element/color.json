@@ -3,6 +3,10 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "capsule_material",
+      "value": "#A6FFFFFF"
     }
   ]
 }

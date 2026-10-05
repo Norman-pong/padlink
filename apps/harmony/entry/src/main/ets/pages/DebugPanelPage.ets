@@ -1,8 +1,11 @@
 // 调试面板（FR-7 / PRD §4.8）：1Hz 实时数据（手势状态/触摸采样率/发送速率/RTT/收发计数）、
 // echo 自测（10 连发列 RTT）、手动连接区（M1 联调：IP/端口/token(hex) + 连接/断开，
 // 交互四态：空闲/连接中(LoadingProgress)/成功/失败(带原因)+断开提示；成功后写 lastHost 偏好）。
+// HDS（D5/D3）：HdsNavDestination + 滚动模糊标题栏（单源 HdsTitleBar.ets）+ Scroller 绑定；
+// 分隔线 comp_divider 0.5vp，页底色与列表页对齐 ohos_id_color_sub_background。
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { HdsNavDestination } from '@kit.UIDesignKit';
 import { GestureStateName } from '../common/gesture/GestureEngine';
 import { ConnState } from '../common/net/ConnectionManager';
 import type { ConnectionManager, RttListener } from '../common/net/ConnectionManager';
@@ -12,10 +15,14 @@ import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { HostInfo } from '../common/viewmodel/SettingsModel';
 import { HostsFullError } from '../common/viewmodel/HostsStore';
 import { pageResStr } from './Res';
+import { scrollBlurTitleBarStyle } from './HdsTitleBar';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
 const TAG: string = 'PadLink.Debug';
 const DOMAIN: number = 0x5050;
 const ECHO_TEST_COUNT: number = 10;
+const DIVIDER_WIDTH_VP: number = 0.5; // D3：分隔线规格与分组卡规范对齐
 
 // 合成轨迹参数（FR-7）：72 点近似圆、半径 120 计数、8ms 步进（约 0.6s 画完）。
 const TRAJ_SEGMENTS: number = 72;
@@ -110,6 +117,8 @@ export struct DebugPanelPage {
   // 页面存活秒数（1Hz 走字）：既是 Realtime 区刷新节拍的可视证据，也用于排查整页渲染冻结
   @Local pageSec: number = 0;
   private refreshTimer: number = -1;
+  private scroller: Scroller = new Scroller(); // 页面滚动器（标题栏滚动模糊联动）
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
   private openedAtMs: number = 0;
   private echoPending: number = 0;
   private rttCb: RttListener = (rtt: number) => {
@@ -117,6 +126,8 @@ export struct DebugPanelPage {
   };
 
   aboutToAppear(): void {
+    // 含底部按钮的滚动表单页：RESIZE 压缩视口，键盘弹起时连接按钮可滚达（faqs-arkui-1073）
+    this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
     this.conn.addRttListener(this.rttCb);
     this.openedAtMs = new Date().getTime();
     this.settings.getLastHost().then((h: HostInfo | null) => {
@@ -135,6 +146,7 @@ export struct DebugPanelPage {
   }
 
   aboutToDisappear(): void {
+    restoreKeyboardAvoidMode(this.getUIContext(), this.kbPrev);
     if (this.refreshTimer >= 0) {
       clearInterval(this.refreshTimer);
       this.refreshTimer = -1;
@@ -296,8 +308,8 @@ export struct DebugPanelPage {
   }
 
   build() {
-    NavDestination() {
-      Scroll() {
+    HdsNavDestination() {
+      Scroll(this.scroller) {
         Column({ space: 16 }) {
           // ---- 实时数据（1Hz） ----
           Column({ space: 8 }) {
@@ -326,7 +338,7 @@ export struct DebugPanelPage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          Divider().color($r('sys.color.comp_divider'))
+          Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
 
           // ---- echo 自测 ----
           Column({ space: 8 }) {
@@ -352,7 +364,7 @@ export struct DebugPanelPage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          Divider().color($r('sys.color.comp_divider'))
+          Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
 
           // ---- 合成轨迹自测（FR-7：验证 UDP 数据面到 daemon 注入端到端） ----
           Row() {
@@ -374,7 +386,7 @@ export struct DebugPanelPage {
           }
           .width('100%')
 
-          Divider().color($r('sys.color.comp_divider'))
+          Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
 
           // ---- 手动连接区（M1 联调） ----
           Column({ space: 8 }) {
@@ -432,7 +444,24 @@ export struct DebugPanelPage {
       .width('100%')
       .height('100%')
       .scrollBar(BarState.Off)
+      // 内容短于视口时顶对齐：Scroll 默认居中会让表单页顶部悬空一段空白
+      .align(Alignment.Top)
+      // 穿透到标题栏下方显影滚动模糊（ui-design-navigation-dynamic-blur 官方模式）
+      .clip(false)
     }
-    .title($r('app.string.page_debug'))
+    .titleBar({
+      // 全屏窗口组合（hds-components §一.2，硬约束 4）：主控页常驻 layoutFullScreen，子页
+      // 窗口实为全屏形态。avoidLayoutSafeArea 管标题栏自身避让状态栏（缺它 MINI 栏塌陷
+      // 17vp、返回键压入状态栏）；enableComponentSafeArea 管内容避开标题栏（缺它内容钻入
+      // 栏下）——两者缺一不可（MateX7 实测）。
+      style: scrollBlurTitleBarStyle(),
+      content: {
+        title: { mainTitle: $r('app.string.page_debug') }
+      },
+      avoidLayoutSafeArea: true,
+      enableComponentSafeArea: true
+    })
+    .bindToScrollable([this.scroller])
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
   }
 }

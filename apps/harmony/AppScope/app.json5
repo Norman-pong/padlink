@@ -5,6 +5,9 @@
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:layered_image",
-    "label": "$string:app_name"
+    "label": "$string:app_name",
+    // 系统字号跟随（faqs-ability-166 / hds-components.md §四）：
+    // 必须 profile 文件引用，内联对象写法 hvigor schema 直接拒绝构建。
+    "configuration": "$profile:configuration"
   }
 }

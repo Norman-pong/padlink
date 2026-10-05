@@ -7,18 +7,26 @@
 // API18 废弃，ts-methods-alert-dialog-box / arkts-fixes-style-dialog）；操作反馈走
 // UIContext.getPromptAction().showToast（arkts-apis-uicontext-promptaction）；重命名因需
 // TextInput 输入用页内蒙层弹层实现（CustomDialogController 依赖 V1 状态装饰器，V2 页面从简）。
+// HDS（D5/D3）：HdsNavDestination + 滚动模糊标题栏（单源 HdsTitleBar.ets）+ Scroller 绑定；
+// 页底色 ohos_id_color_sub_background、卡面 comp_background_primary、分隔线 comp_divider
+// 0.5vp；蒙层用系统 token ohos_id_color_mask_regular（原 rgba 硬编码清零）。
 import { bundleManager } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { HdsNavDestination } from '@kit.UIDesignKit';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import { HostInfo, validateHostName } from '../common/viewmodel/HostsStore';
+import { scrollBlurTitleBarStyle } from './HdsTitleBar';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
 const TAG: string = 'PadLink.SettingsPage';
 const DOMAIN: number = 0x5050;
 const VERSION_TAP_WINDOW_MS: number = 400;
 const VERSION_TAP_COUNT: number = 5;
 const TOAST_MS: number = 2000;
+const DIVIDER_WIDTH_VP: number = 0.5; // D3：分隔线规格与分组卡规范对齐
 
 @ComponentV2
 export struct SettingsPage {
@@ -31,6 +39,8 @@ export struct SettingsPage {
   @Local debugOn: boolean = false;
   @Local appVersion: string = '';
   private tapTimes: number[] = [];
+  private scroller: Scroller = new Scroller(); // 页面滚动器（标题栏滚动模糊联动）
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
 
   // 已配对主机（四态：加载中/加载失败/空态/列表；操作反馈用 toast）
   @Local hosts: HostInfo[] = [];
@@ -44,11 +54,17 @@ export struct SettingsPage {
   @Local renameError: string = '';
 
   aboutToAppear(): void {
+    // 重命名弹层 TextInput + 保存/取消按钮：RESIZE 键盘避让（faqs-arkui-1073）
+    this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
     this.sensValue = this.settings.sensitivity;
     this.naturalOn = this.settings.naturalScroll;
     this.debugOn = this.settings.debugEnabled;
     this.appVersion = this.loadVersion();
     this.refreshHosts();
+  }
+
+  aboutToDisappear(): void {
+    restoreKeyboardAvoidMode(this.getUIContext(), this.kbPrev);
   }
 
   private loadVersion(): string {
@@ -208,9 +224,9 @@ export struct SettingsPage {
   }
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Stack() {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 16 }) {
             // 灵敏度
             Column({ space: 8 }) {
@@ -233,7 +249,7 @@ export struct SettingsPage {
             .alignItems(HorizontalAlign.Start)
             .width('100%')
 
-            // 自然滚动
+            // 自然滚动（开关行：Toggle 无障碍名补行标题，读屏播报「自然滚动，开关，已开启」）
             Row() {
               Text($r('app.string.settings_natural_scroll'))
                 .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -243,6 +259,7 @@ export struct SettingsPage {
                 .onChange((isOn: boolean) => {
                   this.onNaturalChange(isOn);
                 })
+                .accessibilityText($r('app.string.settings_natural_scroll'))
             }
             .width('100%')
 
@@ -265,11 +282,13 @@ export struct SettingsPage {
                 .onChange((isOn: boolean) => {
                   this.onDebugChange(isOn);
                 })
+                .accessibilityText($r('app.string.settings_debug'))
             }
             .width('100%')
             .alignItems(VerticalAlign.Center)
 
             Divider()
+              .strokeWidth(DIVIDER_WIDTH_VP)
               .color($r('sys.color.comp_divider'))
 
             // 关于（FR-7 隐藏入口挂在版本行）
@@ -284,6 +303,7 @@ export struct SettingsPage {
                   .onClick(() => {
                     this.onVersionClick();
                   })
+                  .accessibilityDescription($r('app.string.settings_version_a11y_hint'))
               } else {
                 Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
                   .fontSize($r('sys.float.ohos_id_text_size_body2'))
@@ -302,6 +322,10 @@ export struct SettingsPage {
         .width('100%')
         .height('100%')
         .scrollBar(BarState.Off)
+        // 内容短于视口时顶对齐：Scroll 默认居中会让表单页顶部悬空一段空白
+        .align(Alignment.Top)
+        // 穿透到标题栏下方显影滚动模糊（ui-design-navigation-dynamic-blur 官方模式）
+        .clip(false)
 
         // 重命名弹层（页内蒙层实现，置于滚动层之上）
         if (this.renameIp.length > 0) {
@@ -311,7 +335,20 @@ export struct SettingsPage {
       .width('100%')
       .height('100%')
     }
-    .title($r('app.string.page_settings'))
+    .titleBar({
+      // 全屏窗口组合（hds-components §一.2，硬约束 4）：主控页常驻 layoutFullScreen，子页
+      // 窗口实为全屏形态。avoidLayoutSafeArea 管标题栏自身避让状态栏（缺它 MINI 栏塌陷
+      // 17vp、返回键压入状态栏）；enableComponentSafeArea 管内容避开标题栏（缺它内容钻入
+      // 栏下）——两者缺一不可（MateX7 实测）。
+      style: scrollBlurTitleBarStyle(),
+      content: {
+        title: { mainTitle: $r('app.string.page_settings') }
+      },
+      avoidLayoutSafeArea: true,
+      enableComponentSafeArea: true
+    })
+    .bindToScrollable([this.scroller])
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // D3 分组列表页底色（覆盖标题栏区域，防上下拼色）
   }
 
   @Builder
@@ -334,7 +371,7 @@ export struct SettingsPage {
         .width('100%')
         .padding(12)
         .borderRadius(12)
-        .backgroundColor($r('sys.color.comp_background_tertiary'))
+        .backgroundColor($r('sys.color.comp_background_primary'))
       } else if (this.hostsError.length > 0) {
         // 失败态：给原因 + 重试
         Column({ space: 8 }) {
@@ -354,7 +391,7 @@ export struct SettingsPage {
         .width('100%')
         .padding(12)
         .borderRadius(12)
-        .backgroundColor($r('sys.color.comp_background_tertiary'))
+        .backgroundColor($r('sys.color.comp_background_primary'))
       } else if (this.hosts.length === 0) {
         // 空态
         Text($r('app.string.settings_hosts_empty'))
@@ -363,7 +400,7 @@ export struct SettingsPage {
           .width('100%')
           .padding(12)
           .borderRadius(12)
-          .backgroundColor($r('sys.color.comp_background_tertiary'))
+          .backgroundColor($r('sys.color.comp_background_primary'))
       } else {
         // 列表态
         Column({ space: 8 }) {
@@ -435,7 +472,7 @@ export struct SettingsPage {
     }
     .padding(12)
     .borderRadius(12)
-    .backgroundColor($r('sys.color.comp_background_tertiary'))
+    .backgroundColor($r('sys.color.comp_background_primary'))
     .width('100%')
   }
 
@@ -446,7 +483,7 @@ export struct SettingsPage {
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)') // 弹层蒙层半透明黑（无对应系统 token，取常用 scrim 值）
+        .backgroundColor($r('sys.color.ohos_id_color_mask_regular')) // 弹层蒙层：系统 token，深浅色自适应
       Column({ space: 12 }) {
         Text($r('app.string.settings_host_rename'))
           .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -456,6 +493,7 @@ export struct SettingsPage {
           .height(40)
           .maxLength(64)
           .defaultFocus(true)
+          // 输入框底色区别于弹层卡面（同色会隐形）；tertiary 为输入件底色非列表卡面，不属 D3 范围
           .backgroundColor($r('sys.color.comp_background_tertiary'))
           .onChange((v: string) => {
             this.renameText = v;

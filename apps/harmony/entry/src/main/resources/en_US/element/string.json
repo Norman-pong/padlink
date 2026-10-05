@@ -145,10 +145,6 @@
       "value": "Hold to talk"
     },
     {
-      "name": "voice_a11y_hint",
-      "value": "Press and hold to record; release to recognize the speech and type it on your computer"
-    },
-    {
       "name": "voice_hold_hint",
       "value": "Hold to talk, release to type"
     },
@@ -659,6 +655,22 @@
     {
       "name": "debug_save_fail",
       "value": "Failed to save host profile"
+    },
+    {
+      "name": "a11y_capsule_format",
+      "value": "%1$s, latency %2$s"
+    },
+    {
+      "name": "voice_a11y_hold_to_speak",
+      "value": "Press and hold to speak"
+    },
+    {
+      "name": "voice_a11y_release_to_end",
+      "value": "Release to end dictation"
+    },
+    {
+      "name": "settings_version_a11y_hint",
+      "value": "Tap five times to open the debug panel"
     }
   ]
 }

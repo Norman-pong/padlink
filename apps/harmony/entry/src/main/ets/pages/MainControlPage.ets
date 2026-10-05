@@ -5,9 +5,13 @@
 // - arkts-apis-window-e：TYPE_NAVIGATION_INDICATOR(4) 是取底部手势条的唯一途径；
 //   侧边手势区无 API（TYPE_SYSTEM_GESTURE 所有设备返回空）→ 左右各 12vp 经验边距（真机待校准）。
 // - faqs-arkui-196：进入主控页 setWindowKeepScreenOn(true)，退出恢复 false。
-// 状态浮层：backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)（ts-universal-attributes-background，
-// 近距景深预定义材质，HDS 归层 THIN/ADAPTIVE 档），@Trace 快照驱动刷新，点击进调试页。
-import { window } from '@kit.ArkUI';
+// 状态浮层（HDS 层1 材质 + 硬约束1/2）：.systemMaterial(ImmersiveMaterial ULTRA_THIN) +
+// 透明背景——材质层位于 background 之下，禁再叠 backgroundBlurStyle；materialColor 用带透明度的
+// token 色（capsule_material，深浅各一档）。API26 模拟器 uiMaterial 假支持（渲染无效果，lore
+// 1938f08），此时 materialColor 直接作 backgroundColor 兜底（定则二：可读性不依赖材质）；真机
+// 上材质滤镜叠加半透色为增益形态。65%（0xA6）半透度按「深/浅两色内容上 font_primary 文字均可读」
+// 取定。胶囊整体 accessibilityText 随连接状态+RTT 动态拼接（硬约束 11），点击进调试页。
+import { window, uiMaterial } from '@kit.ArkUI';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { ConnState } from '../common/net/ConnectionManager';
@@ -17,8 +21,14 @@ import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { KeyboardPage } from './KeyboardPage';
 import { VoicePage } from './VoicePage';
 import type { VoiceModel } from '../common/voice/VoiceModel';
+import { pageResStr } from './Res';
 
-const SIDE_MARGIN_VP: number = 12; // 左右经验边距：侧边手势区无 API 可查，真机待校准
+// 触摸面/胶囊度量单源（hds-components §一.2：禁散落魔数，本页全部边距在此收敛）。
+const SIDE_MARGIN_VP: number = 12; // 触摸面左右经验边距：侧边手势区无 API 可查，真机待校准
+const CAPSULE_MARGIN_VP: number = 12; // 胶囊距屏幕右缘/状态栏下缘的间距
+const CAPSULE_PAD_H_VP: number = 12; // 胶囊内水平内边距
+const CAPSULE_PAD_V_VP: number = 6; // 胶囊内垂直内边距
+const CAPSULE_RADIUS_VP: number = 18; // 胶囊圆角（上下内边距 6 + 行高约 24 ≈ 直径 36，取半值 18 成胶囊）
 
 @ComponentV2
 export struct MainControlPage {
@@ -28,9 +38,12 @@ export struct MainControlPage {
   @Require @Param voice: VoiceModel;
   @Require @Param pathStack: NavPathStack;
 
-  @Local curTabIndex: number = 0;
   @Local bottomAvoidVp: number = 0;
   @Local topAvoidVp: number = 0; // 状态栏避让：胶囊不得压入系统状态栏（否则点击被状态栏窗口拦截）
+  // 三功能区当前索引：不再绑定 Tabs 的 index 参数——直接改 index 跳页无切换动效
+  //（ts-container-tabs「直接修改index跳页时，切换动效不生效」），动效统一走 TabsController.changeIndex。
+  private curTabIndex: number = 0;
+  private tabController: TabsController = new TabsController();
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
@@ -57,6 +70,10 @@ export struct MainControlPage {
     // 离开语音 Tab 即取消会话（PRD §12：麦克风仅按住期间占用；空闲时为 no-op）
     this.voice.cancelSession();
     this.curTabIndex = (this.curTabIndex + direction + 3) % 3;
+    // D8（motion.md §五红线：禁手写复刻 tab 切换动效）：changeIndex 是官方内置切换动效的
+    // 唯一入口，默认 300ms cubicBezier 翻页（ts-container-tabs animationDuration/curve）；
+    // scrollable(false) 只关手势滑动，不影响该内置过渡——不自绘任何补间动画。
+    this.tabController.changeIndex(this.curTabIndex);
   }
 
   private setupWindow(): void {
@@ -139,16 +156,47 @@ export struct MainControlPage {
     return $r('app.string.state_idle');
   }
 
+  // $r 需字面量，无障碍文案键无法从 stateRes 复用——同 DebugPanelPage.connRes 的键表模式。
+  private stateKey(): string {
+    const s: number = this.conn.snapshot.state;
+    if (s === ConnState.CONNECTED) {
+      return 'state_connected';
+    }
+    if (s === ConnState.RECONNECTING) {
+      return 'state_reconnecting';
+    }
+    if (s === ConnState.LOST) {
+      return 'state_lost';
+    }
+    if (s === ConnState.DISCOVERING) {
+      return 'state_discovering';
+    }
+    if (s === ConnState.PAIRING) {
+      return 'state_pairing';
+    }
+    return 'state_idle';
+  }
+
   private rttText(): string {
     const rtt: number = this.conn.snapshot.rttMs;
     return rtt >= 0 ? `${rtt} ms` : '-- ms';
+  }
+
+  // 胶囊无障碍播报：连接状态 + RTT 动态拼接（硬约束 11；占位格式走 string.json 双语）。
+  // accessibilityText 重载只收 string | Resource（无 ResourceStr 联合），恒 $r → 标 Resource。
+  private capsuleA11y(): Resource {
+    const state: string = pageResStr(this.getUIContext(), this.stateKey());
+    return $r('app.string.a11y_capsule_format', state, this.rttText());
   }
 
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopEnd }) {
         // 三功能区容器（FR-2）：触摸板 / 键盘 / 语音；默认页签条隐藏，三指手势驱动 index。
-        Tabs({ barPosition: BarPosition.End, index: this.curTabIndex }) {
+        // 归层律备注（D8 定案）：三功能区切换无页签条为既定交互形态，官方无「无页签条的切换
+        // 容器」对应能力（HdsTabs 必带页签条，查证 ui-design-hdstabs/ts-container-tabs）——
+        // plain Tabs + barHeight(0) 隐藏指示器为合法形态，切换动效走 changeIndex 内置翻页。
+        Tabs({ barPosition: BarPosition.End, controller: this.tabController }) {
           TabContent() {
             Column()
               .width('100%')
@@ -187,7 +235,7 @@ export struct MainControlPage {
         .width('100%')
         .height('100%')
 
-        // 状态浮层（FR-6）：THIN 材质悬浮胶囊，@ObservedV2 快照驱动，点击进调试页。
+        // 状态浮层（FR-6）：ULTRA_THIN 沉浸材质胶囊，@ObservedV2 快照驱动，点击进调试页。
         // 非 CONNECTED 态文案区分：RECONNECTING 展示原因与轮次；LOST 额外给「重新连接」按钮跳发现页。
         Column({ space: 4 }) {
           Row() {
@@ -220,10 +268,20 @@ export struct MainControlPage {
           }
         }
         .alignItems(HorizontalAlign.End)
-        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-        .borderRadius(18)
-        .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
-        .margin({ top: this.topAvoidVp + 12, right: 12 })
+        .padding({ left: CAPSULE_PAD_H_VP, right: CAPSULE_PAD_H_VP, top: CAPSULE_PAD_V_VP, bottom: CAPSULE_PAD_V_VP })
+        .borderRadius(CAPSULE_RADIUS_VP)
+        // 材质分层律（硬约束 1）：材质层在 background 之下——透明背景 + ImmersiveMaterial，
+        // 禁再叠 backgroundBlurStyle；interactive:false 胶囊为静态浮层，无按压形变需求。
+        .backgroundColor(Color.Transparent)
+        .systemMaterial(new uiMaterial.ImmersiveMaterial({
+          style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
+          materialColor: $r('app.color.capsule_material'), // 带透明度（硬约束 2），深浅色见 color.json
+          interactive: false
+        }))
+        .margin({ top: this.topAvoidVp + CAPSULE_MARGIN_VP, right: CAPSULE_MARGIN_VP })
+        .accessibilityLevel('yes')
+        .accessibilityText(this.capsuleA11y())
+        .accessibilityDescription($r('app.string.page_debug'))
         .onClick(() => {
           this.pathStack.pushPathByName('debug', null);
         })

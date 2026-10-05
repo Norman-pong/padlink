@@ -2,19 +2,25 @@
 // 只认自己按下的 pointerId（KeyCap 同款模式，防多指串扰）；中间结果实时显示区 +
 // 最终结果区（发送失败可手动重发）+ 权限拒绝引导态（文案 + 去设置开启）。
 // 非连接态按钮禁用并提示。四态齐全：初始化/识别中（加载）、已上屏（成功）、
-// 失败原因 + 重发/去设置（失败）、未识别到内容（空）。按钮带无障碍属性（HDS 硬约束 11）。
+// 失败原因 + 重发/去设置（失败）、未识别到内容（空）。按钮带无障碍属性（HDS 硬约束 11），
+// 播报提示随按住态动态切换（按住说话 ⇄ 松开结束）。
+// 按压动效（motion.md §一 圆钮跟手缩放）：Down 走 animateTo 缩至 0.96，Up/Cancel 走
+// curves.springMotion 弹簧回弹——双事件驱动可中断（stateStyles 无过程驱动，禁用）。
+import { curves } from '@kit.ArkUI';
 import { ConnState } from '../common/net/ConnectionManager';
 import type { ConnectionManager } from '../common/net/ConnectionManager';
 import { VoiceModel, VoicePhase } from '../common/voice/VoiceModel';
 import { pageResStr } from './Res';
 
 const BTN_SIZE_VP: number = 120; // 按住说话主按钮直径
+const BTN_PRESS_SCALE: number = 0.96; // 按下跟手缩放档（motion.md §一 参考值）
 const RESULT_MAX_LINES: number = 6;
 const RESULT_MAX_HEIGHT_VP: number = 260;
 
 // 页面文案键全集（aboutToAppear 一次性解析为本地化字符串，build 内查表）。
 const TEXT_KEYS: string[] = [
-  'voice_btn_label', 'voice_btn_a11y', 'voice_a11y_hint', 'voice_hold_hint',
+  'voice_btn_label', 'voice_btn_a11y', 'voice_hold_hint',
+  'voice_a11y_hold_to_speak', 'voice_a11y_release_to_end',
   'voice_need_connect', 'voice_phase_initializing', 'voice_phase_listening',
   'voice_phase_recognizing', 'voice_phase_sending', 'voice_phase_done', 'voice_empty_hint',
   'voice_err_mic_permission', 'voice_open_settings', 'voice_err_busy',
@@ -28,6 +34,7 @@ export struct VoicePage {
   @Require @Param voice: VoiceModel;
   @Require @Param conn: ConnectionManager;
   @Local private pressed: boolean = false;
+  @Local private pressScale: number = 1; // 按住键跟手缩放（层3 物理动效：按下形变/弹簧回弹）
   @Local private pointerId: number = -1; // 只认自己按下的指针
   private texts: Map<string, string> = new Map();
 
@@ -85,11 +92,19 @@ export struct VoicePage {
   }
 
   // 大按钮触摸：DOWN 登记自己的 pointerId 并 press；UP/CANCEL 匹配后 release。
+  // 缩放动效（motion.md §一）：Down 跟手缩至 0.96；Up/Cancel springMotion 弹簧回弹——
+  // animateTo 弹簧可中断（按住即停、抬手即弹，无「播完才响应」）。
   private handleTouch(ev: TouchEvent): void {
     if (ev.type === TouchType.Down) {
       if (this.pointerId === -1 && ev.changedTouches.length > 0) {
         this.pointerId = ev.changedTouches[0].id;
         this.pressed = true;
+        this.getUIContext().animateTo({
+          duration: 120,
+          curve: Curve.EaseOut
+        }, () => {
+          this.pressScale = BTN_PRESS_SCALE;
+        });
         this.voice.press();
       }
       return;
@@ -104,6 +119,11 @@ export struct VoicePage {
       if (matched) {
         this.pointerId = -1;
         this.pressed = false;
+        this.getUIContext().animateTo({
+          curve: curves.springMotion(0.42, 0.72)
+        }, () => {
+          this.pressScale = 1;
+        });
         this.voice.release();
       }
     }
@@ -187,15 +207,18 @@ export struct VoicePage {
         .height(BTN_SIZE_VP)
         .borderRadius(BTN_SIZE_VP / 2)
         .backgroundColor(this.holding()
-          ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_primary'))
+          ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_tertiary'))
         .opacity(this.connected() ? 1 : 0.4)
         .enabled(this.connected())
+        .scale({ x: this.pressScale, y: this.pressScale })
         .onTouch((ev: TouchEvent) => {
           this.handleTouch(ev);
         })
         .accessibilityText(this.str('voice_btn_a11y'))
         .accessibilityLevel('yes')
-        .accessibilityDescription(this.str('voice_a11y_hint'))
+        // 动态操作提示（D12）：空闲播「按住说话」，按住中播「松开结束」。
+        .accessibilityDescription(this.holding()
+          ? this.str('voice_a11y_release_to_end') : this.str('voice_a11y_hold_to_speak'))
         .margin({ bottom: 16 })
     }
     .width('100%')

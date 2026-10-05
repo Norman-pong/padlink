@@ -145,10 +145,6 @@
       "value": "按住说话"
     },
     {
-      "name": "voice_a11y_hint",
-      "value": "按住开始录音，松手后识别文字并输入到电脑"
-    },
-    {
       "name": "voice_hold_hint",
       "value": "按住说话，松手自动上屏"
     },
@@ -659,6 +655,22 @@
     {
       "name": "debug_save_fail",
       "value": "主机档案保存失败"
+    },
+    {
+      "name": "a11y_capsule_format",
+      "value": "%1$s，延迟 %2$s"
+    },
+    {
+      "name": "voice_a11y_hold_to_speak",
+      "value": "按住说话"
+    },
+    {
+      "name": "voice_a11y_release_to_end",
+      "value": "松开结束听写"
+    },
+    {
+      "name": "settings_version_a11y_hint",
+      "value": "连续点按五次进入调试面板"
     }
   ]
 }

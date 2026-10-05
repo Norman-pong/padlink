@@ -10,6 +10,15 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    // 沉浸光感材质应用级开关（material-light.md §2.4，targetAPIVersion ≥ 26）：
+    // 恒用 default（组件级 .systemMaterial() 生效且不劫持系统组件背景优先级）；
+    // enable 会令 API26 模拟器材质假支持放大成全局视效回退，disable 则真机玻璃感全灭。
+    "metadata": [
+      {
+        "name": "ohos.arkui.UIMaterial.state",
+        "value": "default"
+      }
+    ],
     // 局域网 UDP/TCP（FR-0/FR-6）。system_grant normal 级：无需 reason/usedScene
     //（faqs-compiling-and-building-158/159：仅 user_grant 权限强制要求这两个字段）。
     // MICROPHONE（PRD §4.5 语音听写）：user_grant，必须带 reason（string.json 资源引用）
