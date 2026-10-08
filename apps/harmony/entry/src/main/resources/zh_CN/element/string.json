@@ -229,10 +229,6 @@
       "value": "Tab"
     },
     {
-      "name": "kb_key_caps",
-      "value": "大写锁定"
-    },
-    {
       "name": "kb_key_shift",
       "value": "Shift"
     },
@@ -257,10 +253,6 @@
       "value": "退格"
     },
     {
-      "name": "kb_key_space",
-      "value": "空格"
-    },
-    {
       "name": "kb_key_up",
       "value": "上方向键"
     },
@@ -277,108 +269,8 @@
       "value": "右方向键"
     },
     {
-      "name": "kb_key_minus",
-      "value": "连字符"
-    },
-    {
-      "name": "kb_key_semicolon",
-      "value": "分号"
-    },
-    {
-      "name": "kb_key_quote",
-      "value": "单引号"
-    },
-    {
-      "name": "kb_key_comma",
-      "value": "逗号"
-    },
-    {
-      "name": "kb_key_period",
-      "value": "句号"
-    },
-    {
-      "name": "kb_key_slash",
-      "value": "斜杠"
-    },
-    {
-      "name": "kb_sym_exclamation",
-      "value": "感叹号"
-    },
-    {
-      "name": "kb_sym_at",
-      "value": "at 符"
-    },
-    {
-      "name": "kb_sym_hash",
-      "value": "井号"
-    },
-    {
-      "name": "kb_sym_dollar",
-      "value": "美元符号"
-    },
-    {
-      "name": "kb_sym_percent",
-      "value": "百分号"
-    },
-    {
-      "name": "kb_sym_caret",
-      "value": "脱字符"
-    },
-    {
-      "name": "kb_sym_ampersand",
-      "value": "and 符号"
-    },
-    {
-      "name": "kb_sym_asterisk",
-      "value": "星号"
-    },
-    {
-      "name": "kb_sym_lparen",
-      "value": "左圆括号"
-    },
-    {
-      "name": "kb_sym_rparen",
-      "value": "右圆括号"
-    },
-    {
-      "name": "kb_sym_underscore",
-      "value": "下划线"
-    },
-    {
-      "name": "kb_sym_colon",
-      "value": "冒号"
-    },
-    {
-      "name": "kb_sym_dquote",
-      "value": "双引号"
-    },
-    {
-      "name": "kb_sym_less",
-      "value": "小于号"
-    },
-    {
-      "name": "kb_sym_greater",
-      "value": "大于号"
-    },
-    {
-      "name": "kb_sym_question",
-      "value": "问号"
-    },
-    {
-      "name": "kb_layer_to_symbols",
-      "value": "切换到符号层"
-    },
-    {
-      "name": "kb_layer_to_letters",
-      "value": "切换到字母层"
-    },
-    {
       "name": "kb_a11y_modifier_hint",
       "value": "点按点亮保持，可多键叠加；再点取消；触发其他键后自动复位"
-    },
-    {
-      "name": "kb_a11y_layer_hint",
-      "value": "点按在字母层与符号层之间切换"
     },
     {
       "name": "state_idle",
@@ -791,6 +683,10 @@
     {
       "name": "hosts_full_fmt",
       "value": "已配对主机已满（上限 %1$s 台），请先删除"
+    },
+    {
+      "name": "kb_input_placeholder",
+      "value": "输入文字，同步到电脑"
     }
   ]
 }

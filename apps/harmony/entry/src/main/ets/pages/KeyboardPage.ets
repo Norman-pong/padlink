@@ -1,47 +1,36 @@
-// 自绘 QWERTY 键盘页（PRD §4.4 铁律）：不经系统输入法，KeyCap 直接发 HID usage
-// （daemon 映射 Linux KEY_*；中文经 fcitx 在电脑屏出候选，APP 无感知）。
-// 布局（竖屏，自底向上）：数字行(Esc 1-0 ⌫) / Tab+QWERTYUIOP+- / Caps+ASDFGHJKL+;' /
-// Shift+ZXCVBNM+/+Enter / 底行（Ctrl Alt Super 符号层 | 空格 , .）+ 右下方向键独立小簇。
-// 键宽 layoutWeight 按比例分配（百分比语义），行/键间距 gap，适配不同屏宽。
-// 符号层：数字行变 !@#… 与常用标点的 Shift 变体（: " < > ? _），层键点亮指示。
-// 无障碍（docs/HARMONY-DOCIDS.md 五，现查 ts-universal-attributes-accessibility）：
-// 每键 accessibilityText（朗读名）+ accessibilityLevel('yes')；粘滞修饰/层键加
+// 键盘区（PRD §4.4 混合形态）：系统输入法承接文本 + 自绘键条补键语义（TermNext 式取舍）。
+// - 输入区：TextArea 常驻底部；IME 组合态（onChange previewText 非空，拼音预上屏）不上行，
+//   提交增量经 model.commitText（ASCII 逐键 HID 保留按键语义、CJK/emoji 合并 TEXT 走剪贴板
+//   注入、删除镜像 Backspace、单字符提交 × 粘滞修饰 = 组合键）；
+// - 键条（贴底）：Esc Tab Ctrl Alt Shift Super（粘滞点亮）⌫ Enter ←↑↓→，KeyCap 两段式直发
+//   HID（长按连发由 daemon 负责）；IME 顶起时随 RESIZE 避让整体上移；
+// - 区域生命周期：主控页 switchTo 经 model.zoneEnter/zoneLeave 驱动——进入唤起输入法 + 切
+//   RESIZE 避让，离开收起输入法 + 补发未抬键（PRD §11.2）；首次进区由 aboutToAppear 按
+//   model.zoneActive 补偿（TabContent 懒构建晚于首次 zoneEnter 调用）。
+// 无障碍：键条每键 accessibilityText（朗读名）+ accessibilityLevel('yes')；粘滞修饰加
 // accessibilityChecked 播报点亮态、accessibilityDescription 说明操作后果。
-// 按压态 KeyCap onTouch 自管（DOWN 置位 / UP、CANCEL 复位，只认自己的 pointerId）。
 import { HidUsage } from '../common/hid/KeyCodes';
-import type { ShiftSym } from '../common/hid/KeyCodes';
-import { letterUsage, symVariantOf } from '../common/hid/KeyCodes';
 import { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { StickyMod } from '../common/keyboard/StickyModifiers';
+import { inputMethod } from '@kit.IMEKit';
 import { pageResStr } from './Res';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
-const KEY_GAP_VP: number = 4; // 键间距/行间距
+const KEY_GAP_VP: number = 4; // 键间距
 const KEY_HEIGHT_VP: number = 42; // 键高（触摸目标）
 const SIDE_PADDING_VP: number = 6; // 键区左右边距
 const KEY_RADIUS_VP: number = 6; // 键帽圆角
+const INPUT_MAX_HEIGHT_VP: number = 132; // 输入区高上限（约 3 行；超出内部滚动）
 
-// 一颗可发键的描述（由页面按当前层生成；修饰/层键不走此结构，各自显式构造）。
-interface KeySpec {
-  label: string; // 显示字符（当前层）
-  a11y: string; // 无障碍朗读文案
-  hid: number; // HID usage
-  withShift: boolean; // 符号层键：发送时组合临时 Shift
-  weight: number; // 行内宽度权重（layoutWeight 百分比分摊）
-}
-
-// 无障碍文案键全集（aboutToAppear 一次性解析，build 内查表）。
+// 键条朗读文案键全集（aboutToAppear 一次性解析，build 内查表）。
 const A11Y_KEYS: string[] = [
-  'kb_key_esc', 'kb_key_tab', 'kb_key_caps', 'kb_key_shift', 'kb_key_ctrl', 'kb_key_alt',
-  'kb_key_super', 'kb_key_enter', 'kb_key_backspace', 'kb_key_space',
-  'kb_key_up', 'kb_key_down', 'kb_key_left', 'kb_key_right',
-  'kb_key_minus', 'kb_key_semicolon', 'kb_key_quote', 'kb_key_comma', 'kb_key_period', 'kb_key_slash',
-  'kb_sym_exclamation', 'kb_sym_at', 'kb_sym_hash', 'kb_sym_dollar', 'kb_sym_percent', 'kb_sym_caret',
-  'kb_sym_ampersand', 'kb_sym_asterisk', 'kb_sym_lparen', 'kb_sym_rparen', 'kb_sym_underscore',
-  'kb_sym_colon', 'kb_sym_dquote', 'kb_sym_less', 'kb_sym_greater', 'kb_sym_question',
-  'kb_layer_to_symbols', 'kb_layer_to_letters', 'kb_a11y_modifier_hint', 'kb_a11y_layer_hint',
+  'kb_key_esc', 'kb_key_tab', 'kb_key_shift', 'kb_key_ctrl', 'kb_key_alt',
+  'kb_key_super', 'kb_key_enter', 'kb_key_backspace',
+  'kb_key_up', 'kb_key_down', 'kb_key_left', 'kb_key_right', 'kb_a11y_modifier_hint',
 ];
 
-// 单键帽：按压高亮自管；active（粘滞修饰/符号层点亮）用系统 token 强调色 + 反白文字。
+// 单键帽：按压高亮自管；active（粘滞修饰点亮）用系统 token 强调色 + 反白文字。
 // 动效取舍（motion.md §一 归层律）：按键物理隐喻 = 按压底色反馈（lit 底色），不加跟手缩放——
 // 缩放是圆钮/卡片类浮层的形变隐喻，键帽按压保持几何稳定更符合物理键盘直觉（D9 定案）。
 @ComponentV2
@@ -49,8 +38,8 @@ struct KeyCap {
   @Param label: string = '';
   @Param a11y: string = '';
   @Param hint: string = '';
-  @Param active: boolean = false; // 点亮（粘滞修饰 / 符号层激活）
-  @Param checkable: boolean = false; // 是否向读屏播报选中态（粘滞/层键 true）
+  @Param active: boolean = false; // 点亮（粘滞修饰）
+  @Param checkable: boolean = false; // 是否向读屏播报选中态（粘滞键 true）
   @Param weight: number = 1;
   // 回调走 @Param（V2 规则：父组件只能初始化 @Param 成员，普通成员禁止外部初始化）。
   @Param onPress: () => void = () => {};
@@ -112,18 +101,65 @@ struct KeyCap {
 @ComponentV2
 export struct KeyboardPage {
   @Require @Param model: KeyboardModel;
-  @Local symLayer: boolean = false; // 符号层开关（层状态：键帽标签与激活指示联动）
+  @Local inputText: string = ''; // 输入框显示值（组合态预上屏含在内）
+  private lastStable: string = ''; // 上次已提交值（增量 diff 基准；组合态不改写）
+  private textCtrl: TextAreaController = new TextAreaController();
   private a11yTexts: Map<string, string> = new Map();
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进区前避让模式（离区恢复）
 
   aboutToAppear(): void {
     for (const k of A11Y_KEYS) {
       this.a11yTexts.set(k, pageResStr(this.getUIContext(), k));
+    }
+    this.model.onZoneEnter = (): void => {
+      this.doZoneEnter();
+    };
+    this.model.onZoneLeave = (): void => {
+      this.doZoneLeave();
+    };
+    if (this.model.zoneActive) {
+      this.doZoneEnter(); // 首次进区补偿：懒构建晚于 switchTo 的 zoneEnter 调用
     }
   }
 
   aboutToDisappear(): void {
     // 切页复位：补发一切未抬起的 up（防电脑端残留按键）并清空粘滞点亮。
     this.model.releaseAll();
+    this.model.onZoneEnter = null;
+    this.model.onZoneLeave = null;
+    this.restoreAvoid();
+  }
+
+  // 进区：RESIZE 避让（输入区随 IME 顶起）+ 聚焦唤起输入法。
+  private doZoneEnter(): void {
+    this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
+    try {
+      this.getUIContext().getFocusController().requestFocus('kb_input');
+    } catch (_e) {
+      // 聚焦失败不致命：点按输入框可再唤起
+    }
+    try {
+      inputMethod.getController().showTextInput().catch((_err: BusinessError) => {
+        // 唤起失败（无已聚焦编辑框等）不致命：点按输入框可再唤起
+      });
+    } catch (_e) {
+    }
+  }
+
+  // 离区：收起输入法 + 失焦 + 恢复避让模式（补发未抬键由 model.zoneLeave 的 releaseAll 承担）。
+  private doZoneLeave(): void {
+    try {
+      inputMethod.getController().hideTextInput().catch((_err: BusinessError) => {
+        // 收起失败不致命：区域已失焦，下次进区会重新唤起
+      });
+    } catch (_e) {
+    }
+    this.getUIContext().getFocusController().clearFocus();
+    this.restoreAvoid();
+  }
+
+  private restoreAvoid(): void {
+    restoreKeyboardAvoidMode(this.getUIContext(), this.kbPrev);
   }
 
   private str(key: string): string {
@@ -131,50 +167,14 @@ export struct KeyboardPage {
     return v !== undefined ? v : key;
   }
 
-  // ---- 行描述生成（每次渲染按当前层重算） ----
-
-  private charSpec(ch: string): KeySpec {
-    const spec: KeySpec = { label: ch, a11y: ch, hid: letterUsage(ch), withShift: false, weight: 1 };
-    return spec;
-  }
-
-  private letterSpecs(chars: string): KeySpec[] {
-    const out: KeySpec[] = [];
-    for (let i = 0; i < chars.length; i++) {
-      out.push(this.charSpec(chars.charAt(i)));
+  // 提交判定：组合态（拼音预上屏）只更新显示值不上行；组合清空即提交，按稳定值差分。
+  private onInput(value: string, previewText?: PreviewText): void {
+    this.inputText = value;
+    if (previewText !== undefined && previewText.value.length > 0) {
+      return; // 组合中：字母尚未选词，不进提交流
     }
-    return out;
-  }
-
-  // 主层符号 / 符号层 Shift 变体两用（数字行与标点键共用；字母无变体走 charSpec）。
-  private symAwareSpec(base: string, weight: number): KeySpec {
-    const v: ShiftSym | null = symVariantOf(base);
-    if (v !== null && this.symLayer) {
-      const spec: KeySpec = {
-        label: v.shifted, a11y: this.str(v.a11yKey), hid: v.usage, withShift: true, weight: weight
-      };
-      return spec;
-    }
-    const a11y: string = v !== null && v.baseA11yKey.length > 0 ? this.str(v.baseA11yKey) : base;
-    const hid: number = v !== null ? v.usage : 0;
-    const spec: KeySpec = { label: base, a11y: a11y, hid: hid, withShift: false, weight: weight };
-    return spec;
-  }
-
-  private digitSpecs(): KeySpec[] {
-    const out: KeySpec[] = [];
-    const digits: string = '1234567890';
-    for (let i = 0; i < digits.length; i++) {
-      out.push(this.symAwareSpec(digits.charAt(i), 1));
-    }
-    return out;
-  }
-
-  private punctSpecs(): KeySpec[] {
-    const out: KeySpec[] = [];
-    out.push(this.symAwareSpec(',', 1));
-    out.push(this.symAwareSpec('.', 1));
-    return out;
+    this.model.commitText(this.lastStable, value);
+    this.lastStable = value;
   }
 
   // ---- 键帽构造 Builder ----
@@ -193,19 +193,6 @@ export struct KeyboardPage {
     })
   }
 
-  @Builder
-  private specKey(spec: KeySpec) {
-    KeyCap({
-      label: spec.label, a11y: spec.a11y, weight: spec.weight,
-      onPress: () => {
-        this.model.beginKey(spec.hid, spec.withShift);
-      },
-      onRelease: () => {
-        this.model.endKey(spec.hid);
-      }
-    })
-  }
-
   // 粘滞修饰键：DOWN 即切换点亮（即时反馈），不产生线上流量；点亮态 @Trace 驱动。
   @Builder
   private modKey(label: string, a11yKey: string, mod: number, latched: boolean, weight: number) {
@@ -218,106 +205,52 @@ export struct KeyboardPage {
     })
   }
 
-  // 符号层切换键：激活指示 = 点亮底色 + 标签切 'ABC'。
-  @Builder
-  private layerKey() {
-    KeyCap({
-      label: this.symLayer ? 'ABC' : '#+=',
-      a11y: this.symLayer ? this.str('kb_layer_to_letters') : this.str('kb_layer_to_symbols'),
-      hint: this.str('kb_a11y_layer_hint'),
-      active: this.symLayer, checkable: true, weight: 1.3,
-      onPress: () => {
-        this.symLayer = !this.symLayer;
-      }
-    })
-  }
-
   build() {
     Column({ space: KEY_GAP_VP }) {
-      // 数字行：Esc | 1-0（符号层 !..)） | ⌫
-      Row({ space: KEY_GAP_VP }) {
-        this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC, 1.3)
-        ForEach(this.digitSpecs(), (spec: KeySpec) => {
-          this.specKey(spec)
-        }, (spec: KeySpec) => `${spec.label}:${spec.hid}:${spec.withShift}`)
-        this.tapKey('⌫', this.str('kb_key_backspace'), HidUsage.BACKSPACE, 1.3)
-      }
-      .width('100%')
+      Blank() // 输入区贴底（类输入法布局），上方留白
 
-      // 字母行 1：Tab | QWERTYUIOP | -
-      Row({ space: KEY_GAP_VP }) {
-        this.tapKey('Tab', this.str('kb_key_tab'), HidUsage.TAB, 1.4)
-        ForEach(this.letterSpecs('qwertyuiop'), (spec: KeySpec) => {
-          this.specKey(spec)
-        }, (spec: KeySpec) => `${spec.label}:${spec.hid}`)
-        this.specKey(this.symAwareSpec('-', 1))
-      }
-      .width('100%')
+      // 输入区：系统输入法的承接面；组合态只显不上行，提交增量镜像到电脑
+      TextArea({ text: this.inputText, controller: this.textCtrl,
+        placeholder: this.str('kb_input_placeholder') })
+        .id('kb_input')
+        .width('100%')
+        .constraintSize({ maxHeight: INPUT_MAX_HEIGHT_VP })
+        .fontSize($r('sys.float.ohos_id_text_size_body1'))
+        .fontColor($r('sys.color.font_primary'))
+        .placeholderColor($r('sys.color.font_tertiary'))
+        .backgroundColor($r('sys.color.comp_background_tertiary'))
+        .borderRadius(KEY_RADIUS_VP)
+        .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+        .showCounter(false)
+        .onChange((value: string, previewText?: PreviewText) => {
+          this.onInput(value, previewText);
+        })
 
-      // 字母行 2：Caps | ASDFGHJKL | ; '
-      Row({ space: KEY_GAP_VP }) {
-        this.tapKey('Caps', this.str('kb_key_caps'), HidUsage.CAPS_LOCK, 1.4)
-        ForEach(this.letterSpecs('asdfghjkl'), (spec: KeySpec) => {
-          this.specKey(spec)
-        }, (spec: KeySpec) => `${spec.label}:${spec.hid}`)
-        this.specKey(this.symAwareSpec(';', 1))
-        this.specKey(this.symAwareSpec('\'', 1))
-      }
-      .width('100%')
-
-      // 字母行 3：Shift(粘滞) | ZXCVBNM | / | Enter
-      Row({ space: KEY_GAP_VP }) {
-        this.modKey('Shift', 'kb_key_shift', StickyMod.SHIFT, this.model.shiftLatched, 1.5)
-        ForEach(this.letterSpecs('zxcvbnm'), (spec: KeySpec) => {
-          this.specKey(spec)
-        }, (spec: KeySpec) => `${spec.label}:${spec.hid}`)
-        this.specKey(this.symAwareSpec('/', 1))
-        this.tapKey('Enter', this.str('kb_key_enter'), HidUsage.ENTER, 1.5)
-      }
-      .width('100%')
-
-      // 底行：左（Ctrl Alt Super 符号层 / 空格 , .）+ 右（方向键独立小簇）
-      Row({ space: KEY_GAP_VP }) {
-        Column({ space: KEY_GAP_VP }) {
-          Row({ space: KEY_GAP_VP }) {
-            this.modKey('Ctrl', 'kb_key_ctrl', StickyMod.CTRL, this.model.ctrlLatched, 1)
-            this.modKey('Alt', 'kb_key_alt', StickyMod.ALT, this.model.altLatched, 1)
-            this.modKey('Super', 'kb_key_super', StickyMod.SUPER, this.model.superLatched, 1)
-            this.layerKey()
-          }
-          .width('100%')
-
-          Row({ space: KEY_GAP_VP }) {
-            this.tapKey('', this.str('kb_key_space'), HidUsage.SPACE, 2.3)
-            ForEach(this.punctSpecs(), (spec: KeySpec) => {
-              this.specKey(spec)
-            }, (spec: KeySpec) => `${spec.label}:${spec.hid}:${spec.withShift}`)
-          }
-          .width('100%')
+      // 键条：横向可滚（窄折叠态放下全排），长按直发 HID 两段式
+      Scroll() {
+        Row({ space: KEY_GAP_VP }) {
+          this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC, 1)
+          this.tapKey('Tab', this.str('kb_key_tab'), HidUsage.TAB, 1)
+          this.modKey('Ctrl', 'kb_key_ctrl', StickyMod.CTRL, this.model.ctrlLatched, 1)
+          this.modKey('Alt', 'kb_key_alt', StickyMod.ALT, this.model.altLatched, 1)
+          this.modKey('Shift', 'kb_key_shift', StickyMod.SHIFT, this.model.shiftLatched, 1)
+          this.modKey('Super', 'kb_key_super', StickyMod.SUPER, this.model.superLatched, 1)
+          this.tapKey('⌫', this.str('kb_key_backspace'), HidUsage.BACKSPACE, 1)
+          this.tapKey('Enter', this.str('kb_key_enter'), HidUsage.ENTER, 1)
+          this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT, 1)
+          this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP, 1)
+          this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN, 1)
+          this.tapKey('→', this.str('kb_key_right'), HidUsage.RIGHT, 1)
         }
-        .layoutWeight(3.2)
-
-        Column({ space: KEY_GAP_VP }) {
-          // ↑ 独占一行：KeyCap.layoutWeight 是行内水平分权，裸放进垂直 Column 会变成
-          // 纵向权重被拉满整列高度（折叠态实测 42vp 键帽被拉伸到 ~590vp）。
-          Row() {
-            this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP, 1)
-          }
-          .width('100%')
-          Row({ space: KEY_GAP_VP }) {
-            this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT, 1)
-            this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN, 1)
-            this.tapKey('→', this.str('kb_key_right'), HidUsage.RIGHT, 1)
-          }
-          .width('100%')
-        }
-        .layoutWeight(1.1)
+        .height(KEY_HEIGHT_VP)
       }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
       .width('100%')
     }
     .width('100%')
     .height('100%')
-    .padding({ left: SIDE_PADDING_VP, right: SIDE_PADDING_VP, top: 8 })
-    .justifyContent(FlexAlign.End) // 键盘贴底（类输入法布局），上方留空
+    .padding({ left: SIDE_PADDING_VP, right: SIDE_PADDING_VP, bottom: 8 })
+    .justifyContent(FlexAlign.End)
   }
 }

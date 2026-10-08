@@ -79,7 +79,7 @@ export struct MainControlPage {
     this.switchTo((this.curTabIndex + direction + ZONE_COUNT) % ZONE_COUNT);
   }
 
-  // 切换唯一入口（三指手势与位置指示点共用）：先复位引擎/语音会话，再走 changeIndex 内置翻页。
+  // 切换唯一入口（三指手势与位置指示点共用）：先复位引擎/语音/键盘会话，再走 changeIndex 内置翻页。
   private switchTo(index: number): void {
     if (index === this.curTabIndex) {
       return;
@@ -87,6 +87,13 @@ export struct MainControlPage {
     this.touchpad.cancelGesture();
     // 离开语音 Tab 即取消会话（PRD §12：麦克风仅按住期间占用；空闲时为 no-op）
     this.voice.cancelSession();
+    // 键盘区生命周期：离开收起输入法+补发未抬键，进入唤起输入法（PRD §4.4 混合形态）
+    if (this.curTabIndex === 1) {
+      this.keyboard.zoneLeave();
+    }
+    if (index === 1) {
+      this.keyboard.zoneEnter();
+    }
     this.curTabIndex = index;
     // D8（motion.md §五红线：禁手写复刻 tab 切换动效）：changeIndex 是官方内置切换动效的
     // 唯一入口，默认 300ms cubicBezier 翻页（ts-container-tabs animationDuration/curve）；

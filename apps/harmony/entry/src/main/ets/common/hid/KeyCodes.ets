@@ -134,33 +134,30 @@ export class HidUsage {
 // 符号层映射条目：一个物理键位的主层字符与 shift 变体（PRD §4.4 符号层）。
 // [主 usage, 需 Shift]：符号层键按下时先组合 Shift 再发主 usage（StickyModifiers.takeSequence 的 extraShift）。
 export interface ShiftSym {
-  base: string; // 主层显示字符
-  shifted: string; // 符号层显示字符（Shift 变体）
+  base: string; // 主层字符
+  shifted: string; // Shift 变体字符
   usage: number; // 承载该字符对的物理键 usage（未按 Shift 的键位）
-  needShift: boolean; // 符号层是否需组合 Shift（本表全为 true）
-  a11yKey: string; // 符号层字符的无障碍朗读文案键（string.json；空串回退读字符本身）
-  baseA11yKey: string; // 主层字符的无障碍朗读文案键（空串回退读字符本身）
 }
 
 // 主层符号 → 符号层变体全集（数字行 shift 变体 !@#… + 常用标点；前 10 项即数字行）。
 // 取舍：v1 只覆盖布局内物理键位的 shift 变体（= [ ] \ ` 等未上屏的符号暂不提供）。
 export const SHIFT_SYMS: ShiftSym[] = [
-  { base: '1', shifted: '!', usage: HidUsage.NUM_1, needShift: true, a11yKey: 'kb_sym_exclamation', baseA11yKey: '' },
-  { base: '2', shifted: '@', usage: HidUsage.NUM_2, needShift: true, a11yKey: 'kb_sym_at', baseA11yKey: '' },
-  { base: '3', shifted: '#', usage: HidUsage.NUM_3, needShift: true, a11yKey: 'kb_sym_hash', baseA11yKey: '' },
-  { base: '4', shifted: '$', usage: HidUsage.NUM_4, needShift: true, a11yKey: 'kb_sym_dollar', baseA11yKey: '' },
-  { base: '5', shifted: '%', usage: HidUsage.NUM_5, needShift: true, a11yKey: 'kb_sym_percent', baseA11yKey: '' },
-  { base: '6', shifted: '^', usage: HidUsage.NUM_6, needShift: true, a11yKey: 'kb_sym_caret', baseA11yKey: '' },
-  { base: '7', shifted: '&', usage: HidUsage.NUM_7, needShift: true, a11yKey: 'kb_sym_ampersand', baseA11yKey: '' },
-  { base: '8', shifted: '*', usage: HidUsage.NUM_8, needShift: true, a11yKey: 'kb_sym_asterisk', baseA11yKey: '' },
-  { base: '9', shifted: '(', usage: HidUsage.NUM_9, needShift: true, a11yKey: 'kb_sym_lparen', baseA11yKey: '' },
-  { base: '0', shifted: ')', usage: HidUsage.NUM_0, needShift: true, a11yKey: 'kb_sym_rparen', baseA11yKey: '' },
-  { base: '-', shifted: '_', usage: HidUsage.MINUS, needShift: true, a11yKey: 'kb_sym_underscore', baseA11yKey: 'kb_key_minus' },
-  { base: ';', shifted: ':', usage: HidUsage.SEMICOLON, needShift: true, a11yKey: 'kb_sym_colon', baseA11yKey: 'kb_key_semicolon' },
-  { base: '\'', shifted: '"', usage: HidUsage.APOSTROPHE, needShift: true, a11yKey: 'kb_sym_dquote', baseA11yKey: 'kb_key_quote' },
-  { base: ',', shifted: '<', usage: HidUsage.COMMA, needShift: true, a11yKey: 'kb_sym_less', baseA11yKey: 'kb_key_comma' },
-  { base: '.', shifted: '>', usage: HidUsage.DOT, needShift: true, a11yKey: 'kb_sym_greater', baseA11yKey: 'kb_key_period' },
-  { base: '/', shifted: '?', usage: HidUsage.SLASH, needShift: true, a11yKey: 'kb_sym_question', baseA11yKey: 'kb_key_slash' },
+  { base: '1', shifted: '!', usage: HidUsage.NUM_1 },
+  { base: '2', shifted: '@', usage: HidUsage.NUM_2 },
+  { base: '3', shifted: '#', usage: HidUsage.NUM_3 },
+  { base: '4', shifted: '$', usage: HidUsage.NUM_4 },
+  { base: '5', shifted: '%', usage: HidUsage.NUM_5 },
+  { base: '6', shifted: '^', usage: HidUsage.NUM_6 },
+  { base: '7', shifted: '&', usage: HidUsage.NUM_7 },
+  { base: '8', shifted: '*', usage: HidUsage.NUM_8 },
+  { base: '9', shifted: '(', usage: HidUsage.NUM_9 },
+  { base: '0', shifted: ')', usage: HidUsage.NUM_0 },
+  { base: '-', shifted: '_', usage: HidUsage.MINUS },
+  { base: ';', shifted: ':', usage: HidUsage.SEMICOLON },
+  { base: '\'', shifted: '"', usage: HidUsage.APOSTROPHE },
+  { base: ',', shifted: '<', usage: HidUsage.COMMA },
+  { base: '.', shifted: '>', usage: HidUsage.DOT },
+  { base: '/', shifted: '?', usage: HidUsage.SLASH },
 ];
 
 // 主层字符 → 同一物理键位的符号层变体；无变体（字母/其它）返回 null。

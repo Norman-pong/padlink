@@ -229,10 +229,6 @@
       "value": "Tab"
     },
     {
-      "name": "kb_key_caps",
-      "value": "Caps Lock"
-    },
-    {
       "name": "kb_key_shift",
       "value": "Shift"
     },
@@ -257,10 +253,6 @@
       "value": "Backspace"
     },
     {
-      "name": "kb_key_space",
-      "value": "Space"
-    },
-    {
       "name": "kb_key_up",
       "value": "Up arrow"
     },
@@ -277,108 +269,8 @@
       "value": "Right arrow"
     },
     {
-      "name": "kb_key_minus",
-      "value": "hyphen"
-    },
-    {
-      "name": "kb_key_semicolon",
-      "value": "semicolon"
-    },
-    {
-      "name": "kb_key_quote",
-      "value": "apostrophe"
-    },
-    {
-      "name": "kb_key_comma",
-      "value": "comma"
-    },
-    {
-      "name": "kb_key_period",
-      "value": "period"
-    },
-    {
-      "name": "kb_key_slash",
-      "value": "slash"
-    },
-    {
-      "name": "kb_sym_exclamation",
-      "value": "exclamation mark"
-    },
-    {
-      "name": "kb_sym_at",
-      "value": "at sign"
-    },
-    {
-      "name": "kb_sym_hash",
-      "value": "number sign"
-    },
-    {
-      "name": "kb_sym_dollar",
-      "value": "dollar sign"
-    },
-    {
-      "name": "kb_sym_percent",
-      "value": "percent sign"
-    },
-    {
-      "name": "kb_sym_caret",
-      "value": "caret"
-    },
-    {
-      "name": "kb_sym_ampersand",
-      "value": "ampersand"
-    },
-    {
-      "name": "kb_sym_asterisk",
-      "value": "asterisk"
-    },
-    {
-      "name": "kb_sym_lparen",
-      "value": "left parenthesis"
-    },
-    {
-      "name": "kb_sym_rparen",
-      "value": "right parenthesis"
-    },
-    {
-      "name": "kb_sym_underscore",
-      "value": "underscore"
-    },
-    {
-      "name": "kb_sym_colon",
-      "value": "colon"
-    },
-    {
-      "name": "kb_sym_dquote",
-      "value": "double quote"
-    },
-    {
-      "name": "kb_sym_less",
-      "value": "less-than sign"
-    },
-    {
-      "name": "kb_sym_greater",
-      "value": "greater-than sign"
-    },
-    {
-      "name": "kb_sym_question",
-      "value": "question mark"
-    },
-    {
-      "name": "kb_layer_to_symbols",
-      "value": "Switch to symbol layer"
-    },
-    {
-      "name": "kb_layer_to_letters",
-      "value": "Switch to letter layer"
-    },
-    {
       "name": "kb_a11y_modifier_hint",
       "value": "Tap to latch; combines with other modifiers; tap again to release; auto-releases after the next key"
-    },
-    {
-      "name": "kb_a11y_layer_hint",
-      "value": "Toggles between the letter and symbol layers"
     },
     {
       "name": "state_idle",
@@ -791,6 +683,10 @@
     {
       "name": "hosts_full_fmt",
       "value": "Paired hosts limit reached (%1$s max); delete one first"
+    },
+    {
+      "name": "kb_input_placeholder",
+      "value": "Type here to send text to your PC"
     }
   ]
 }
