@@ -1,8 +1,5 @@
-// 系统输入法提交流（PRD §4.4 混合形态）：输入框 onChange 的「已提交增量」计算与字符映射，纯逻辑层。
-// 组合态（拼音预上屏）由页面经 previewText 判定后跳过，本模块只见提交前后的稳定文本。
-// 规则：可映射 ASCII 逐字符走 HID（保留按键语义、不踩电脑剪贴板），其余（CJK/emoji 等）
-// 由 ViewModel 合并成 TEXT run 走剪贴板注入（协议 §4.5）。
-// 纯逻辑层：禁止 @ohos 依赖、禁止装饰器。codepoint 口径（Array.from，代理对算 1 字符）。
+// 输入法提交流纯逻辑：提交增量 diff 与字符 → HID 映射（组合态由页面过滤，此处只见稳定文本）。
+// codepoint 口径（代理对算 1 字符）。
 import { HidUsage } from '../hid/KeyCodes';
 import { SHIFT_SYMS } from '../hid/KeyCodes';
 
@@ -19,7 +16,6 @@ export interface CommitDiff {
   inserts: string;
 }
 
-// 可映射字符表（小写字母/数字/控制符直构，符号复用 SHIFT_SYMS 主/变体两向）。
 function buildMap(): Map<string, HidChar> {
   const m: Map<string, HidChar> = new Map<string, HidChar>();
   const a: number = 'a'.charCodeAt(0);
@@ -61,8 +57,7 @@ function ch2hc(ch: string, usage: number): HidChar {
 const CHAR_MAP: Map<string, HidChar> = buildMap();
 
 export class CommitPlan {
-  // 提交前后稳定文本 → 增量。公共前缀+后缀双向截断：旧中段=删除码点数，新中段=插入文本。
-  // （纯前缀截断会把中缀插入误判成先删后插，多发 Backspace 吃掉正文字符。）
+  // 公共前后缀截断：旧中段=删除码点数，新中段=插入文本。
   public static diff(oldText: string, newText: string): CommitDiff {
     const oldChars: string[] = Array.from(oldText);
     const newChars: string[] = Array.from(newText);
@@ -81,7 +76,7 @@ export class CommitPlan {
     };
   }
 
-  // 单字符映射；不可映射（CJK/emoji 等）返回 null。
+  // 不可映射（CJK/emoji 等）返回 null，走 TEXT。
   public static charToHid(ch: string): HidChar | null {
     const h: HidChar | undefined = CHAR_MAP.get(ch);
     return h !== undefined ? h : null;

@@ -98,8 +98,7 @@ export class PairingModel {
   // 进入发现页：刷新快速连接入口；空闲态自动发起一次发现。
   public onPageEnter(): void {
     this.refreshQuickLabel();
-    // 上一趟配对残留的 PAIRED（成功视图已在弹出前展示过）按全新进入处理：清结果重扫，
-    // 否则已配对用户再进发现页只会看到定格的成功视图，无法发起新配对。
+    // 残留的 PAIRED（成功视图已展示过）按全新进入处理，可再扫再配。
     if (this.snapshot.phase === PairPhase.PAIRED) {
       this.snapshot.phase = PairPhase.IDLE;
       this.snapshot.hosts = [];
@@ -121,9 +120,7 @@ export class PairingModel {
   // ---- 流程方法 ----
 
   // UDP 广播发现（窗口内收集全部应答，按 IP 去重）。
-  // conn 浮层态只在断开态（IDLE/LOST）下挂 DISCOVERING：已连接/重连中的会话不被发现窗口
-  // 改写（CONNECTED 被踩成 IDLE 会让主控页误判离线、RECONNECTING 被踩会掐断重连链）；
-  // 回收时只认仍是 DISCOVERING 的态（防覆盖窗口内由其他路径完成的连接态迁移）。
+  // conn 浮层态只在断开态下挂 DISCOVERING，回收只认自写的态——不踩踏活动会话。
   public async startDiscovery(): Promise<void> {
     if (this.snapshot.phase === PairPhase.DISCOVERING) {
       return;
@@ -132,7 +129,7 @@ export class PairingModel {
     this.snapshot.phase = PairPhase.DISCOVERING;
     const s: number = this.conn.snapshot.state;
     if (s === ConnState.IDLE || s === ConnState.LOST || s === ConnState.DISCOVERING) {
-      this.conn.snapshot.state = ConnState.DISCOVERING; // 浮层展示（发现窗口由本模型驱动）
+      this.conn.snapshot.state = ConnState.DISCOVERING;
     }
     try {
       const hosts: DiscoveredHost[] = await this.discoverer.discover(DiscoverPolicy.WINDOW_MS, DEFAULT_PORT);
@@ -251,9 +248,7 @@ export class PairingModel {
     }
   }
 
-  // 取消：断开配对会话回列表视图。纯发现（DISCOVERING）尚未选中主机、不持有连接，
-  // 只回退发现浮层态——已连接的会话不因路过发现页被拆；配对各态（CONNECTING 起）
-  // 连接归本流程所有，照常断开回收。
+  // 取消：配对各态持有连接照常断开；纯发现（未选中主机）不持有连接，只回退发现浮层态。
   public cancel(): void {
     this.pairWaiter = null;
     this.selected = null;
@@ -391,14 +386,13 @@ export class PairingModel {
     this.snapshot.errorHintKey = '';
   }
 
-  // 静态文案错误：清动态文案，写资源键 + 参数（页面经 pageResFmt 解析为当前语言）。
   private setKeyError(key: string, params: string[] = []): void {
     this.snapshot.errorText = '';
     this.snapshot.errorKey = key;
     this.snapshot.errorParams = params;
   }
 
-  // 连接层错误：ResError 转资源键；其余（系统 BusinessError 等）原样展示 message。
+  // ResError 转资源键，其余原样展示 message。
   private setConnError(err: Error): void {
     if (err instanceof ResError) {
       this.setKeyError(err.resKey, err.resParams);

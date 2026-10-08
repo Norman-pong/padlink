@@ -1,7 +1,7 @@
 // 设置页（FR-5 / FR-7）：灵敏度 Slider（0.5–2.0 步进 0.1，实时生效+持久化）、
 // 自然滚动开关、已配对主机管理（列表/重命名/删除/设默认，四态：加载/空态/列表/轻提示反馈）、
 // 调试面板开关（控制版本号连点入口显隐）、关于区（应用版本+协议版本）。
-// 隐藏入口（FR-7）：调试开关开启时，版本号 Text 连点 5 次（1500ms 窗口内累计，过快连点才可能触发，防误触）跳调试页。
+// 隐藏入口（FR-7）：调试开关开启时，版本号连点 5 次跳调试页。
 // 应用版本经 bundleManager.getBundleInfoForSelfSync 读取（js-apis-bundlemanager，API10+）。
 // 弹窗/反馈 API（文档现查）：删除二次确认走 UIContext.showAlertDialog（AlertDialog.show 自
 // API18 废弃，ts-methods-alert-dialog-box / arkts-fixes-style-dialog）；操作反馈走
@@ -353,10 +353,8 @@ export struct SettingsPage {
       .height('100%')
     }
     .titleBar({
-      // 全屏窗口组合（hds-components §一.2，硬约束 4）：主控页常驻 layoutFullScreen，子页
-      // 窗口实为全屏形态。avoidLayoutSafeArea 管标题栏自身避让状态栏（缺它 MINI 栏塌陷
-      // 17vp、返回键压入状态栏）；enableComponentSafeArea 管内容避开标题栏（缺它内容钻入
-      // 栏下）——两者缺一不可（MateX7 实测）。
+      // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
+      // 与内容避让标题栏，缺一不可（MateX7 实测）。
       style: scrollBlurTitleBarStyle(),
       content: {
         title: { mainTitle: $r('app.string.page_settings') }

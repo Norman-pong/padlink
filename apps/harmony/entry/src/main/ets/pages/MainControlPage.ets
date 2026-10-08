@@ -1,16 +1,8 @@
-// 主控页（FR-1/FR-2/FR-6）：全屏触摸面 + 三功能区 Tabs（三指切换）+ 右上角状态浮层胶囊。
-// 避让与沉浸（PRD §6.3，现查文档）：
-// - faqs-arkui-1114：setWindowLayoutFullScreen(true) + getWindowAvoidArea 返回 px（需 px2vp）
-//   + on('avoidAreaChange') 动态监听；windowSizeChange 双监听覆盖旋转/分屏。
-// - arkts-apis-window-e：TYPE_NAVIGATION_INDICATOR(4) 是取底部手势条的唯一途径；
-//   侧边手势区无 API（TYPE_SYSTEM_GESTURE 所有设备返回空）→ 左右各 12vp 经验边距（真机待校准）。
-// - faqs-arkui-196：进入主控页 setWindowKeepScreenOn(true)，退出恢复 false。
-// 状态浮层（HDS 层1 材质 + 硬约束1/2）：.systemMaterial(ImmersiveMaterial ULTRA_THIN) +
-// 透明背景——材质层位于 background 之下，禁再叠 backgroundBlurStyle；materialColor 用带透明度的
-// token 色（capsule_material，深浅各一档）。API26 模拟器 uiMaterial 假支持（渲染无效果，lore
-// 1938f08），此时 materialColor 直接作 backgroundColor 兜底（定则二：可读性不依赖材质）；真机
-// 上材质滤镜叠加半透色为增益形态。65%（0xA6）半透度按「深/浅两色内容上 font_primary 文字均可读」
-// 取定。胶囊整体 accessibilityText 随连接状态+RTT 动态拼接（硬约束 11），点击进调试页。
+// 主控页：全屏触摸面 + 三功能区 Tabs（三指切换）+ 右上角状态浮层胶囊。
+// 避让：setWindowLayoutFullScreen 后 getWindowAvoidArea/avoidAreaChange 返回 px（需 px2vp）；
+// 底部手势条仅 TYPE_NAVIGATION_INDICATOR 可取；侧边手势区无 API，左右 12vp 经验边距（真机待校准）。
+// 浮层：systemMaterial ULTRA_THIN + 透明背景（材质层在 background 之下，禁再叠 blur）；
+// 模拟器假支持材质时 materialColor 半透色直接兜底，可读性不依赖材质。
 import { window, uiMaterial } from '@kit.ArkUI';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
@@ -29,10 +21,10 @@ const CAPSULE_MARGIN_VP: number = 12; // 胶囊距屏幕右缘/状态栏下缘�
 const CAPSULE_PAD_H_VP: number = 12; // 胶囊内水平内边距
 const CAPSULE_PAD_V_VP: number = 6; // 胶囊内垂直内边距
 const CAPSULE_RADIUS_VP: number = 18; // 胶囊圆角（上下内边距 6 + 行高约 24 ≈ 直径 36，取半值 18 成胶囊）
-// 浮动圆键度量（hds-components §一.2a）：视觉直径向框架基准 38 对齐取 40，兼满足命中区下限 40vp。
+// 浮动圆键：视觉直径 40（框架基准 38 对齐，兼满足 40vp 命中区）。
 const FLOAT_BTN_SIZE_VP: number = 40;
 const FLOAT_BTN_ICON_FP: number = 22; // SymbolGlyph 基准（框架 menu 键同值）
-// 功能区位置指示度量：命中区 32vp（指示件低于 40vp 交互键标准，仅作辅助入口），视觉点 8vp、选中胶囊 20vp。
+// 位置指示：命中区 32vp（辅助指示件，低于 40vp 交互键标准），视觉点 8vp、选中胶囊 20vp。
 const ZONE_DOT_HIT_VP: number = 32;
 const ZONE_DOT_SIZE_VP: number = 8;
 const ZONE_DOT_ACTIVE_W_VP: number = 20;
@@ -49,9 +41,7 @@ export struct MainControlPage {
   @Local bottomAvoidVp: number = 0;
   @Local topAvoidVp: number = 0; // 状态栏避让：胶囊不得压入系统状态栏（否则点击被状态栏窗口拦截）
   @Local guideOpacity: number = 1; // 触摸面引导层透明度：手指按下即淡出（不挡操作），抬手淡回
-  // 三功能区当前索引：不再绑定 Tabs 的 index 参数——直接改 index 跳页无切换动效
-  //（ts-container-tabs「直接修改index跳页时，切换动效不生效」），动效统一走 TabsController.changeIndex。
-  // @Local：区名 caption 与圆点激活态读它，必须可观察（普通字段切换后不刷新）。
+  // 直接改 Tabs index 跳页无切换动效，动效统一走 changeIndex；@Local 驱动圆点/区名刷新。
   @Local curTabIndex: number = 0;
   private tabController: TabsController = new TabsController();
   private win: window.Window | null = null;
@@ -79,7 +69,7 @@ export struct MainControlPage {
     this.switchTo((this.curTabIndex + direction + ZONE_COUNT) % ZONE_COUNT);
   }
 
-  // 切换唯一入口（三指手势与位置指示点共用）：先复位引擎/语音/键盘会话，再走 changeIndex 内置翻页。
+  // 切换唯一入口（三指手势与位置指示点共用）。
   private switchTo(index: number): void {
     if (index === this.curTabIndex) {
       return;
@@ -87,7 +77,6 @@ export struct MainControlPage {
     this.touchpad.cancelGesture();
     // 离开语音 Tab 即取消会话（PRD §12：麦克风仅按住期间占用；空闲时为 no-op）
     this.voice.cancelSession();
-    // 键盘区生命周期：离开收起输入法+补发未抬键，进入唤起输入法（PRD §4.4 混合形态）
     if (this.curTabIndex === 1) {
       this.keyboard.zoneLeave();
     }
@@ -95,9 +84,7 @@ export struct MainControlPage {
       this.keyboard.zoneEnter();
     }
     this.curTabIndex = index;
-    // D8（motion.md §五红线：禁手写复刻 tab 切换动效）：changeIndex 是官方内置切换动效的
-    // 唯一入口，默认 300ms cubicBezier 翻页（ts-container-tabs animationDuration/curve）；
-    // scrollable(false) 只关手势滑动，不影响该内置过渡——不自绘任何补间动画。
+    // changeIndex 是官方内置切换动效的唯一入口（scrollable(false) 不影响该过渡），禁手写复刻。
     this.tabController.changeIndex(this.curTabIndex);
   }
 
@@ -260,13 +247,10 @@ export struct MainControlPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopEnd }) {
-        // 三功能区容器（FR-2）：触摸板 / 键盘 / 语音；默认页签条隐藏，三指手势驱动 index。
-        // 归层律备注（D8 定案）：三功能区切换无页签条为既定交互形态，官方无「无页签条的切换
-        // 容器」对应能力（HdsTabs 必带页签条，查证 ui-design-hdstabs/ts-container-tabs）——
-        // plain Tabs + barHeight(0) 隐藏指示器为合法形态，切换动效走 changeIndex 内置翻页。
+        // 三功能区（HdsTabs 必带页签条，无页签条形态只能 plain Tabs + barHeight(0)）。
         Tabs({ barPosition: BarPosition.End, controller: this.tabController }) {
           TabContent() {
-            // 触摸面 + 中央引导浮层（引导不消费触摸：Transparent 命中，按键区照常消费）
+            // 触摸面 + 中央引导（引导 Transparent 命中，不挡手势）
             Stack({ alignContent: Alignment.Center }) {
               Column()
                 .width('100%')
@@ -281,7 +265,7 @@ export struct MainControlPage {
           .tabBar($r('app.string.tab_touchpad'))
 
           TabContent() {
-            // 自绘 QWERTY 键盘（PRD §4.4）：KeyCap 直接发 HID usage，不经系统输入法。
+            // 键盘区：系统输入法承接文本 + 自绘键条（PRD §4.4）。
             Column() {
               KeyboardPage({ model: this.keyboard })
             }
@@ -307,15 +291,13 @@ export struct MainControlPage {
         .width('100%')
         .height('100%')
 
-        // 功能区位置指示（官方查证：Tabs barHeight(0) 后无独立指示器能力，Indicator 为 Swiper
-        // 专属 API——自绘纯指示件合法）：顶部居中，区名 + 三圆点，点按走 switchTo 同一入口。
+        // barHeight(0) 后 Tabs 无独立指示器（Indicator 为 Swiper 专属），此处自绘。
         Column({ space: 6 }) {
           Text(this.zoneRes(this.curTabIndex))
             .fontSize($r('sys.float.ohos_id_text_size_caption1'))
             .fontColor($r('sys.color.font_tertiary'))
           Row() {
             ForEach([0, 1, 2], (i: number) => {
-              // 命中区 32vp 透明容器内嵌视觉点：选中拉长为胶囊（品牌色），未选中圆点（三级图标色）
               Column() {
                 Row()
                   .width(this.curTabIndex === i ? ZONE_DOT_ACTIVE_W_VP : ZONE_DOT_SIZE_VP)
@@ -342,9 +324,9 @@ export struct MainControlPage {
         .margin({ top: this.topAvoidVp + CAPSULE_MARGIN_VP })
         .hitTestBehavior(HitTestMode.Transparent) // 空白区放行给下层功能区，圆点命中区照常消费
 
-        // 右上浮动件行：设置圆键 + 状态胶囊（同 ULTRA_THIN 材质体系，层1 悬浮层级）。
+        // 右上浮动件行：设置圆键 + 状态胶囊。
         Row({ space: 8 }) {
-          // 设置入口（连接态下设置/发现页此前不可达，仅 LOST 胶囊按钮一条路径）
+          // 设置入口
           Stack({ alignContent: Alignment.Center }) {
             SymbolGlyph($r('sys.symbol.gearshape'))
               .fontSize(FLOAT_BTN_ICON_FP)
@@ -365,8 +347,7 @@ export struct MainControlPage {
           .accessibilityLevel('yes')
           .accessibilityText($r('app.string.page_settings'))
 
-          // 状态浮层（FR-6）：ULTRA_THIN 沉浸材质胶囊，@ObservedV2 快照驱动，点击进调试页。
-          // 非 CONNECTED 态文案区分：RECONNECTING 展示原因与轮次；LOST 额外给「重新连接」按钮跳发现页。
+          // 状态浮层：RECONNECTING 展示原因与轮次，LOST 给「重新连接」按钮；点击进调试页。
           Column({ space: 4 }) {
             Row() {
               Text(this.stateRes())
@@ -381,7 +362,7 @@ export struct MainControlPage {
             }
             if (this.conn.snapshot.state === ConnState.RECONNECTING
               && this.conn.snapshot.lastErrorKey.length > 0) {
-              // lastErrorKey/Params 携带原因/轮次（如「重连失败（第 N 次）」），满足浮层轮次展示
+              // 原因/轮次（如「重连失败（第 N 次）」）
               Text(pageResFmt(this.getUIContext(), this.conn.snapshot.lastErrorKey,
                 this.conn.snapshot.lastErrorParams))
                 .fontSize($r('sys.float.ohos_id_text_size_body2'))
@@ -401,8 +382,7 @@ export struct MainControlPage {
           .alignItems(HorizontalAlign.End)
           .padding({ left: CAPSULE_PAD_H_VP, right: CAPSULE_PAD_H_VP, top: CAPSULE_PAD_V_VP, bottom: CAPSULE_PAD_V_VP })
           .borderRadius(CAPSULE_RADIUS_VP)
-          // 材质分层律（硬约束 1）：材质层在 background 之下——透明背景 + ImmersiveMaterial，
-          // 禁再叠 backgroundBlurStyle；interactive:false 胶囊为静态浮层，无按压形变需求。
+          // 材质层在 background 之下：透明背景 + ImmersiveMaterial，禁再叠 backgroundBlurStyle。
           .backgroundColor(Color.Transparent)
           .systemMaterial(new uiMaterial.ImmersiveMaterial({
             style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
@@ -426,9 +406,7 @@ export struct MainControlPage {
     .height('100%')
   }
 
-  // 触摸面中央引导（纯提示层，Transparent 命中不挡手势）：
-  // 连接态给三行手势速查（解决三指切换无可见提示的发现性问题），非连接态给状态与连接入口
-  // （此前 IDLE/手动断开后全页无任何连接路径，只能杀进程重开）。
+  // 中央引导：连接态给三行手势速查，非连接态给状态与连接入口（Transparent 命中）。
   @Builder
   touchGuide() {
     Column({ space: 12 }) {

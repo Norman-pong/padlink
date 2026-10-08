@@ -139,8 +139,7 @@ export interface ShiftSym {
   usage: number; // 承载该字符对的物理键 usage（未按 Shift 的键位）
 }
 
-// 主层符号 → 符号层变体全集（数字行 shift 变体 !@#… + 常用标点；前 10 项即数字行）。
-// 取舍：v1 只覆盖布局内物理键位的 shift 变体（= [ ] \ ` 等未上屏的符号暂不提供）。
+// 主层符号 → Shift 变体全集（数字行变体 !@#… + 常用标点；前 10 项即数字行）。
 export const SHIFT_SYMS: ShiftSym[] = [
   { base: '1', shifted: '!', usage: HidUsage.NUM_1 },
   { base: '2', shifted: '@', usage: HidUsage.NUM_2 },

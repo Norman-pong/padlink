@@ -452,10 +452,8 @@ export struct DebugPanelPage {
       .clip(false)
     }
     .titleBar({
-      // 全屏窗口组合（hds-components §一.2，硬约束 4）：主控页常驻 layoutFullScreen，子页
-      // 窗口实为全屏形态。avoidLayoutSafeArea 管标题栏自身避让状态栏（缺它 MINI 栏塌陷
-      // 17vp、返回键压入状态栏）；enableComponentSafeArea 管内容避开标题栏（缺它内容钻入
-      // 栏下）——两者缺一不可（MateX7 实测）。
+      // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
+      // 与内容避让标题栏，缺一不可（MateX7 实测）。
       style: scrollBlurTitleBarStyle(),
       content: {
         title: { mainTitle: $r('app.string.page_debug') }

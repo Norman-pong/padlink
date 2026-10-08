@@ -1,14 +1,4 @@
-// 键盘区（PRD §4.4 混合形态）：系统输入法承接文本 + 自绘键条补键语义（TermNext 式取舍）。
-// - 输入区：TextArea 常驻底部；IME 组合态（onChange previewText 非空，拼音预上屏）不上行，
-//   提交增量经 model.commitText（ASCII 逐键 HID 保留按键语义、CJK/emoji 合并 TEXT 走剪贴板
-//   注入、删除镜像 Backspace、单字符提交 × 粘滞修饰 = 组合键）；
-// - 键条（贴底）：Esc Tab Ctrl Alt Shift Super（粘滞点亮）⌫ Enter ←↑↓→，KeyCap 两段式直发
-//   HID（长按连发由 daemon 负责）；IME 顶起时随 RESIZE 避让整体上移；
-// - 区域生命周期：主控页 switchTo 经 model.zoneEnter/zoneLeave 驱动——进入唤起输入法 + 切
-//   RESIZE 避让，离开收起输入法 + 补发未抬键（PRD §11.2）；首次进区由 aboutToAppear 按
-//   model.zoneActive 补偿（TabContent 懒构建晚于首次 zoneEnter 调用）。
-// 无障碍：键条每键 accessibilityText（朗读名）+ accessibilityLevel('yes')；粘滞修饰加
-// accessibilityChecked 播报点亮态、accessibilityDescription 说明操作后果。
+// 键盘区：系统输入法承接文本（组合态不上行，仅提交增量镜像到电脑）+ 自绘键条补键语义。
 import { HidUsage } from '../common/hid/KeyCodes';
 import { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { StickyMod } from '../common/keyboard/StickyModifiers';
@@ -30,18 +20,15 @@ const A11Y_KEYS: string[] = [
   'kb_key_up', 'kb_key_down', 'kb_key_left', 'kb_key_right', 'kb_a11y_modifier_hint',
 ];
 
-// 单键帽：按压高亮自管；active（粘滞修饰点亮）用系统 token 强调色 + 反白文字。
-// 动效取舍（motion.md §一 归层律）：按键物理隐喻 = 按压底色反馈（lit 底色），不加跟手缩放——
-// 缩放是圆钮/卡片类浮层的形变隐喻，键帽按压保持几何稳定更符合物理键盘直觉（D9 定案）。
+// 单键帽：按压高亮自管，长按由 KeyStep 两段式直发。
 @ComponentV2
 struct KeyCap {
   @Param label: string = '';
   @Param a11y: string = '';
   @Param hint: string = '';
-  @Param active: boolean = false; // 点亮（粘滞修饰）
-  @Param checkable: boolean = false; // 是否向读屏播报选中态（粘滞键 true）
+  @Param active: boolean = false;
+  @Param checkable: boolean = false;
   @Param weight: number = 1;
-  // 回调走 @Param（V2 规则：父组件只能初始化 @Param 成员，普通成员禁止外部初始化）。
   @Param onPress: () => void = () => {};
   @Param onRelease: () => void = () => {};
   @Local private pressed: boolean = false;
@@ -51,7 +38,6 @@ struct KeyCap {
     return this.active || this.pressed;
   }
 
-  // DOWN 置位按压并发 down；UP/CANCEL 复位并发 up（CANCEL 也必须补 up，电脑端按键不可残留）。
   private handleTouch(ev: TouchEvent): void {
     if (ev.type === TouchType.Down) {
       if (this.pointerId === -1 && ev.changedTouches.length > 0) {
@@ -101,11 +87,11 @@ struct KeyCap {
 @ComponentV2
 export struct KeyboardPage {
   @Require @Param model: KeyboardModel;
-  @Local inputText: string = ''; // 输入框显示值（组合态预上屏含在内）
-  private lastStable: string = ''; // 上次已提交值（增量 diff 基准；组合态不改写）
+  @Local inputText: string = '';
+  private lastStable: string = ''; // 增量 diff 基准，组合态期间不改写
   private textCtrl: TextAreaController = new TextAreaController();
   private a11yTexts: Map<string, string> = new Map();
-  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进区前避让模式（离区恢复）
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
 
   aboutToAppear(): void {
     for (const k of A11Y_KEYS) {
@@ -118,39 +104,33 @@ export struct KeyboardPage {
       this.doZoneLeave();
     };
     if (this.model.zoneActive) {
-      this.doZoneEnter(); // 首次进区补偿：懒构建晚于 switchTo 的 zoneEnter 调用
+      this.doZoneEnter();
     }
   }
 
   aboutToDisappear(): void {
-    // 切页复位：补发一切未抬起的 up（防电脑端残留按键）并清空粘滞点亮。
     this.model.releaseAll();
     this.model.onZoneEnter = null;
     this.model.onZoneLeave = null;
     this.restoreAvoid();
   }
 
-  // 进区：RESIZE 避让（输入区随 IME 顶起）+ 聚焦唤起输入法。
   private doZoneEnter(): void {
     this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
     try {
       this.getUIContext().getFocusController().requestFocus('kb_input');
     } catch (_e) {
-      // 聚焦失败不致命：点按输入框可再唤起
     }
     try {
       inputMethod.getController().showTextInput().catch((_err: BusinessError) => {
-        // 唤起失败（无已聚焦编辑框等）不致命：点按输入框可再唤起
       });
     } catch (_e) {
     }
   }
 
-  // 离区：收起输入法 + 失焦 + 恢复避让模式（补发未抬键由 model.zoneLeave 的 releaseAll 承担）。
   private doZoneLeave(): void {
     try {
       inputMethod.getController().hideTextInput().catch((_err: BusinessError) => {
-        // 收起失败不致命：区域已失焦，下次进区会重新唤起
       });
     } catch (_e) {
     }
@@ -167,19 +147,16 @@ export struct KeyboardPage {
     return v !== undefined ? v : key;
   }
 
-  // 提交判定：组合态（拼音预上屏）只更新显示值不上行；组合清空即提交，按稳定值差分。
+  // IME 组合态（拼音预上屏）不上行，组合清空即提交。
   private onInput(value: string, previewText?: PreviewText): void {
     this.inputText = value;
     if (previewText !== undefined && previewText.value.length > 0) {
-      return; // 组合中：字母尚未选词，不进提交流
+      return;
     }
     this.model.commitText(this.lastStable, value);
     this.lastStable = value;
   }
 
-  // ---- 键帽构造 Builder ----
-
-  // 普通按键：DOWN 发 down、UP/CANCEL 发 up（长按不连发——key repeat 由 daemon 负责）。
   @Builder
   private tapKey(label: string, a11y: string, hid: number, weight: number) {
     KeyCap({
@@ -193,7 +170,6 @@ export struct KeyboardPage {
     })
   }
 
-  // 粘滞修饰键：DOWN 即切换点亮（即时反馈），不产生线上流量；点亮态 @Trace 驱动。
   @Builder
   private modKey(label: string, a11yKey: string, mod: number, latched: boolean, weight: number) {
     KeyCap({
@@ -207,9 +183,8 @@ export struct KeyboardPage {
 
   build() {
     Column({ space: KEY_GAP_VP }) {
-      Blank() // 输入区贴底（类输入法布局），上方留白
+      Blank()
 
-      // 输入区：系统输入法的承接面；组合态只显不上行，提交增量镜像到电脑
       TextArea({ text: this.inputText, controller: this.textCtrl,
         placeholder: this.str('kb_input_placeholder') })
         .id('kb_input')
@@ -226,7 +201,6 @@ export struct KeyboardPage {
           this.onInput(value, previewText);
         })
 
-      // 键条：横向可滚（窄折叠态放下全排），长按直发 HID 两段式
       Scroll() {
         Row({ space: KEY_GAP_VP }) {
           this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC, 1)

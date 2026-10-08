@@ -116,15 +116,12 @@ export struct DiscoverPage {
       .padding(16)
     }
     .titleBar({
-      // 全屏窗口组合（hds-components §一.2，硬约束 4）：主控页常驻 layoutFullScreen，子页
-      // 窗口实为全屏形态。avoidLayoutSafeArea 管标题栏自身避让状态栏（缺它 MINI 栏塌陷
-      // 17vp、返回键压入状态栏）；enableComponentSafeArea 管内容避开标题栏（缺它内容钻入
-      // 栏下）——两者缺一不可（MateX7 实测）。
+      // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
+      // 与内容避让标题栏，缺一不可（MateX7 实测）。
       style: scrollBlurTitleBarStyle(),
       content: {
         title: { mainTitle: $r('app.string.page_discover') },
-        // 设置入口走框架 menu 槽（硬约束 15：能进 menu 槽的一律进槽，替代页底裸文本行）；
-        // 图标传纯 ResourceStr 由框架按模糊态自适应着色；label 必填（溢出行只渲染 label）。
+        // 图标传纯 ResourceStr 由框架自适应着色；label 必填（溢出行只渲染 label）。
         menu: {
           value: [{
             content: {
@@ -188,7 +185,6 @@ export struct DiscoverPage {
         .textAlign(TextAlign.Center)
         .width('100%')
       if (this.pairing.snapshot.errorHintKey.length > 0) {
-        // 补充引导（如快连失败：可回主控页等自动重连），与错误原因分行弱化展示
         Text(this.resStr(this.pairing.snapshot.errorHintKey))
           .fontSize($r('sys.float.ohos_id_text_size_body2'))
           .fontColor($r('sys.color.font_secondary'))
