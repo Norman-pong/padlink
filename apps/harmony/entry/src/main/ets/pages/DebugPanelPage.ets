@@ -7,14 +7,13 @@ import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { GestureStateName } from '../common/gesture/GestureEngine';
-import { ConnState } from '../common/net/ConnectionManager';
 import type { ConnectionManager, RttListener } from '../common/net/ConnectionManager';
 import { hexToBytes } from '../common/net/HexCodec';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { HostInfo } from '../common/viewmodel/SettingsModel';
 import { HostsFullError } from '../common/viewmodel/HostsStore';
-import { pageResStr, pageErrText } from './Res';
+import { pageResStr, pageErrText, connStateKey } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -54,19 +53,6 @@ function gestureRes(state: number): string {
     return 'gesture_three_pending';
   }
   return 'gesture_idle';
-}
-
-function connRes(state: number): string {
-  if (state === ConnState.CONNECTED) {
-    return 'state_connected';
-  }
-  if (state === ConnState.RECONNECTING) {
-    return 'state_reconnecting';
-  }
-  if (state === ConnState.LOST) {
-    return 'state_lost';
-  }
-  return 'state_idle';
 }
 
 // hex 字符串 → 字节：见 common/net/HexCodec（与 M2 配对/快速连接共用）。
@@ -327,7 +313,7 @@ export struct DebugPanelPage {
                   .fontColor($r('sys.color.font_secondary'))
               }
               .width('100%')
-              this.statRow({ label: $r('app.string.debug_conn_state'), value: this.resStr(connRes(this.conn.snapshot.state)) })
+              this.statRow({ label: $r('app.string.debug_conn_state'), value: this.resStr(connStateKey(this.conn.snapshot.state)) })
               this.statRow({ label: $r('app.string.debug_gesture_state'), value: this.resStr(gestureRes(this.gestureState)) })
               this.statRow({ label: $r('app.string.debug_sample_rate'), value: `${this.sampleRate}/s` })
               this.statRow({ label: $r('app.string.debug_send_rate'), value: `${this.sendRate}/s` })
@@ -433,7 +419,7 @@ export struct DebugPanelPage {
               if (this.statusText.length > 0) {
                 Text(this.statusText)
                   .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                  .fontColor(this.statusOk ? $r('sys.color.font_primary') : $r('sys.color.font_emphasize'))
+                  .fontColor(this.statusOk ? $r('sys.color.font_primary') : $r('sys.color.warning'))
               }
             }
           }

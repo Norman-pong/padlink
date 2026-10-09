@@ -2,6 +2,27 @@
 // $r 需字面量，动态键（如 PAIR_NAK 文案键）统一走这里。
 import type { UIContext } from '@kit.ArkUI';
 import { ResError } from '../common/ResError';
+import { ConnState } from '../common/net/ConnectionManager';
+
+// 连接状态 → 文案资源键（$r 需字面量，动态键统一走这里；键表全仓单源）。
+export function connStateKey(state: number): string {
+  if (state === ConnState.CONNECTED) {
+    return 'state_connected';
+  }
+  if (state === ConnState.RECONNECTING) {
+    return 'state_reconnecting';
+  }
+  if (state === ConnState.LOST) {
+    return 'state_lost';
+  }
+  if (state === ConnState.DISCOVERING) {
+    return 'state_discovering';
+  }
+  if (state === ConnState.PAIRING) {
+    return 'state_pairing';
+  }
+  return 'state_idle';
+}
 
 export function pageResStr(uiContext: UIContext, name: string): string {
   const ctx = uiContext.getHostContext();

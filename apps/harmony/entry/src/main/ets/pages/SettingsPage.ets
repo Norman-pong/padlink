@@ -1,12 +1,14 @@
 // 设置页（FR-5 / FR-7）：灵敏度 Slider（0.5–2.0 步进 0.1，实时生效+持久化）、
-// 自然滚动开关、已配对主机管理（列表/重命名/删除/设默认，四态：加载/空态/列表/轻提示反馈）、
+// 自然滚动开关、已配对主机管理（列表四态：加载/空态/列表/轻提示反馈；点行进半模态操作单——
+// 重命名/设默认/删除，bindSheet FIT_CONTENT；删除仍走 AlertDialog 二次确认）、
 // 调试面板开关（控制版本号连点入口显隐）、关于区（应用版本+协议版本）。
 // 隐藏入口（FR-7）：调试开关开启时，版本号连点 5 次跳调试页。
 // 应用版本经 bundleManager.getBundleInfoForSelfSync 读取（js-apis-bundlemanager，API10+）。
 // 弹窗/反馈 API（文档现查）：删除二次确认走 UIContext.showAlertDialog（AlertDialog.show 自
 // API18 废弃，ts-methods-alert-dialog-box / arkts-fixes-style-dialog）；操作反馈走
 // UIContext.getPromptAction().showToast（arkts-apis-uicontext-promptaction）；重命名因需
-// TextInput 输入用页内蒙层弹层实现（CustomDialogController 依赖 V1 状态装饰器，V2 页面从简）。
+// TextInput 输入用页内蒙层弹层实现（CustomDialogController 依赖 V1 状态装饰器，V2 页面从简），
+// 蒙层打开时 onBackPressed 拦截系统返回先关弹层。
 // HDS（D5/D3）：HdsNavDestination + 滚动模糊标题栏（单源 HdsTitleBar.ets）+ Scroller 绑定；
 // 页底色 ohos_id_color_sub_background、卡面 comp_background_primary、分隔线 comp_divider
 // 0.5vp；蒙层用系统 token ohos_id_color_mask_regular（原 rgba 硬编码清零）。
@@ -55,6 +57,8 @@ export struct SettingsPage {
   @Local renamePort: number = 53021;
   @Local renameText: string = '';
   @Local renameError: string = '';
+  // 主机操作半模态（null=关闭）：点行拉起，动作单承载重命名/设默认/删除
+  @Local actionHost: HostInfo | null = null;
 
   aboutToAppear(): void {
     // 重命名弹层 TextInput + 保存/取消按钮：RESIZE 键盘避让（faqs-arkui-1073）
@@ -254,12 +258,14 @@ export struct SettingsPage {
                 Divider()
                   .strokeWidth(DIVIDER_WIDTH_VP)
                   .color($r('sys.color.comp_divider'))
-                // 自然滚动（开关行：Toggle 无障碍名补行标题，读屏播报「自然滚动，开关，已开启」）
+                // 自然滚动（开关行：读屏由 Toggle 单点播报「自然滚动，开关，已开启」，
+                // 行标题标 'no' 防同文双读）
                 Row() {
                   Text($r('app.string.settings_natural_scroll'))
                     .fontSize($r('sys.float.ohos_id_text_size_body1'))
                     .fontColor($r('sys.color.font_primary'))
                     .layoutWeight(1)
+                    .accessibilityLevel('no')
                   Toggle({ type: ToggleType.Switch, isOn: this.naturalOn })
                     .onChange((isOn: boolean) => {
                       this.onNaturalChange(isOn);
@@ -289,9 +295,11 @@ export struct SettingsPage {
                     Text($r('app.string.settings_debug'))
                       .fontSize($r('sys.float.ohos_id_text_size_body1'))
                       .fontColor($r('sys.color.font_primary'))
+                      .accessibilityLevel('no')
                     Text($r('app.string.settings_debug_hint'))
                       .fontSize($r('sys.float.ohos_id_text_size_body3'))
                       .fontColor($r('sys.color.font_secondary'))
+                      .accessibilityLevel('no')
                   }
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
@@ -351,6 +359,14 @@ export struct SettingsPage {
       }
       .width('100%')
       .height('100%')
+      // 主机操作半模态（bindSheet builder 直调 @Builder，官方形态；手势关闭经 onDisappear 复位）
+      .bindSheet(this.actionHost !== null, this.hostActionSheet(), {
+        detents: [SheetSize.FIT_CONTENT],
+        title: { title: this.actionHost !== null ? this.hostName(this.actionHost) : '' },
+        onDisappear: (): void => {
+          this.actionHost = null;
+        }
+      })
     }
     .titleBar({
       // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
@@ -364,6 +380,14 @@ export struct SettingsPage {
     })
     .bindToScrollable([this.scroller])
     .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // D3 分组列表页底色（覆盖标题栏区域，防上下拼色）
+    // 重命名弹层打开时系统返回先关弹层（自绘蒙层不自带返回行为），否则直接退出整页丢输入
+    .onBackPressed((): boolean => {
+      if (this.renameIp.length > 0) {
+        this.closeRename();
+        return true;
+      }
+      return false;
+    })
   }
 
   @Builder
@@ -390,7 +414,7 @@ export struct SettingsPage {
         Column({ space: 8 }) {
           Text($r('app.string.settings_hosts_load_fail'))
             .fontSize($r('sys.float.ohos_id_text_size_body2'))
-            .fontColor($r('sys.color.font_emphasize'))
+            .fontColor($r('sys.color.warning'))
           Text(this.hostsError)
             .fontSize($r('sys.float.ohos_id_text_size_body3'))
             .fontColor($r('sys.color.font_secondary'))
@@ -452,7 +476,14 @@ export struct SettingsPage {
 
   @Builder
   hostItem(h: HostInfo) {
-    Column({ space: 8 }) {
+    // 整行可点（PressedRow 单源按压态），点行拉起半模态动作单——低频/破坏性操作收进动作单，
+    // 不在行内排小按钮（命中区下限 40vp）；chevron 此处为钻取语义（进入该主机的操作上下文）
+    PressedRow({
+      a11yText: `${this.hostName(h)}，${h.ip}`,
+      onActivated: (): void => {
+        this.actionHost = h;
+      }
+    }) {
       Row({ space: 8 }) {
         Column({ space: 2 }) {
           Text(this.hostName(h))
@@ -476,39 +507,67 @@ export struct SettingsPage {
             .borderRadius(10)
             .border({ width: 1, color: $r('sys.color.brand') })
         }
+        SymbolGlyph($r('sys.symbol.chevron_forward'))
+          .fontSize(20)
+          .fontColor([$r('sys.color.icon_tertiary')])
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      Row({ space: 8 }) {
-        Button($r('app.string.settings_host_rename'))
-          .buttonStyle(ButtonStyleMode.NORMAL)
-          .height(32)
-          .onClick(() => {
-            this.openRename(h);
-          })
-        if (!this.isDefault(h)) {
-          Button($r('app.string.settings_host_set_default'))
-            .buttonStyle(ButtonStyleMode.NORMAL)
-            .height(32)
-            .onClick(() => {
-              this.makeDefault(h);
-            })
-        }
-        Blank()
-        Button($r('app.string.settings_host_delete'))
-          .buttonStyle(ButtonStyleMode.NORMAL)
-          .height(32)
-          .fontColor($r('sys.color.warning'))
-          .onClick(() => {
-            this.confirmRemove(h);
-          })
-      }
-      .width('100%')
     }
-    .padding(12)
-    .borderRadius(12)
-    .backgroundColor($r('sys.color.comp_background_primary'))
+  }
+
+  // 主机操作单（半模态）：重命名 / 设为默认（非默认才出）/ 删除（破坏性，警示色 + 二次确认）。
+  // 动作先关面板再执行，删除确认走 AlertDialog。
+  @Builder
+  hostActionSheet() {
+    Column({ space: 8 }) {
+      PressedRow({
+        a11yText: this.resStr('settings_host_rename'),
+        onActivated: (): void => {
+          const h: HostInfo | null = this.actionHost;
+          this.actionHost = null;
+          if (h !== null) {
+            this.openRename(h);
+          }
+        }
+      }) {
+        Text($r('app.string.settings_host_rename'))
+          .fontSize($r('sys.float.ohos_id_text_size_body1'))
+          .fontColor($r('sys.color.font_primary'))
+      }
+      if (this.actionHost !== null && !this.isDefault(this.actionHost)) {
+        PressedRow({
+          a11yText: this.resStr('settings_host_set_default'),
+          onActivated: (): void => {
+            const h: HostInfo | null = this.actionHost;
+            this.actionHost = null;
+            if (h !== null) {
+              this.makeDefault(h);
+            }
+          }
+        }) {
+          Text($r('app.string.settings_host_set_default'))
+            .fontSize($r('sys.float.ohos_id_text_size_body1'))
+            .fontColor($r('sys.color.font_primary'))
+        }
+      }
+      PressedRow({
+        a11yText: this.resStr('settings_host_delete'),
+        onActivated: (): void => {
+          const h: HostInfo | null = this.actionHost;
+          this.actionHost = null;
+          if (h !== null) {
+            this.confirmRemove(h);
+          }
+        }
+      }) {
+        Text($r('app.string.settings_host_delete'))
+          .fontSize($r('sys.float.ohos_id_text_size_body1'))
+          .fontColor($r('sys.color.warning'))
+      }
+    }
     .width('100%')
+    .padding({ left: 16, right: 16, bottom: 16 })
   }
 
   @Builder
@@ -537,7 +596,7 @@ export struct SettingsPage {
         if (this.renameError.length > 0) {
           Text(this.renameError)
             .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.font_emphasize'))
+            .fontColor($r('sys.color.warning'))
             .width('100%')
         }
         Row({ space: 12 }) {

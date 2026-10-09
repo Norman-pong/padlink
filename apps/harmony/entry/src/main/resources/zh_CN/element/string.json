@@ -146,7 +146,7 @@
     },
     {
       "name": "voice_hold_hint",
-      "value": "按住说话，松手自动上屏"
+      "value": "按住说话，或点一下开始、再点一下停止"
     },
     {
       "name": "voice_need_connect",
@@ -594,11 +594,15 @@
     },
     {
       "name": "voice_a11y_hold_to_speak",
-      "value": "按住说话"
+      "value": "按住说话，或点按开始"
     },
     {
       "name": "voice_a11y_release_to_end",
-      "value": "松开结束听写"
+      "value": "松开结束，或再点按一次停止"
+    },
+    {
+      "name": "pair_code_input_a11y",
+      "value": "确认码输入框，四位数字"
     },
     {
       "name": "settings_version_a11y_hint",

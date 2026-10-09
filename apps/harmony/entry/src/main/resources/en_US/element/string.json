@@ -146,7 +146,7 @@
     },
     {
       "name": "voice_hold_hint",
-      "value": "Hold to talk, release to type"
+      "value": "Hold to talk, or tap to start and tap again to stop"
     },
     {
       "name": "voice_need_connect",
@@ -594,11 +594,15 @@
     },
     {
       "name": "voice_a11y_hold_to_speak",
-      "value": "Press and hold to speak"
+      "value": "Hold to talk, or tap to start"
     },
     {
       "name": "voice_a11y_release_to_end",
-      "value": "Release to end dictation"
+      "value": "Release to finish, or tap again to stop"
+    },
+    {
+      "name": "pair_code_input_a11y",
+      "value": "Pairing code input, four digits"
     },
     {
       "name": "settings_version_a11y_hint",

@@ -90,6 +90,7 @@ export struct DiscoverPage {
       .border({ width: 1.5, color: this.pairing.snapshot.code.length === index
         ? $r('sys.color.brand') : $r('sys.color.comp_divider') })
       .backgroundColor($r('sys.color.comp_background_tertiary'))
+      .accessibilityLevel('no') // 数字格的视觉镜像，读屏由覆盖其上的 TextInput 统一承担
   }
 
   build() {
@@ -181,7 +182,7 @@ export struct DiscoverPage {
         .fontColor($r('sys.color.font_primary'))
       Text(this.errorText())
         .fontSize($r('sys.float.ohos_id_text_size_body2'))
-        .fontColor($r('sys.color.font_emphasize'))
+        .fontColor($r('sys.color.warning'))
         .textAlign(TextAlign.Center)
         .width('100%')
       if (this.pairing.snapshot.errorHintKey.length > 0) {
@@ -206,6 +207,7 @@ export struct DiscoverPage {
     Column({ space: 12 }) {
       if (this.pairing.snapshot.quickLabel.length > 0) {
         // 快速连接入口（lastHost 已有 token）：链接符号 + 标题 + 主机标签，点击直连（PressedRow 按压态 + a11y）
+        // 动作行不挂 chevron：› 是导航语义，点击发起连接是动作语义（设置页入口行才是真导航）
         PressedRow({
           a11yText: `${this.resStr('discover_quick')}，${this.pairing.snapshot.quickLabel}`,
           onActivated: (): void => {
@@ -228,9 +230,6 @@ export struct DiscoverPage {
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
-            SymbolGlyph($r('sys.symbol.chevron_forward'))
-              .fontSize(20)
-              .fontColor([$r('sys.color.icon_tertiary')])
           }
           .width('100%')
           .alignItems(VerticalAlign.Center)
@@ -276,9 +275,6 @@ export struct DiscoverPage {
                   }
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
-                  SymbolGlyph($r('sys.symbol.chevron_forward'))
-                    .fontSize(20)
-                    .fontColor([$r('sys.color.icon_tertiary')])
                 }
                 .width('100%')
                 .alignItems(VerticalAlign.Center)
@@ -334,7 +330,7 @@ export struct DiscoverPage {
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)
         .width('100%')
-      // 4 格确认码：视觉格子 + 覆盖透明 TextInput 承接数字键盘，输满自动提交
+      // 4 格确认码：视觉格子（装饰，读屏隐藏）+ 覆盖透明 TextInput 承接数字键盘，输满自动提交
       Stack() {
         Row({ space: 12 }) {
           this.codeSlot(0)
@@ -350,7 +346,11 @@ export struct DiscoverPage {
           .width('100%')
           .height(64)
           .defaultFocus(true)
+          .accessibilityText($r('app.string.pair_code_input_a11y'))
           .onChange((v: string) => {
+            if (v === this.pairing.snapshot.code) {
+              return; // 受控组件程序化改值后的同值回放守卫（硬约束 19）
+            }
             this.pairing.setCode(v);
             if (v.length === 4) {
               this.pairing.submitCode(v);
@@ -362,7 +362,7 @@ export struct DiscoverPage {
       if (this.errorText().length > 0) {
         Text(this.errorText())
           .fontSize($r('sys.float.ohos_id_text_size_body2'))
-          .fontColor($r('sys.color.font_emphasize'))
+          .fontColor($r('sys.color.warning'))
           .textAlign(TextAlign.Center)
           .width('100%')
       }

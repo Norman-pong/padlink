@@ -54,13 +54,12 @@ struct Index {
     // discover/settings/debug 子页各自的 HdsNavDestination 标题栏带滚动模糊（D5）。
     HdsNavigation(this.pathStack) {
       MainControlPage({ conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard,
-        voice: this.voice, pathStack: this.pathStack })
+        voice: this.voice, settings: this.settings, pathStack: this.pathStack })
     }
     .mode(NavigationMode.Stack)
     .titleMode(HdsNavigationTitleMode.MINI)
     .hideBackButton(true)
     .hideTitleBar(true)
-    .hideToolBar(true)
     .navDestination(this.pageMap)
   }
 

@@ -9,18 +9,20 @@ import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAv
 
 const KEY_GAP_VP: number = 4; // 键间距
 const KEY_HEIGHT_VP: number = 42; // 键高（触摸目标）
+const KEY_WIDTH_VP: number = 64; // 键宽：定宽保文案不裁切，整条约 812vp 超出视口走横滑
 const SIDE_PADDING_VP: number = 6; // 键区左右边距
 const KEY_RADIUS_VP: number = 6; // 键帽圆角
 const INPUT_MAX_HEIGHT_VP: number = 132; // 输入区高上限（约 3 行；超出内部滚动）
 
-// 键条朗读文案键全集（aboutToAppear 一次性解析，build 内查表）。
+// 页面文案键全集（aboutToAppear 一次性解析，build 内查表）。
 const A11Y_KEYS: string[] = [
   'kb_key_esc', 'kb_key_tab', 'kb_key_shift', 'kb_key_ctrl', 'kb_key_alt',
   'kb_key_super', 'kb_key_enter', 'kb_key_backspace',
   'kb_key_up', 'kb_key_down', 'kb_key_left', 'kb_key_right', 'kb_a11y_modifier_hint',
+  'kb_input_placeholder',
 ];
 
-// 单键帽：按压高亮自管，长按由 KeyStep 两段式直发。
+// 单键帽：定宽定高（横滑条内 layoutWeight 会把键压到裁切文案），按压高亮自管，长按由 KeyStep 两段式直发。
 @ComponentV2
 struct KeyCap {
   @Param label: string = '';
@@ -28,7 +30,6 @@ struct KeyCap {
   @Param hint: string = '';
   @Param active: boolean = false;
   @Param checkable: boolean = false;
-  @Param weight: number = 1;
   @Param onPress: () => void = () => {};
   @Param onRelease: () => void = () => {};
   @Local private pressed: boolean = false;
@@ -68,12 +69,11 @@ struct KeyCap {
       .fontColor(this.lit() ? $r('sys.color.font_on_primary') : $r('sys.color.font_primary'))
       .textAlign(TextAlign.Center)
       .maxLines(1)
-      .width('100%')
+      .width(KEY_WIDTH_VP)
       .height(KEY_HEIGHT_VP)
       .borderRadius(KEY_RADIUS_VP)
       .backgroundColor(this.lit()
         ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_tertiary'))
-      .layoutWeight(this.weight)
       .onTouch((ev: TouchEvent) => {
         this.handleTouch(ev);
       })
@@ -158,9 +158,9 @@ export struct KeyboardPage {
   }
 
   @Builder
-  private tapKey(label: string, a11y: string, hid: number, weight: number) {
+  private tapKey(label: string, a11y: string, hid: number) {
     KeyCap({
-      label: label, a11y: a11y, weight: weight,
+      label: label, a11y: a11y,
       onPress: () => {
         this.model.beginKey(hid, false);
       },
@@ -171,10 +171,10 @@ export struct KeyboardPage {
   }
 
   @Builder
-  private modKey(label: string, a11yKey: string, mod: number, latched: boolean, weight: number) {
+  private modKey(label: string, a11yKey: string, mod: number, latched: boolean) {
     KeyCap({
       label: label, a11y: this.str(a11yKey), hint: this.str('kb_a11y_modifier_hint'),
-      active: latched, checkable: true, weight: weight,
+      active: latched, checkable: true,
       onPress: () => {
         this.model.toggleModifier(mod);
       }
@@ -202,19 +202,21 @@ export struct KeyboardPage {
         })
 
       Scroll() {
+        // 键序按使用频率排：Enter/⌫/方向键最高频必须默认可见（横滑条左缘即首屏），
+        // Tab/Esc 次之，粘滞修饰键（点一次等组合键）最低频放末段
         Row({ space: KEY_GAP_VP }) {
-          this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC, 1)
-          this.tapKey('Tab', this.str('kb_key_tab'), HidUsage.TAB, 1)
-          this.modKey('Ctrl', 'kb_key_ctrl', StickyMod.CTRL, this.model.ctrlLatched, 1)
-          this.modKey('Alt', 'kb_key_alt', StickyMod.ALT, this.model.altLatched, 1)
-          this.modKey('Shift', 'kb_key_shift', StickyMod.SHIFT, this.model.shiftLatched, 1)
-          this.modKey('Super', 'kb_key_super', StickyMod.SUPER, this.model.superLatched, 1)
-          this.tapKey('⌫', this.str('kb_key_backspace'), HidUsage.BACKSPACE, 1)
-          this.tapKey('Enter', this.str('kb_key_enter'), HidUsage.ENTER, 1)
-          this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT, 1)
-          this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP, 1)
-          this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN, 1)
-          this.tapKey('→', this.str('kb_key_right'), HidUsage.RIGHT, 1)
+          this.tapKey('Enter', this.str('kb_key_enter'), HidUsage.ENTER)
+          this.tapKey('⌫', this.str('kb_key_backspace'), HidUsage.BACKSPACE)
+          this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT)
+          this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP)
+          this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN)
+          this.tapKey('→', this.str('kb_key_right'), HidUsage.RIGHT)
+          this.tapKey('Tab', this.str('kb_key_tab'), HidUsage.TAB)
+          this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC)
+          this.modKey('Ctrl', 'kb_key_ctrl', StickyMod.CTRL, this.model.ctrlLatched)
+          this.modKey('Alt', 'kb_key_alt', StickyMod.ALT, this.model.altLatched)
+          this.modKey('Shift', 'kb_key_shift', StickyMod.SHIFT, this.model.shiftLatched)
+          this.modKey('Super', 'kb_key_super', StickyMod.SUPER, this.model.superLatched)
         }
         .height(KEY_HEIGHT_VP)
       }
