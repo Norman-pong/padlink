@@ -51,7 +51,7 @@ nfpms:
     ids: [padlinkd, padlinkctl]
     formats: [deb, rpm]
     vendor: padlink
-    homepage: https://github.com/zhimingcool/padlink
+    homepage: https://github.com/Norman-pong/padlink
     maintainer: normanpong
     license: Apache-2.0
     description: |-
