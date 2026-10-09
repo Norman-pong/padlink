@@ -320,6 +320,14 @@ export struct SettingsPage {
             Column({ space: 8 }) {
               GroupHeader($r('app.string.settings_about'))
               GroupCard() {
+                // 品牌 logo：装饰性展示（应用身份已由版本行播报，读屏跳过）
+                Image($r('app.media.app_logo'))
+                  .width(64)
+                  .height(64)
+                  .borderRadius(14) // 系统图标圆角观感（≈22%）
+                  .alignSelf(ItemAlign.Center)
+                  .margin({ bottom: 4 })
+                  .accessibilityLevel('no')
                 if (this.debugOn) {
                   Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
                     .fontSize($r('sys.float.ohos_id_text_size_body2'))
