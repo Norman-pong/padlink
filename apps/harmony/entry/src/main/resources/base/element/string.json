@@ -134,7 +134,7 @@
     },
     {
       "name": "mic_permission_reason",
-      "value": "麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑"
+      "value": "麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑。"
     },
     {
       "name": "voice_btn_label",
@@ -323,6 +323,14 @@
     {
       "name": "settings_about",
       "value": "关于"
+    },
+    {
+      "name": "settings_privacy",
+      "value": "隐私政策"
+    },
+    {
+      "name": "settings_privacy_open_fail",
+      "value": "打开隐私政策失败，请稍后重试"
     },
     {
       "name": "settings_version",

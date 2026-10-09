@@ -13,8 +13,10 @@
 // 页底色 ohos_id_color_sub_background、卡面 comp_background_primary、分隔线 comp_divider
 // 0.5vp；蒙层用系统 token ohos_id_color_mask_regular（原 rgba 硬编码清零）。
 import { bundleManager } from '@kit.AbilityKit';
+import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { privacyManager } from '@kit.AppGalleryKit';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
@@ -32,6 +34,8 @@ const VERSION_TAP_WINDOW_MS: number = 1500;
 const VERSION_TAP_COUNT: number = 5;
 const TOAST_MS: number = 2000;
 const DIVIDER_WIDTH_VP: number = 0.5; // D3：分隔线规格与分组卡规范对齐
+// 隐私政策回落链接：AGC 托管链接不可得时（模拟器/未托管），打开仓库内同源底稿
+const PRIVACY_FALLBACK_URL: string = 'https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md';
 
 @ComponentV2
 export struct SettingsPage {
@@ -344,6 +348,12 @@ export struct SettingsPage {
                 Text($r('app.string.protocol_version'))
                   .fontSize($r('sys.float.ohos_id_text_size_body2'))
                   .fontColor($r('sys.color.font_secondary'))
+                Text($r('app.string.settings_privacy'))
+                  .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                  .fontColor($r('sys.color.font_secondary'))
+                  .onClick(() => {
+                    this.openPrivacyPolicy();
+                  })
               }
             }
             .alignItems(HorizontalAlign.Start)
@@ -639,5 +649,28 @@ export struct SettingsPage {
     }
     // getStringSync(Resource) 自 API20 废弃（js-apis-resource-manager），改用 getStringByNameSync
     return ctx.resourceManager.getStringByNameSync(name);
+  }
+
+  // 隐私政策入口：AGC 标准化隐私托管链接优先（store-privacy「查询隐私链接」），
+  // 服务不可达（模拟器/侧载未托管）回落仓库底稿；openLink 拉起系统默认浏览器。
+  private openPrivacyPolicy(): void {
+    let url: string = PRIVACY_FALLBACK_URL;
+    try {
+      const links: privacyManager.AppPrivacyLink[] = privacyManager.getAppPrivacyMgmtInfo().privacyInfo;
+      if (links.length > 0 && links[0].url.length > 0) {
+        url = links[0].url;
+      }
+    } catch (err) {
+      hilog.info(DOMAIN, TAG, 'privacy mgmt unavailable, fallback to repo copy');
+    }
+    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (ctx === undefined) {
+      this.toast(this.resStr('settings_privacy_open_fail'));
+      return;
+    }
+    ctx.openLink(url).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'openLink fail %{public}d %{public}s', err.code, err.message);
+      this.toast(this.resStr('settings_privacy_open_fail'));
+    });
   }
 }

@@ -7,6 +7,7 @@
 import { abilityAccessCtrl, bundleManager } from '@kit.AbilityKit';
 import type { common, Permissions } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
+import { privacyManager } from '@kit.AppGalleryKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import type { ConnectionManager } from '../net/ConnectionManager';
 import { newText } from '../proto/Packet';
@@ -296,7 +297,39 @@ export class VoiceModel {
       });
   }
 
-  // 权限检查 → 必要时弹窗申请。已授权直接过；被拒/异常返回 false（不抛异常）。
+  // AGC 隐私托管门控（store-privacy）：未签署隐私协议时系统拒绝权限申请，须先拉起标准化
+  // 隐私弹窗征得同意。result 语义：1=同意完整模式、0=未同意。服务不可达（模拟器/侧载未托管）
+  // 放行——隐私管理服务不支持模拟器，不应阻断开发链路；上架渠道包托管必达、门控必生效。
+  private async ensurePrivacyConsented(ctx: common.UIAbilityContext): Promise<boolean> {
+    let results: privacyManager.AppPrivacyResult[];
+    try {
+      results = privacyManager.getAppPrivacyResult();
+    } catch (err) {
+      hilog.info(DOMAIN, TAG, 'privacy mgmt unavailable, fail-open');
+      return true;
+    }
+    if (results.length === 0) {
+      return true;
+    }
+    const agreed: boolean =
+      results.every((r: privacyManager.AppPrivacyResult): boolean => r.result === 1);
+    if (agreed) {
+      return true;
+    }
+    try {
+      const consent: privacyManager.ConsentResult =
+        await privacyManager.requestAppPrivacyConsent(ctx);
+      const after: privacyManager.AppPrivacyResult[] = consent.results;
+      return after.length > 0
+        && after.every((r: privacyManager.AppPrivacyResult): boolean => r.result === 1);
+    } catch (err) {
+      const e = err as BusinessError;
+      hilog.warn(DOMAIN, TAG, 'requestAppPrivacyConsent fail %{public}d %{public}s', e.code, e.message);
+      return false;
+    }
+  }
+
+  // 权限检查 → 隐私签署门控 → 必要时弹窗申请。已授权直接过；被拒/异常返回 false（不抛异常）。
   private async ensureMicPermission(): Promise<boolean> {
     const ctx: common.UIAbilityContext | null = this.context;
     if (ctx === null) {
@@ -314,6 +347,9 @@ export class VoiceModel {
       }
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'checkAccessToken fail, fallback to request');
+    }
+    if (!(await this.ensurePrivacyConsented(ctx))) {
+      return false; // 未同意隐私政策：系统必拒权限申请，不再弹权限框
     }
     try {
       const res = await atManager.requestPermissionsFromUser(ctx, [MIC_PERMISSION]);
