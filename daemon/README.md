@@ -17,7 +17,7 @@ PadLink 的 Linux 守护进程（Go，无 cgo、零第三方依赖单二进制�
 | `cmd/padlinkd` | 守护进程入口（`--test` 自测 + 常驻模式） |
 | `cmd/padlinkctl` | CLI：status / pair / clients / unpair |
 | `cmd/padlinktoy` | 联调工具三件套：record/replay 合成录制回放、fuzz 协议变异模糊测试、latency ECHO RTT 压测（PRD §2.2 `tools/` 的 daemon 侧承载） |
-| `dist/udev`、`dist/systemd` | 安装物（uaccess 规则、user 级 service） |
+| `packaging/` | 安装物与发版脚本（udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子脚本） |
 
 ## 构建与测试
 
@@ -36,10 +36,29 @@ GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlin
 
 ## 安装（Ubuntu 26.04 / GNOME Wayland）
 
+### 方式一：从 GitHub Releases 安装（推荐）
+
+- **deb（Debian/Ubuntu）**：`sudo apt install ./padlink_<版本>_linux_amd64.deb`
+  ——udev 规则与 user 单元随包安装，postinst 自动重载 udev。
+- **rpm（Fedora/openSUSE）**：`sudo dnf install ./padlink_<版本>_linux_x86_64.rpm`。
+- **tar.gz（其他发行版）**：解压后在包根目录执行 `./install.sh`
+  （二进制装 `~/.local/bin`，单元装 `~/.config/systemd/user/`，仅 udev 规则一步要 sudo）。
+
+包装好后**首次安装须注销并重新登录**（uaccess ACL 在图形会话建立时附加），然后：
+
+```sh
+systemctl --user enable --now padlink
+journalctl --user -u padlink -f
+```
+
+### 方式二：源码构建手工安装
+
+0. **构建**：见上节交叉编译命令（产物落 `dist/bin/`，本目录已被 gitignore）。
+
 1. **uinput uaccess 规则**（无 root 运行的前提）：
 
    ```sh
-   sudo cp daemon/dist/udev/69-padlink-uinput.rules /etc/udev/rules.d/
+   sudo cp daemon/packaging/udev/69-padlink-uinput.rules /etc/udev/rules.d/
    sudo udevadm control --reload && sudo udevadm trigger /dev/uinput
    # 注销并重新登录（uaccess ACL 在图形会话建立时附加）
    getfacl /dev/uinput | grep "$(id -un)"   # 期望 user:<你>:rw-
@@ -64,7 +83,7 @@ GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlin
    ```sh
    mkdir -p ~/.local/bin && cp dist/bin/padlinkd-linux-$(dpkg --print-architecture) ~/.local/bin/padlinkd
    cp dist/bin/padlinkctl-linux-$(dpkg --print-architecture) ~/.local/bin/padlinkctl
-   mkdir -p ~/.config/systemd/user && cp dist/systemd/padlink.service ~/.config/systemd/user/
+   mkdir -p ~/.config/systemd/user && cp packaging/systemd/padlink-local.service ~/.config/systemd/user/padlink.service
    systemctl --user daemon-reload && systemctl --user enable --now padlink
    journalctl --user -u padlink -f
    ```

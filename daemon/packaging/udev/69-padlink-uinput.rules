@@ -1,0 +1,9 @@
+# PadLink：授予活跃座位会话对 /dev/uinput 的访问（uaccess）。
+# 上游/Ubuntu 无任何 uinput 默认授权（root:root 0600），此规则为必需，
+# 写法与 KDE Connect / AntiMicroX 同款（见 docs/RESEARCH-WAYLAND.md §2）。
+# 安装：
+#   sudo cp daemon/dist/udev/69-padlink-uinput.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger /dev/uinput
+#   注销并重新登录（uaccess ACL 在图形会话建立时附加）
+# 验证：getfacl /dev/uinput | grep "$(id -un)"   # 期望 user:<你>:rw-
+SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess", OPTIONS+="static_node=uinput"

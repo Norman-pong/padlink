@@ -1,0 +1,31 @@
+# 打 v* tag 触发：goreleaser 出 tar.gz + deb + rpm 并发布到 GitHub Releases。
+# 发版步骤：git tag v1.0.0 && git push origin v1.0.0（tag 打在 main 上）。
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # changelog 需要完整历史
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

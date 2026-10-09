@@ -1,0 +1,18 @@
+# PadLink user 级服务：挂 graphical-session.target——
+# uaccess ACL 与 WAYLAND_DISPLAY 均在图形会话建立后才就绪
+# （default.target 下启动会打开 /dev/uinput 失败，见 docs/RESEARCH-WAYLAND.md §2/§3）。
+# 本单元为 deb/rpm 打包变体（ExecStart=/usr/bin/padlinkd），由包管理器装入
+# /usr/lib/systemd/user/；安装后各用户自行启用：
+#   systemctl --user enable --now padlink
+[Unit]
+Description=PadLink daemon (phone as touchpad/keyboard/voice input for this PC)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/padlinkd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

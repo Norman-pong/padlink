@@ -100,8 +100,8 @@ padlink/
 │   ├── cmd/padlinkd/        # 守护进程入口
 │   ├── cmd/padlinkctl/      # CLI：status / pair / clients / unpair
 │   ├── internal/…           # discovery / pairing / uinput / inject / clip
-│   ├── dist/systemd/        # padlink.service（user 级）
-│   └── dist/udev/           # uinput uaccess 规则
+│   ├── packaging/systemd/   # user 级 service（打包/手工安装两变体）
+│   └── packaging/udev/      # uinput uaccess 规则
 ├── tools/                   # 联调工具：录回放器、协议 fuzz、延迟压测
 └── README.md
 ```

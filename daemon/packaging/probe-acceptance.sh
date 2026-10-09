@@ -2,7 +2,7 @@
 # PROBE-LINUX 验收辅助脚本：自动化 docs/PROBE-LINUX.md §0–§4 的机械步骤。
 # §4 的目视确认（光标画圆/敲键/滚动）与 §5/§6 的 evtest/libinput 取证仍需人工执行。
 # 用法（在 Ubuntu 26.04 GNOME Wayland 会话内、仓库根目录）：
-#   bash daemon/dist/probe-acceptance.sh [--dry-run] [--skip-install]
+#   bash daemon/packaging/probe-acceptance.sh [--dry-run] [--skip-install]
 # 选项：
 #   --dry-run       只打印将执行的命令，不实际执行（需 root 的步骤标注 sudo）
 #   --skip-install  跳过 §3 安装步骤（二进制/service 已就位时）
@@ -61,7 +61,7 @@ step "检查 /dev/uinput 节点" test -e /dev/uinput
 
 if [ "$SKIP_INSTALL" = 0 ]; then
   echo "===== PROBE §2 udev uaccess 规则 ====="
-  step "安装 udev 规则" sudo cp "$REPO_ROOT/daemon/dist/udev/69-padlink-uinput.rules" /etc/udev/rules.d/
+  step "安装 udev 规则" sudo cp "$REPO_ROOT/daemon/packaging/udev/69-padlink-uinput.rules" /etc/udev/rules.d/
   step "重载并触发 udev" sudo udevadm control --reload
   manual "执行: sudo udevadm trigger /dev/uinput ；然后【注销并重新登录】（uaccess ACL 在会话建立时附加）"
   step "校验 ACL（重登后执行本脚本可见 PASS）" bash -c 'getfacl /dev/uinput 2>/dev/null | grep -q "$(id -un)"'
@@ -69,7 +69,7 @@ if [ "$SKIP_INSTALL" = 0 ]; then
   echo "===== PROBE §3 安装二进制与 user service ====="
   step "检查待安装二进制存在" test -f "$BIN"
   step "放置二进制" mkdir -p "$HOME/.local/bin" && cp "$BIN" "$HOME/.local/bin/padlinkd"
-  step "安装 systemd user unit" bash -c "mkdir -p ~/.config/systemd/user && cp '$REPO_ROOT/daemon/dist/systemd/padlink.service' ~/.config/systemd/user/"
+  step "安装 systemd user unit" bash -c "mkdir -p ~/.config/systemd/user && cp '$REPO_ROOT/daemon/packaging/systemd/padlink-local.service' ~/.config/systemd/user/padlink.service"
   step "daemon-reload 并启用服务" systemctl --user daemon-reload
   step "启动服务" systemctl --user enable --now padlink
   manual "查看服务日志: journalctl --user -u padlink -f（静默即正常）"

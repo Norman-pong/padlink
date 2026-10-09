@@ -1,0 +1,75 @@
+# PadLink daemon 发版单源：打 v* tag → GitHub Actions 跑本配置 →
+# GitHub Releases 出 tar.gz（三二进制+install.sh）与 deb/rpm（padlinkd+padlinkctl+udev 规则+user 单元）。
+# 本地验证：goreleaser release --snapshot --clean（产物落 dist/，已 gitignore）。
+version: 2
+
+project_name: padlink
+
+builds:
+  - id: padlinkd
+    dir: daemon
+    main: ./cmd/padlinkd
+    binary: padlinkd
+    goos: [linux]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.daemonVersion={{ .Version }}
+  - id: padlinkctl
+    dir: daemon
+    main: ./cmd/padlinkctl
+    binary: padlinkctl
+    goos: [linux]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags: [-s, -w]
+  - id: padlinktoy
+    dir: daemon
+    main: ./cmd/padlinktoy
+    binary: padlinktoy
+    goos: [linux]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags: [-s, -w]
+
+archives:
+  - id: tgz
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - src: daemon/packaging/install.sh
+        dst: install.sh
+      - src: daemon/packaging/udev/69-padlink-uinput.rules
+        dst: packaging/udev/69-padlink-uinput.rules
+      - src: daemon/packaging/systemd/padlink-local.service
+        dst: packaging/systemd/padlink-local.service
+
+nfpms:
+  - id: padlink
+    package_name: padlink
+    ids: [padlinkd, padlinkctl]
+    formats: [deb, rpm]
+    vendor: padlink
+    homepage: https://github.com/zhimingcool/padlink
+    maintainer: normanpong
+    license: Apache-2.0
+    description: |-
+      Use a HarmonyOS phone as a low-latency wireless touchpad, keyboard and
+      voice-dictation device for this PC (GNOME Wayland).
+      把鸿蒙手机变成电脑的低延迟无线外设（触摸板 + 全键盘 + 语音听写）。
+    contents:
+      - src: daemon/packaging/udev/69-padlink-uinput.rules
+        dst: /etc/udev/rules.d/69-padlink-uinput.rules
+      - src: daemon/packaging/systemd/padlink.service
+        dst: /usr/lib/systemd/user/padlink.service
+    scripts:
+      postinstall: daemon/packaging/scripts/postinstall.sh
+      postremove: daemon/packaging/scripts/postremove.sh
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: git
+  sort: asc

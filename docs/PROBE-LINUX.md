@@ -1,8 +1,8 @@
 # PROBE-LINUX：Ubuntu 26.04 真机注入链路验证程序（M0 验收）
 
-> 本程序验证 **M0 交付物**（padlinkd 及安装物）在真实 GNOME Wayland 会话的端到端注入：libinput 消费虚拟设备（光标画圆）、uaccess 权限在登录会话生效、systemd user service 常驻。文中 `daemon/dist/…` 路径指 M0 构建产物。
+> 本程序验证 **M0 交付物**（padlinkd 及安装物）在真实 GNOME Wayland 会话的端到端注入：libinput 消费虚拟设备（光标画圆）、uaccess 权限在登录会话生效、systemd user service 常驻。文中 `daemon/dist/bin/…` 路径指 M0 构建产物，安装物在 `daemon/packaging/`。
 > 逐条执行，期望输出已注明；任何一步不符即停并记录。
-> **辅助脚本**：`bash daemon/dist/probe-acceptance.sh`（`--dry-run` 预览 / `--skip-install` 跳过 §3）可自动化 §0–§4 的机械步骤并输出 PASS/FAIL 汇总；§4 目视确认与 §5/§6 取证仍需人工。
+> **辅助脚本**：`bash daemon/packaging/probe-acceptance.sh`（`--dry-run` 预览 / `--skip-install` 跳过 §3）可自动化 §0–§4 的机械步骤并输出 PASS/FAIL 汇总；§4 目视确认与 §5/§6 取证仍需人工。
 
 ## 0. 环境自检（30 秒）
 
@@ -22,7 +22,7 @@ sudo modprobe uinput && ls -l /dev/uinput
 ## 2. 装 udev uaccess 规则并重登
 
 ```bash
-sudo cp daemon/dist/udev/69-padlink-uinput.rules /etc/udev/rules.d/
+sudo cp daemon/packaging/udev/69-padlink-uinput.rules /etc/udev/rules.d/
 sudo udevadm control --reload && sudo udevadm trigger
 # 注销并重新登录（uaccess ACL 在会话建立时附加），然后：
 getfacl /dev/uinput | grep "$(id -un)"
@@ -33,7 +33,7 @@ getfacl /dev/uinput | grep "$(id -un)"
 
 ```bash
 mkdir -p ~/.local/bin && cp daemon/dist/bin/padlinkd-linux-$(dpkg --print-architecture) ~/.local/bin/padlinkd
-mkdir -p ~/.config/systemd/user && cp daemon/dist/systemd/padlink.service ~/.config/systemd/user/
+mkdir -p ~/.config/systemd/user && cp daemon/packaging/systemd/padlink-local.service ~/.config/systemd/user/padlink.service
 systemctl --user daemon-reload && systemctl --user enable --now padlink
 journalctl --user -u padlink -f   # 期望：服务常驻不崩溃（M0 版无网络循环，静默即正常；网络循环 M2 引入）
 ```

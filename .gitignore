@@ -1,10 +1,13 @@
 # macOS
 .DS_Store
 
-# Go（daemon）——dist/bin 为构建产物，udev/systemd 安装文件保留入库
-daemon/dist/bin/
+# Go（daemon）——dist/ 为本地构建产物；udev/systemd 安装物在 daemon/packaging/ 入库
+daemon/dist/
 *.test
 *.out
+
+# GoReleaser 发布产物（goreleaser release --snapshot 本地验证时生成）
+/dist/
 
 # 鸿蒙工程（apps/harmony）
 **/oh_modules/
@@ -22,6 +25,9 @@ daemon/dist/bin/
 *.cer
 *.p12
 signing/
+# DevEco 自动签名会把签名材料（含本机绝对路径与加密口令）写进本文件——
+# 一律不入库；首次克隆从 build-profile.json5.template 复制生成
+apps/harmony/build-profile.json5
 
 # 临时与日志
 node_modules/

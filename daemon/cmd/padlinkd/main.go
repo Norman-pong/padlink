@@ -25,8 +25,8 @@ import (
 	"padlink/daemon/internal/uinput"
 )
 
-// daemonVersion 随 M0-B 发布。
-const daemonVersion = "0.1.0"
+// daemonVersion 由发布流程以 ldflags -X 注入（goreleaser）；本地开发构建回落 0.1.0-dev。
+var daemonVersion = "0.1.0-dev"
 
 func main() {
 	test := flag.Bool("test", false, "运行注入链路自测（画圆/点击/敲键/滚动，无手机）")
