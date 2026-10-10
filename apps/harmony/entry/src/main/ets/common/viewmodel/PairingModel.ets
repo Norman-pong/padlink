@@ -12,7 +12,7 @@ import type { DiscoveredHost } from '../net/DiscoverCore';
 import { hexToBytes, bytesToHex } from '../net/HexCodec';
 import type { SettingsModel } from './SettingsModel';
 import { HostInfo } from './SettingsModel';
-import { HostsFullError } from './HostsStore';
+import { HostsFullError, hostKeyOf, findHost } from './HostsStore';
 import { nakReasonKey, validatePairCode, parsePairNakReason, pairOkToken,
   buildPairReqInitJson, buildPairReqCodeBytes, sanitizeDeviceName } from './PairingCore';
 import { PacketType } from '../proto/PacketType';
@@ -54,6 +54,8 @@ export class PairingSnapshot {
   @Trace phase: number = PairPhase.IDLE;
   // 发现结果（整体重赋值触发刷新，项内容不可变）。
   @Trace hosts: DiscoveredHost[] = [];
+  // 本机已配对主机的 "ip:port" 集合（发现页据此标注「已配对」并走 token 直连）。
+  @Trace knownHostKeys: string[] = [];
   // 选中主机展示名（name 为空时用 ip）。
   @Trace hostLabel: string = '';
   // 快速连接入口标签（''=无 lastHost 档案）。
@@ -98,6 +100,7 @@ export class PairingModel {
   // 进入发现页：刷新快速连接入口；空闲态自动发起一次发现。
   public onPageEnter(): void {
     this.refreshQuickLabel();
+    this.refreshKnownHosts();
     // 残留的 PAIRED（成功视图已展示过）按全新进入处理，可再扫再配。
     if (this.snapshot.phase === PairPhase.PAIRED) {
       this.snapshot.phase = PairPhase.IDLE;
@@ -148,12 +151,30 @@ export class PairingModel {
     }
   }
 
-  // 选中主机：无 token 连接（HELLO 握手）→ 自动发起配对。
+  // 选中主机：本机已配对（同一 ip+port 有 token）→ 直接用 token 连接（不再消耗电脑端配对名额）；
+  // token 失效（电脑重装/解绑）→ 落回配对流程自愈；否则走配对。
   public async selectHost(host: DiscoveredHost): Promise<void> {
     this.resetError();
     this.selected = host;
     this.snapshot.hostLabel = host.name.length > 0 ? host.name : host.ip;
     this.snapshot.code = '';
+    const known: HostInfo | null = await this.findKnownHost(host);
+    if (known !== null && known.tokenHex.length > 0) {
+      const token = hexToBytes(known.tokenHex);
+      if (token !== null) {
+        this.snapshot.phase = PairPhase.CONNECTING;
+        try {
+          await this.conn.connect(host.ip, host.port, DEFAULT_PORT, token, false);
+          this.enterPaired();
+          return;
+        } catch (err) {
+          // 档案失效：清掉错误提示，改走配对（PRD §4.1「token 失效走重新配对」）
+          hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对: %{public}s', (err as Error).message);
+          this.resetError();
+          this.snapshot.phase = PairPhase.CONNECTING;
+        }
+      }
+    }
     this.snapshot.phase = PairPhase.CONNECTING;
     try {
       await this.conn.connectForPairing(host.ip, host.port, DEFAULT_PORT);
@@ -166,6 +187,7 @@ export class PairingModel {
   }
 
   // 发起（或重新发起）配对：PAIR_REQ JSON（成功无回包，确认码在主机屏幕展示）。
+  // 带设备指纹：电脑端据此区分同一台手机重配（复用记录只轮换 token）与新手机。
   public async startPairing(): Promise<void> {
     if (this.selected === null || this.snapshot.phase === PairPhase.PENDING_CODE) {
       return;
@@ -173,7 +195,13 @@ export class PairingModel {
     this.resetError();
     this.snapshot.code = '';
     this.snapshot.phase = PairPhase.PENDING_CODE;
-    const json: string = buildPairReqInitJson(this.deviceName());
+    let devId: string = '';
+    try {
+      devId = await this.settings.getDeviceId();
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'getDeviceId fail: %{public}s', (err as Error).message);
+    }
+    const json: string = buildPairReqInitJson(this.deviceName(), devId);
     const bytes: Uint8Array = utf8Encode(json);
     const pkt: Packet = newRaw(PacketType.PAIR_REQ, this.conn.transport.nextSeq(), bytes.buffer as ArrayBuffer);
     // 发送失败不上抛（sendUnsealed 同 sendReliable 口径）；会话已死时由提交码的超时/NAK 路径自愈
@@ -409,6 +437,34 @@ export class PairingModel {
         ? `${h.name.length > 0 ? h.name : h.ip} · ${h.ip}` : '';
     }).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'getLastHost fail: %{public}s', err.message);
+    });
+  }
+
+  // 本机已配对主机键集合（ip:port）：发现页据此标注「已配对」，selectHost 据此走 token 直连。
+  private refreshKnownHosts(): void {
+    this.settings.listHosts().then((hosts: HostInfo[]) => {
+      const keys: string[] = [];
+      for (const h of hosts) {
+        keys.push(hostKeyOf(h.ip, h.port));
+      }
+      this.snapshot.knownHostKeys = keys;
+    }).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'listHosts fail: %{public}s', err.message);
+      this.snapshot.knownHostKeys = [];
+    });
+  }
+
+  // 发现的主机是否已在本地主机列表（同一 ip+port）——页面标注与直连共用同一判据。
+  public isKnownHost(host: DiscoveredHost): boolean {
+    return this.snapshot.knownHostKeys.indexOf(hostKeyOf(host.ip, host.port)) >= 0;
+  }
+
+  private findKnownHost(host: DiscoveredHost): Promise<HostInfo | null> {
+    return this.settings.listHosts().then((hosts: HostInfo[]) => {
+      return findHost(hosts, host.ip, host.port);
+    }).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'findKnownHost fail: %{public}s', err.message);
+      return null;
     });
   }
 

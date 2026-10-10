@@ -53,10 +53,11 @@ export class GestureStateName {
   // 退出：首个 DOWN → SINGLE_PENDING。
   public static readonly IDLE: number = 0;
   // 单指按下待定型：轻点/长按候选（未超 150ms、位移未超 8vp）。
-  // 进入：IDLE 下单指 DOWN。
+  // 进入：IDLE 下单指 DOWN（若距上次轻点抬起 ≤300ms 且同位置 → 标记双击后拖拽候选）。
   // 退出：UP ≤150ms 且 ≤8vp → 成对发左键 down+up 回 IDLE；UP 在 150..300ms 之间 → 无命令回 IDLE；
-  //       惰性到达 ≥300ms 且 ≤8vp → DRAGGING（发左键 down）；位移超 8vp → CURSOR；第二指 DOWN → TWO_PENDING；
-  //       CANCEL → IDLE。
+  //       惰性到达 ≥300ms 且 ≤8vp → DRAGGING（发左键 down）；
+  //       位移超 8vp → 双击后拖拽候选则 DRAGGING（发左键 down，双击后拖拽），否则 CURSOR；
+  //       第二指 DOWN → TWO_PENDING；CANCEL → IDLE。
   public static readonly SINGLE_PENDING: number = 1;
   // 单指光标移动（轻点/长按已出局，无按键按下）。窗口内（≤8vp）的移动不发光标，越界样本起才发。
   // 进入：SINGLE_PENDING 位移超 8vp。
@@ -97,6 +98,9 @@ interface PointerTrack {
   lastTMs: number;
 }
 
+// 滚动速度估计的指数平滑系数（越大越跟手、越小越平滑；真机手感待校准）。
+const SCROLL_VELOCITY_ALPHA: number = 0.35;
+
 export class GestureEngine {
   private cfg: GestureConfig;
   private state: number = GestureStateName.IDLE;
@@ -104,10 +108,19 @@ export class GestureEngine {
   private primaryId: number = -1; // 首指（轻点窗口/按下时间差的基准）
   private tapCandidate: boolean = false; // 双指轻点资格（按下时间差 ≤40ms）
   private tapFirstLiftOk: boolean = false; // 双指中先抬指的轻点资格
-  private buttonHeld: boolean = false; // 引擎持有的左键（长按拖拽）
+  private buttonHeld: boolean = false; // 引擎持有的左键（长按拖拽 / 双击后拖拽）
   private cursorResX: number = 0; // 光标亚像素残差
   private cursorResY: number = 0;
   private scrollAccUnits: number = 0; // 滚动累积器（HI_RES 单位，含小数）
+  // 双击后拖拽：上一次轻点抬起的时间与位置 + 本次按下是否构成拖拽候选
+  private lastTapUpTMs: number = 0;
+  private lastTapUpX: number = 0;
+  private lastTapUpY: number = 0;
+  private tapDragArmed: boolean = false;
+  // 抬指惯性滑行（动量滚动）：速度估计与状态
+  private scrollVelVp: number = 0; // 滚动速度估计（vp/ms，指数平滑）
+  private flingV: number = 0; // 惯性初速（vp/ms；0 = 无惯性）
+  private flingElapsedMs: number = 0; // 惯性已滑行时长
 
   constructor(cfg: GestureConfig) {
     this.cfg = cfg;
@@ -116,6 +129,33 @@ export class GestureEngine {
   // 当前状态（调试面板展示 / 单测断言用）。
   public currentState(): number {
     return this.state;
+  }
+
+  // 是否处于惯性滑行（调用方据此驱动 tick；引擎自身不持时钟/定时器）。
+  public hasFling(): boolean {
+    return this.flingV !== 0;
+  }
+
+  // 惯性滑行推进 dtMs 毫秒，返回本次应下发的滚动命令。
+  // 位移按一阶衰减积分：Δy = v·τ·(1 - e^(-dt/τ))，v ← v·e^(-dt/τ)（自然滚动符号同滚动路径）。
+  public tick(dtMs: number): GestureCommand[] {
+    const out: GestureCommand[] = [];
+    if (this.flingV === 0 || dtMs <= 0) {
+      return out;
+    }
+    this.flingElapsedMs += dtMs;
+    if (this.flingElapsedMs >= this.cfg.flingMaxMs) {
+      this.stopFling(out);
+      return out;
+    }
+    const decay: number = Math.exp(-dtMs / this.cfg.flingTauMs);
+    const dyVp: number = this.flingV * this.cfg.flingTauMs * (1 - decay);
+    this.flingV *= decay;
+    this.scrollByVp(dyVp, out);
+    if (Math.abs(this.flingV) <= this.cfg.flingStopVpPerMs) {
+      this.stopFling(out); // 速度衰减到阈值以下：冲账余量收尾
+    }
+    return out;
   }
 
   // 注入一条样本，返回 0..N 条命令。
@@ -139,11 +179,19 @@ export class GestureEngine {
     if (this.pointers.has(s.pointerId)) {
       return; // 重复 DOWN 忽略
     }
+    // 任何新按下都终止惯性滑行（触停语义），尾量冲账不丢
+    if (this.flingV !== 0) {
+      this.stopFling(out);
+    }
     const tr: PointerTrack = { startX: s.x, startY: s.y, lastX: s.x, lastY: s.y, downTMs: s.tMs, lastTMs: s.tMs };
     if (this.state === GestureStateName.IDLE) {
       this.pointers.set(s.pointerId, tr);
       this.primaryId = s.pointerId;
       this.state = GestureStateName.SINGLE_PENDING;
+      // 双击后拖拽候选：距上次轻点抬起 ≤300ms 且落点几乎相同（双击的第二下按住拖动）
+      this.tapDragArmed = this.lastTapUpTMs > 0
+        && s.tMs - this.lastTapUpTMs <= this.cfg.doubleTapDragMs
+        && Math.hypot(s.x - this.lastTapUpX, s.y - this.lastTapUpY) <= this.cfg.tapMaxVp;
       return;
     }
     if (this.state === GestureStateName.DRAGGING) {
@@ -192,6 +240,14 @@ export class GestureEngine {
     if (this.state === GestureStateName.SINGLE_PENDING) {
       const disp: number = Math.hypot(tr.lastX - tr.startX, tr.lastY - tr.startY);
       if (disp > this.cfg.tapMaxVp) {
+        if (this.tapDragArmed) {
+          // 双击后拖拽：第二次按下后开始移动 → 按住左键拖拽（daemon 侧合成 clickCount=2 的拖拽）
+          this.tapDragArmed = false;
+          this.state = GestureStateName.DRAGGING;
+          this.buttonHeld = true;
+          out.push(cmdButton(HidButton.LEFT, true));
+          return;
+        }
         this.state = GestureStateName.CURSOR; // 超位移：轻点/长按出局，越界样本起发光标
         this.emitCursor(prevX, prevY, prevT, s, out);
       } else if (s.tMs - tr.downTMs >= this.cfg.longPressMs) {
@@ -213,12 +269,12 @@ export class GestureEngine {
       if (this.anyPointerOverTapDist() || this.tapWindowExpired(s.tMs)) {
         this.state = GestureStateName.SCROLLING; // 判滚：右键轻点出局
         this.tapCandidate = false;
-        this.accumulateScroll(s.y - prevY, out);
+        this.accumulateScroll(s.y - prevY, s.tMs - prevT, out);
       }
       return;
     }
     if (this.state === GestureStateName.SCROLLING) {
-      this.accumulateScroll(s.y - prevY, out);
+      this.accumulateScroll(s.y - prevY, s.tMs - prevT, out);
       return;
     }
     // THREE_PENDING：多指吸收态，移动不产生任何输出。
@@ -241,6 +297,12 @@ export class GestureEngine {
         // 轻点（≤150ms）或长按后原地抬起（≥300ms）：左键 down+up 成对补发
         out.push(cmdButton(HidButton.LEFT, true));
         out.push(cmdButton(HidButton.LEFT, false));
+        if (dt <= this.cfg.tapMaxMs) {
+          // 记录本次轻点抬起：下一次按下落在窗口内即构成双击（点击或"双击后拖拽"）
+          this.lastTapUpTMs = s.tMs;
+          this.lastTapUpX = s.x;
+          this.lastTapUpY = s.y;
+        }
       }
       // 150..300ms 之间抬起：既非轻点也未成长按，无命令
       return;
@@ -286,7 +348,11 @@ export class GestureEngine {
     if (this.state === GestureStateName.SCROLLING) {
       this.pointers.delete(s.pointerId);
       if (this.pointers.size === 0) {
-        this.flushScroll(out); // 末指抬起：冲账累积余量，不丢尾
+        // 末指抬起：按末速起滑（惯性滑行），无资格则冲账余量收尾
+        this.startFling();
+        if (this.flingV === 0) {
+          this.flushScroll(out);
+        }
         this.toIdle();
       }
       // 还有手指：滚动继续（另一指接管）
@@ -313,9 +379,19 @@ export class GestureEngine {
     }
   }
 
-  // 滚动累积：手指垂直位移 × 单位换算进累积器，整数部分即时发出。
+  // 滚动累积：手指垂直位移 × 单位换算进累积器，整数部分即时发出；
+  // 同时用指数平滑估计速度（抬指惯性滑行的初速来源，抖动不进初速）。
   // 自然滚动：手指下滑（+dy）→ 内容随手指 → 视图上滚 → HI_RES 正值；非自然取反。
-  private accumulateScroll(dyVp: number, out: GestureCommand[]): void {
+  private accumulateScroll(dyVp: number, dtMs: number, out: GestureCommand[]): void {
+    if (dtMs > 0) {
+      const inst: number = dyVp / dtMs;
+      this.scrollVelVp = this.scrollVelVp * (1 - SCROLL_VELOCITY_ALPHA) + inst * SCROLL_VELOCITY_ALPHA;
+    }
+    this.scrollByVp(dyVp, out);
+  }
+
+  // 位移 → HI_RES 累积器（含自然滚动符号），整数部分即时发出，余量留待冲账。
+  private scrollByVp(dyVp: number, out: GestureCommand[]): void {
     const sign: number = this.cfg.naturalScroll ? 1 : -1;
     this.scrollAccUnits += dyVp * this.cfg.scrollUnitsPerPixel * sign;
     const emit: number = Math.trunc(this.scrollAccUnits);
@@ -323,6 +399,25 @@ export class GestureEngine {
       this.scrollAccUnits -= emit;
       out.push(cmdScroll(emit));
     }
+  }
+
+  // 抬指起滑：末速低于阈值不起滑；超上限截断（防甩飞）。
+  private startFling(): void {
+    const v: number = this.scrollVelVp;
+    this.scrollVelVp = 0;
+    if (Math.abs(v) < this.cfg.flingMinVpPerMs) {
+      return;
+    }
+    const max: number = this.cfg.flingMaxVpPerMs;
+    this.flingV = Math.max(-max, Math.min(max, v));
+    this.flingElapsedMs = 0;
+  }
+
+  // 结束惯性并冲账余量（触停/超时/低于阈值/取消共用）。
+  private stopFling(out: GestureCommand[]): void {
+    this.flingV = 0;
+    this.flingElapsedMs = 0;
+    this.flushScroll(out);
   }
 
   // 结束/多指接管前冲账：累积余量（|余量|<1）四舍五入成最后一条 Scroll，不得丢尾。
@@ -346,10 +441,10 @@ export class GestureEngine {
     this.tapFirstLiftOk = false;
   }
 
-  // CANCEL 红线：释放引擎持有的按键、冲账滚动余量、清空全部状态回 IDLE，禁止残留。
+  // CANCEL 红线：释放引擎持有的按键、终止惯性并冲账滚动余量、清空全部状态回 IDLE，禁止残留。
   private cancelAll(out: GestureCommand[]): void {
     this.releaseHeldButton(out);
-    this.flushScroll(out);
+    this.stopFling(out); // 含余量冲账
     this.toIdle();
   }
 
@@ -365,10 +460,16 @@ export class GestureEngine {
     this.primaryId = -1;
     this.tapCandidate = false;
     this.tapFirstLiftOk = false;
+    this.tapDragArmed = false;
     this.buttonHeld = false;
     this.cursorResX = 0;
     this.cursorResY = 0;
-    this.scrollAccUnits = 0;
+    this.scrollVelVp = 0;
+    // 惯性滑行跨 IDLE 存活（末指抬起后引擎即回 IDLE，滑行由 tick 继续驱动）：
+    // 滑行中不得清累积器（余量要留到 stopFling 冲账）
+    if (this.flingV === 0) {
+      this.scrollAccUnits = 0;
+    }
     this.pointers.clear();
   }
 

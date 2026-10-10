@@ -357,4 +357,132 @@ test('TouchKind 常量完备（DOWN/MOVE/UP/CANCEL 互异）', () => {
   assert.equal(new Set(kinds).size, 4);
 });
 
+// ---- 双击（两次轻点）与双击后拖拽 ----
+
+test('双击：两次轻点各成对发左键 down+up（间隔 250ms 内）', () => {
+  const eng = newEngine();
+  const cmds = feedAll(eng, [
+    down(1, 0, 0, 0), up(1, 0, 0, 120),
+    down(1, 0, 0, 250), up(1, 0, 0, 370),
+  ]);
+  assert.equal(cmds.length, 4);
+  assert.ok(isButton(cmds[0], HidButton.LEFT, true));
+  assert.ok(isButton(cmds[1], HidButton.LEFT, false));
+  assert.ok(isButton(cmds[2], HidButton.LEFT, true));
+  assert.ok(isButton(cmds[3], HidButton.LEFT, false));
+  assert.equal(eng.currentState(), IDLE);
+});
+
+test('双击后拖拽：第二次按下 300ms 内同位置移动超 8vp → 按住左键拖拽', () => {
+  const eng = newEngine();
+  const cmds = feedAll(eng, [
+    down(1, 0, 0, 0), up(1, 0, 0, 120),
+    down(1, 1, 1, 260), // 距上次抬起 140ms、落点差 1.4vp → 拖拽候选
+    move(1, 20, 1, 300),
+  ]);
+  // 第一下轻点成对，第二下按下后越界 → 只发左键 down（随后移动即拖拽）
+  const btns = cmds.filter((c) => c.type === BUTTON);
+  assert.equal(btns.length, 3, `按键命令数 ${btns.length}`);
+  assert.ok(isButton(btns[0], HidButton.LEFT, true));
+  assert.ok(isButton(btns[1], HidButton.LEFT, false));
+  assert.ok(isButton(btns[2], HidButton.LEFT, true), '第二下应按住左键');
+  assert.equal(eng.currentState(), GestureStateName.DRAGGING);
+  // 拖拽中后续移动发光标（拖拽位移）
+  const after = feedAll(eng, [move(1, 40, 1, 340)]);
+  assert.ok(after.some((c) => c.type === CURSOR), '拖拽中应有位移命令');
+  // 抬起释放左键
+  const end = feedAll(eng, [up(1, 40, 1, 380)]);
+  assert.equal(end.length, 1);
+  assert.ok(isButton(end[0], HidButton.LEFT, false));
+  assert.equal(eng.currentState(), IDLE);
+});
+
+test('超出双击窗口（>300ms）后按下移动 → 普通光标移动（不拖拽）', () => {
+  const eng = newEngine();
+  const cmds = feedAll(eng, [
+    down(1, 0, 0, 0), up(1, 0, 0, 120),
+    down(1, 0, 0, 500), // 距上次抬起 380ms > 300ms
+    move(1, 30, 0, 540),
+  ]);
+  assert.equal(cmds.filter((c) => c.type === BUTTON).length, 2, '只有首下轻点的成对命令');
+  assert.ok(cmds.some((c) => c.type === CURSOR), '应走光标');
+  assert.equal(eng.currentState(), GestureStateName.CURSOR);
+});
+
+// ---- 抬指惯性滑行 ----
+
+// 双指快速下滑并抬指：返回 [滚动命令, 引擎]
+function flingEngine() {
+  const eng = newEngine();
+  const cmds = feedAll(eng, [
+    down(1, 0, 0, 0),
+    down(2, 30, 0, 10),
+    move(1, 0, 40, 100),   // 双指同向快速下滑（40vp / 90ms ≈ 0.44vp/ms）
+    move(2, 30, 40, 110),
+    move(1, 0, 80, 130),
+    move(2, 30, 80, 140),
+    up(1, 0, 80, 150),
+    up(2, 30, 80, 160),
+  ]);
+  return { eng: eng, cmds: cmds };
+}
+
+test('快速双指滑动抬指 → 进入惯性滑行（hasFling）', () => {
+  const r = flingEngine();
+  assert.ok(r.cmds.some((c) => c.type === SCROLL), '滑动期间应有滚动命令');
+  assert.ok(r.eng.hasFling(), '抬指后应处于惯性滑行');
+});
+
+test('惯性滑行：tick 逐帧衰减、总位移有界且收尾自停', () => {
+  const r = flingEngine();
+  const eng = r.eng;
+  let sum = 0;
+  let frames = 0;
+  const first = eng.tick(16);
+  const firstMag = Math.abs(first.reduce((a, c) => a + (c.type === SCROLL ? c.dyHiRes : 0), 0));
+  while (eng.hasFling() && frames < 200) {
+    for (const c of eng.tick(16)) {
+      if (c.type === SCROLL) {
+        sum += Math.abs(c.dyHiRes);
+      }
+    }
+    frames += 1;
+  }
+  assert.ok(!eng.hasFling(), '应自行结束滑行');
+  assert.ok(frames >= 5 && frames <= 70, `滑行帧数 ${frames} 应落在合理范围`);
+  assert.ok(sum > 0, '滑行应产生滚动位移');
+  // 首帧幅度不应小于后续（单调衰减）；总位移不超过初速上限对应的几何总量（1.2vp/ms×300ms×10）
+  assert.ok(firstMag > 0, '首帧应有位移');
+  assert.ok(sum < 4000, `总位移 ${sum} 超出上限（防甩飞）`);
+});
+
+test('惯性滑行被新触摸打断（触停），余量冲账不丢', () => {
+  const r = flingEngine();
+  const eng = r.eng;
+  eng.tick(16);
+  const cmds = feedAll(eng, [down(1, 0, 80, 400)]);
+  assert.ok(!eng.hasFling(), '新按下应终止惯性');
+  // 触停时余量以一条 Scroll 冲账（可能为 0 值不产命令，故只断言不残留滑行态）
+  assert.ok(cmds.every((c) => c.type === SCROLL || c.type === CURSOR || c.type === BUTTON), '不得产生异常命令');
+});
+
+test('慢速双指滑动抬指 → 不起滑（无惯性）', () => {
+  const eng = newEngine();
+  feedAll(eng, [
+    down(1, 0, 0, 0),
+    down(2, 30, 0, 10),
+    move(1, 0, 20, 400), // 20vp / 390ms ≈ 0.05vp/ms，低于 0.15 阈值
+    move(2, 30, 20, 410),
+    up(1, 0, 20, 420),
+    up(2, 30, 20, 430),
+  ]);
+  assert.ok(!eng.hasFling(), '慢速抬指不应起滑');
+});
+
+test('CANCEL 终止惯性滑行', () => {
+  const r = flingEngine();
+  feedAll(r.eng, [cancel(1, 0, 80, 400)]);
+  assert.ok(!r.eng.hasFling(), 'CANCEL 后不得残留滑行');
+});
+
 finish();

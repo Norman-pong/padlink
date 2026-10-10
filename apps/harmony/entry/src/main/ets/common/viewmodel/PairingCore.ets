@@ -18,6 +18,8 @@ export class PairPolicy {
   public static readonly CODE_LEN: number = 4;
   public static readonly TOKEN_LEN: number = 32;
   public static readonly NAME_MAX_BYTES: number = 64;
+  // 设备指纹：16 字节随机值的 hex（daemon pairing.MaxDevIDLen 一致）
+  public static readonly DEVICE_ID_HEX_LEN: number = 32;
 }
 
 // reason → 文案资源键（string.json；未知值兜底通用失败文案）。
@@ -73,9 +75,35 @@ export function pairOkToken(payload: ArrayBuffer): Uint8Array | null {
 }
 
 // 发起配对 PAIR_REQ payload（JSON 文本，调用方 UTF-8 编码后发送）。
-// daemon 侧校验：len(name) > 64 字节 → ERR(2)+关，故发送前必须截断（sanitizeDeviceName）。
-export function buildPairReqInitJson(name: string): string {
-  return `{"name":"${jsonEscape(sanitizeDeviceName(name))}"}`;
+// daemon 侧校验：len(name) > 64 字节 或 dev 非法 → ERR(2)+关，故发送前必须截断/校验。
+// dev 为空串或不合法时不下发该字段（daemon 按新设备处理，对旧版双向兼容）。
+export function buildPairReqInitJson(name: string, devId: string = ''): string {
+  const clean: string = sanitizeDeviceName(name);
+  if (!isDeviceId(devId)) {
+    return `{"name":"${jsonEscape(clean)}"}`;
+  }
+  return `{"name":"${jsonEscape(clean)}","dev":"${devId}"}`;
+}
+
+// 设备指纹校验：恰为 32 个小写 hex 字符（daemon pairing.ValidDevID 同口径）。
+export function isDeviceId(s: string): boolean {
+  if (s.length !== PairPolicy.DEVICE_ID_HEX_LEN) {
+    return false;
+  }
+  for (let i = 0; i < s.length; i++) {
+    const c: number = s.charCodeAt(i);
+    if ((c < 0x30 || c > 0x39) && (c < 0x61 || c > 0x66)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// UUID 字符串（util.generateRandomUUID，RFC 4122 v4，含连字符）→ 设备指纹 hex。
+// 非 UUID 形态返回 ''（调用方按无指纹处理，不阻断配对）。
+export function uuidToDeviceId(uuid: string): string {
+  const hex: string = uuid.replace(/-/g, '').toLowerCase();
+  return isDeviceId(hex) ? hex : '';
 }
 
 // 确认码尝试 PAIR_REQ payload（4B ASCII 数字）；非法入参返回 null。

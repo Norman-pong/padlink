@@ -256,7 +256,8 @@ export struct DiscoverPage {
           ForEach(this.pairing.snapshot.hosts, (h: DiscoveredHost) => {
             ListItem() {
               PressedRow({
-                a11yText: `${h.name.length > 0 ? h.name : h.ip}，${this.hostInfo(h)}`,
+                a11yText: `${h.name.length > 0 ? h.name : h.ip}，${this.hostInfo(h)}`
+                  + (this.pairing.isKnownHost(h) ? `，${this.resStr('discover_paired_tag')}` : ''),
                 onActivated: (): void => {
                   this.pairing.selectHost(h);
                 }
@@ -279,6 +280,16 @@ export struct DiscoverPage {
                   }
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
+                  // 已配对标注：本机有该主机 token，点击直接用 token 连接（不再重新配对）
+                  if (this.pairing.isKnownHost(h)) {
+                    Text($r('app.string.discover_paired_tag'))
+                      .fontSize($r('sys.float.ohos_id_text_size_body3'))
+                      .fontColor($r('sys.color.brand'))
+                      .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+                      .borderRadius(10)
+                      .backgroundColor($r('sys.color.comp_background_tertiary'))
+                      .accessibilityLevel('no') // 行的无障碍播报已含该语义
+                  }
                 }
                 .width('100%')
                 .alignItems(VerticalAlign.Center)

@@ -2,7 +2,8 @@
 // 设备名 64B 截断（CJK 不劈开码点）、PAIR_OK/PAIR_NAK payload 解析。
 import assert from 'node:assert';
 import { PairNak, PairPolicy, nakReasonKey, validatePairCode, parsePairNakReason,
-  pairOkToken, buildPairReqInitJson, buildPairReqCodeBytes, sanitizeDeviceName } from './PairingCore.ets';
+  pairOkToken, buildPairReqInitJson, buildPairReqCodeBytes, sanitizeDeviceName,
+  isDeviceId, uuidToDeviceId } from './PairingCore.ets';
 
 let caseNo = 0;
 let failed = 0;
@@ -129,6 +130,39 @@ test('buildPairReqCodeBytes：4B ASCII 数字；非法返回 null', () => {
   assert.equal(String.fromCharCode(...ok), '1234');
   assert.equal(buildPairReqCodeBytes('12 4'), null);
   assert.equal(buildPairReqCodeBytes('123'), null);
+});
+
+// ---- 设备指纹（配对时区分同一台手机） ----
+
+test('isDeviceId：恰 32 位小写 hex，其余一律拒绝', () => {
+  assert.equal(isDeviceId('0123456789abcdef0123456789abcdef'), true);
+  assert.equal(isDeviceId(''), false); // 空串不构成指纹（daemon 侧才允许空=旧版）
+  assert.equal(isDeviceId('0123456789abcdef0123456789abcde'), false); // 31 位
+  assert.equal(isDeviceId('0123456789abcdef0123456789abcdef0'), false); // 33 位
+  assert.equal(isDeviceId('0123456789ABCDEF0123456789ABCDEF'), false); // 大写
+  assert.equal(isDeviceId('0123456789abcdef0123456789abcdeg'), false); // 非 hex
+  assert.equal(isDeviceId('01234567-89ab-cdef-0123-456789abcdef'.replace(/-/g, '')), true);
+});
+
+test('uuidToDeviceId：RFC 4122 UUID（含连字符/大写）→ 32 位小写 hex', () => {
+  assert.equal(uuidToDeviceId('01234567-89AB-cdef-0123-456789abcdef'), '0123456789abcdef0123456789abcdef');
+  assert.equal(uuidToDeviceId('not-a-uuid'), '');
+  assert.equal(uuidToDeviceId('01234567-89ab-cdef-0123-456789abcde'), ''); // 少一位
+});
+
+test('buildPairReqInitJson：有指纹带 dev 字段，无指纹不带（旧版 daemon 兼容）', () => {
+  const dev = '0123456789abcdef0123456789abcdef';
+  assert.equal(buildPairReqInitJson('手机A', dev), `{"name":"手机A","dev":"${dev}"}`);
+  assert.equal(buildPairReqInitJson('手机A'), '{"name":"手机A"}');
+  assert.equal(buildPairReqInitJson('手机A', ''), '{"name":"手机A"}');
+  // 非法指纹不下发（daemon 会 ERR(2)+关连接）
+  assert.equal(buildPairReqInitJson('手机A', 'XYZ'), '{"name":"手机A"}');
+  // 名称仍按 ≤64B 截断，引号仍转义
+  const long = buildPairReqInitJson('x'.repeat(100), dev);
+  assert.ok(long.indexOf('"dev":"' + dev + '"') > 0);
+  assert.ok(Buffer.byteLength(long, 'utf8') < 140);
+  // 含引号的名字必须转义成合法 JSON（按语义断言，避免转义字面量写法踩坑）
+  assert.equal(JSON.parse(buildPairReqInitJson('a"b', '')).name, 'a"b');
 });
 
 finish();

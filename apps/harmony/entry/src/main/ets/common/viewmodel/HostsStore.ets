@@ -122,6 +122,22 @@ function fieldPort(rec: Record<string, Object>): number {
   return v;
 }
 
+// 主机档案键（去重/查找唯一判据：ip+port）。
+export function hostKeyOf(ip: string, port: number): string {
+  return `${ip}:${port}`;
+}
+
+// 在列表中查找主机（ip+port 精确匹配）；未命中返回 null。
+// 发现页「本机已配对」标注与直连路由共用本判据，避免两处各写一套匹配。
+export function findHost(hosts: HostInfo[], ip: string, port: number): HostInfo | null {
+  for (const h of hosts) {
+    if (h.ip === ip && h.port === port) {
+      return h;
+    }
+  }
+  return null;
+}
+
 export class HostsStore {
   private kv: HostsKVStore;
   private hosts: HostInfo[] = [];
@@ -214,7 +230,7 @@ export class HostsStore {
   }
 
   private indexOfAt(ip: string, port: number): number {
-    return this.hosts.findIndex((h: HostInfo): boolean => h.ip === ip && h.port === port);
+    return this.hosts.findIndex((h: HostInfo): boolean => hostKeyOf(h.ip, h.port) === hostKeyOf(ip, port));
   }
 
   private persist(): void {

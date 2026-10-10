@@ -53,6 +53,10 @@
       "value": "Paired"
     },
     {
+      "name": "discover_paired_tag",
+      "value": "Paired on this phone"
+    },
+    {
       "name": "discover_empty_title",
       "value": "No hosts found nearby"
     },
@@ -275,6 +279,10 @@
     {
       "name": "state_lost",
       "value": "Lost"
+    },
+    {
+      "name": "ctrl_busy_toast_fmt",
+      "value": "Another device is controlling. Try again in about %1$s s"
     },
     {
       "name": "state_discovering",

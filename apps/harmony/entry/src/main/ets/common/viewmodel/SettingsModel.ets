@@ -6,14 +6,18 @@
 // 列表操作抽纯类 HostsStore（本类注入 preferences 存取回调组合之）；旧版 lastHost_* 单档案在
 // init 时一次性迁移进 hosts_json 后清理，getLastHost/saveLastHost 对外签名不变。
 import { preferences } from '@kit.ArkData';
+import { util } from '@kit.ArkTS';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { HostInfo, HostsKVStore, HostsPolicy, HostsStore } from './HostsStore';
+import { isDeviceId, uuidToDeviceId } from './PairingCore';
 import { ResError } from '../ResError';
 
 // 旧版单档案键（迁移源；迁移成功后删除）。
 const LEGACY_KEYS: string[] = ['lastHost_ip', 'lastHost_port', 'lastHost_tokenHex', 'lastHost_name'];
+// 设备指纹键：首次使用生成并持久化（手机卸载重装即换新指纹，届时按新设备配对，符合预期）。
+const KEY_DEVICE_ID: string = 'dev_id';
 
 const TAG: string = 'PadLink.Settings';
 const DOMAIN: number = 0x5050;
@@ -121,6 +125,47 @@ export class SettingsModel {
       return null; // 未初始化：与既有口径一致按无档案处理
     }
     return hs.getDefault();
+  }
+
+  // 设备指纹（daemon 据此区分"同一台手机重新配对"与"新手机"）：
+  // 本机 preferences 持久化；缺失/非法时用加密安全随机 UUID 生成并落盘。
+  // 生成失败（存储未就绪/异常）返回 ''——配对不因此中断，daemon 按新设备处理。
+  // 依据：@ohos.util util.generateRandomUUID（RFC 4122 v4，加密安全随机源，API 9+）。
+  public async getDeviceId(): Promise<string> {
+    const store = this.store;
+    if (store === null) {
+      return '';
+    }
+    // getSync 可能抛（存储异常）：读失败按"无指纹"处理，继续走生成分支
+    let cached: string = '';
+    try {
+      const v = store.getSync(KEY_DEVICE_ID, '');
+      if (typeof v === 'string') {
+        cached = v;
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, '读取设备指纹失败: %{public}s', (err as Error).message);
+    }
+    if (isDeviceId(cached)) {
+      return cached;
+    }
+    let id: string = '';
+    try {
+      id = uuidToDeviceId(util.generateRandomUUID(true));
+    } catch (err) {
+      const e = err as BusinessError;
+      hilog.error(DOMAIN, TAG, 'generateRandomUUID fail: %{public}d %{public}s', e.code, e.message);
+      return '';
+    }
+    if (id.length === 0) {
+      return '';
+    }
+    try {
+      await this.putAndFlush(KEY_DEVICE_ID, id);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, '设备指纹落盘失败（本次会话内仍可用）: %{public}s', (err as Error).message);
+    }
+    return id;
   }
 
   // 保存主机（upsert：按 ip+port 去重插入/更新并置为默认；满 4 台新增抛 HostsFullError）。

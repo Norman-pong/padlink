@@ -16,6 +16,9 @@ import type { GestureConfig } from '../gesture/GestureConfig';
 import { newButton } from '../proto/Packet';
 import type { Transport } from '../net/Transport';
 
+// 惯性滑行驱动频率（≈60Hz：与屏幕刷新同量级，滚动步进才跟得上衰减曲线）。
+const FLING_TICK_MS: number = 16;
+
 export class TouchpadModel {
   private cfg: GestureConfig = defaultGestureConfig();
   private engine: GestureEngine = new GestureEngine(this.cfg);
@@ -23,6 +26,10 @@ export class TouchpadModel {
   // 活跃指集合（DOWN 登记 / UP 注销 / CANCEL 清空），供 touches 流的指位升格判定。
   private activeIds: Set<number> = new Set<number>();
   private lastEventTms: number = 0;
+  // 惯性滑行驱动：引擎只认"距上次 tick 的增量"，时钟留在本层（触摸样本用系统启动时间，
+  // 定时器用 Date.now()，两者不同基，故只传增量，避免混用时间基）。
+  private flingTimer: number = -1;
+  private flingWallMs: number = 0;
 
   // 调试统计：触摸采样率 / 发送速率（每秒滚动窗口）。
   private sampleSecStart: number = 0;
@@ -87,9 +94,10 @@ export class TouchpadModel {
     this.lastEventTms = tms;
   }
 
-  // 切页/退出主控页时调用：CANCEL 复位引擎（释放按住的左键、冲账滚动余量），不残留。
+  // 切页/退出主控页时调用：CANCEL 复位引擎（释放按住的左键、冲账滚动余量、终止惯性），不残留。
   public cancelGesture(): void {
     this.feedSample(0, 0, 0, TouchKind.CANCEL, new Date().getTime());
+    this.stopFlingTimer();
   }
 
   private feedSample(pointerId: number, x: number, y: number, kind: number, tMs: number): void {
@@ -106,9 +114,39 @@ export class TouchpadModel {
     this.dispatch(cmds);
   }
 
+  // 惯性滑行：末指抬起后引擎进入可 tick 态，此处按 ~60Hz 驱动，衰减到头自停。
+  private syncFlingTimer(): void {
+    if (!this.engine.hasFling()) {
+      this.stopFlingTimer();
+      return;
+    }
+    if (this.flingTimer >= 0) {
+      return;
+    }
+    this.flingWallMs = new Date().getTime();
+    this.flingTimer = setInterval(() => {
+      const now: number = new Date().getTime();
+      const dt: number = now - this.flingWallMs;
+      this.flingWallMs = now;
+      const cmds: GestureCommand[] = this.engine.tick(dt);
+      if (!this.engine.hasFling()) {
+        this.stopFlingTimer();
+      }
+      this.dispatch(cmds);
+    }, FLING_TICK_MS);
+  }
+
+  private stopFlingTimer(): void {
+    if (this.flingTimer >= 0) {
+      clearInterval(this.flingTimer);
+      this.flingTimer = -1;
+    }
+  }
+
   // 命令分发：MOVE/SCROLL→UDP（自然滚动已在引擎内换算，此处不二次取反）；BUTTON→TCP。
   private dispatch(cmds: GestureCommand[]): void {
     if (cmds.length === 0) {
+      this.syncFlingTimer();
       return;
     }
     for (const c of cmds) {
@@ -129,6 +167,7 @@ export class TouchpadModel {
         this.noteSend();
       }
     }
+    this.syncFlingTimer();
   }
 
   private noteSample(tMs: number): void {

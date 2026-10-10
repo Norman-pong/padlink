@@ -57,6 +57,16 @@ export type RttListener = (rttMs: number) => void;
 // PAIR_* / DISCOVER_RESP 观察者（M2 配对流预留）。
 export type PairPacketListener = (pkt: Packet) => void;
 
+// NOTICE 语义（PROTOCOL.md §4.7）。
+export class NoticeInfo {
+  // 0 = 控制被其他设备占用（arg = 冷静期剩余秒数）
+  public code: number = 0;
+  public arg: number = 0;
+}
+
+// 控制权提示观察者（主控页据此 toast 提示用户）。
+export type NoticeListener = (notice: NoticeInfo) => void;
+
 export class ConnectionManager {
   public readonly snapshot: ConnectionState = new ConnectionState();
   public readonly transport: Transport = new Transport();
@@ -74,6 +84,7 @@ export class ConnectionManager {
   private epoch: number = 0;
   private helloWaiter: ((ok: boolean) => void) | null = null;
   private rttListeners: RttListener[] = [];
+  private noticeListeners: NoticeListener[] = [];
   public onPairPacket: PairPacketListener | null = null;
 
   constructor() {
@@ -109,6 +120,18 @@ export class ConnectionManager {
     const idx: number = this.rttListeners.indexOf(cb);
     if (idx >= 0) {
       this.rttListeners.splice(idx, 1);
+    }
+  }
+
+  // 注册/移除控制权提示监听（主控页 toast）。
+  public addNoticeListener(cb: NoticeListener): void {
+    this.noticeListeners.push(cb);
+  }
+
+  public removeNoticeListener(cb: NoticeListener): void {
+    const idx: number = this.noticeListeners.indexOf(cb);
+    if (idx >= 0) {
+      this.noticeListeners.splice(idx, 1);
     }
   }
 
@@ -416,6 +439,16 @@ export class ConnectionManager {
       const text: string | null = utf8DecodeStrict(new Uint8Array(pkt.payload));
       this.snapshot.lastErrorKey = 'conn_daemon_err_fmt';
       this.snapshot.lastErrorParams = [text !== null ? text : `${pkt.payload.byteLength}B`];
+      return;
+    }
+    if (pkt.type === PacketType.NOTICE) {
+      // daemon → 手机提示（多设备控制权裁决）：不影响连接状态，仅转交 UI 提示
+      const info: NoticeInfo = new NoticeInfo();
+      info.code = pkt.notice.code;
+      info.arg = pkt.notice.arg;
+      for (const cb of this.noticeListeners) {
+        cb(info);
+      }
       return;
     }
     if (pkt.type === PacketType.PAIR_REQ || pkt.type === PacketType.PAIR_OK

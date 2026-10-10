@@ -14,7 +14,8 @@ import { window, uiMaterial } from '@kit.ArkUI';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { ConnState } from '../common/net/ConnectionManager';
-import type { ConnectionManager } from '../common/net/ConnectionManager';
+import type { ConnectionManager, NoticeInfo } from '../common/net/ConnectionManager';
+import { NoticeCode } from '../common/proto/PacketType';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
@@ -54,13 +55,29 @@ export struct MainControlPage {
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
+  // 多设备控制权提示（daemon NOTICE）：本机输入被其他设备抢占时轻提示。
+  // 回调暂存于字段，离开页面时按引用注销（匿名函数无法注销；同 avoidCb/sizeCb 模式）。
+  private noticeCb: ((notice: NoticeInfo) => void) | null = null;
 
   aboutToAppear(): void {
     this.setupWindow();
+    // 幂等注册：重复进入（不重复触发 aboutToDisappear 的极端时序）也不叠加监听
+    if (this.noticeCb !== null) {
+      this.conn.removeNoticeListener(this.noticeCb);
+    }
+    const cb = (notice: NoticeInfo): void => {
+      this.showNotice(notice);
+    };
+    this.noticeCb = cb;
+    this.conn.addNoticeListener(cb);
   }
 
   aboutToDisappear(): void {
-    // 切页先复位引擎（未释放按键先发 release，CANCEL 路径已含左键 up + 滚动冲账）
+    if (this.noticeCb !== null) {
+      this.conn.removeNoticeListener(this.noticeCb);
+      this.noticeCb = null;
+    }
+    // 切页先复位引擎（未释放按键先发 release，CANCEL 路径已含左键 up + 滚动冲账 + 终止惯性）
     this.touchpad.cancelGesture();
     // 键盘层残留红线（PRD §11.2）：页面离开时层可能仍挂载，zoneLeave 幂等补收口
     if (this.keyboard.zoneActive) {
@@ -158,6 +175,18 @@ export struct MainControlPage {
   private rttText(): string {
     const rtt: number = this.conn.snapshot.rttMs;
     return rtt >= 0 ? `${rtt} ms` : '-- ms';
+  }
+
+  // 多设备控制权提示：另一台设备正在控制 → toast（含冷静期剩余秒数，用户知道等多久）。
+  // 未定义的 NOTICE code 忽略（向前兼容，PROTOCOL.md §4.7）。
+  private showNotice(notice: NoticeInfo): void {
+    if (notice.code !== NoticeCode.CONTROL_BUSY) {
+      return;
+    }
+    this.getUIContext().getPromptAction().showToast({
+      message: pageResFmt(this.getUIContext(), 'ctrl_busy_toast_fmt', [String(notice.arg)]),
+      duration: 2500,
+    });
   }
 
   // 胶囊无障碍播报：连接状态 + RTT 动态拼接（硬约束 11；占位格式走 string.json 双语）。

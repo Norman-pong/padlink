@@ -2,7 +2,7 @@
 // upsert 去重与置默认、上限 4 拒绝、默认顺延、重命名/设默认/删除边界、名称 64B 校验。
 import assert from 'node:assert';
 import { HostInfo, HostsPolicy, HostsFullError,
-  HostsStore, parseHosts, validateHostName } from './HostsStore.ets';
+  HostsStore, parseHosts, validateHostName, hostKeyOf, findHost } from './HostsStore.ets';
 
 let caseNo = 0;
 let failed = 0;
@@ -228,6 +228,22 @@ test('listHosts 返回快照：外部改动不影响内部列表', () => {
   const snap = store.listHosts();
   snap.push(host('10.9.9.9', 53021, 'ghost'));
   assert.equal(store.listHosts().length, 1);
+});
+
+// ---- 已配对主机识别（发现页「本机已配对」标注与 token 直连共用判据） ----
+
+test('hostKeyOf：同 IP 不同端口视为不同主机', () => {
+  assert.equal(hostKeyOf('10.0.0.1', 53021), '10.0.0.1:53021');
+  assert.notEqual(hostKeyOf('10.0.0.1', 53021), hostKeyOf('10.0.0.1', 53022));
+});
+
+test('findHost：ip+port 精确命中，端口不同不误判', () => {
+  const list = [host('10.0.0.1', 53021, 'a'), host('10.0.0.2', 53021, 'b')];
+  const hit = findHost(list, '10.0.0.2', 53021);
+  assert.ok(hit !== null && hit.name === 'b');
+  assert.equal(findHost(list, '10.0.0.2', 53022), null);
+  assert.equal(findHost(list, '10.0.0.3', 53021), null);
+  assert.equal(findHost([], '10.0.0.2', 53021), null);
 });
 
 finish();

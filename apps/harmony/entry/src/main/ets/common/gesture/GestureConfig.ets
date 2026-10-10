@@ -18,6 +18,16 @@ export class GestureDefaults {
   public static readonly TWO_FINGER_TAP_MAX_MS: number = 40;
   // 长按触发：按下 ≥300ms 且位移 ≤8vp
   public static readonly LONG_PRESS_MS: number = 300;
+  // 双击后拖拽（tap-and-drag）：轻点抬起后在此窗口内同位置再次按下并移动 = 按住左键拖拽
+  // （第二次轻点抬起即双击；按住拖动即"双击后拖拽"，与真实触摸板一致）
+  public static readonly DOUBLE_TAP_DRAG_MS: number = 300;
+  // 抬指惯性滑行（动量滚动）：速度估计与衰减参数（真机手感待校准）
+  // 触发下限/初速上限/结束下限单位均为 vp/ms（手指位移速度，经 scrollUnitsPerPixel 换算）
+  public static readonly FLING_MIN_VP_PER_MS: number = 0.15;
+  public static readonly FLING_MAX_VP_PER_MS: number = 1.2;
+  public static readonly FLING_STOP_VP_PER_MS: number = 0.03;
+  public static readonly FLING_TAU_MS: number = 300;
+  public static readonly FLING_MAX_MS: number = 900;
   // 加速曲线（分段线性，单位 vp/ms）：≤v1 增益 1.0；v1..v2 线性升至 maxGain；>v2 恒 maxGain
   public static readonly ACCEL_V1: number = 0.2;
   public static readonly ACCEL_V2: number = 1.2;
@@ -33,6 +43,12 @@ export interface GestureConfig {
   tapMaxVp: number;
   twoFingerTapMaxMs: number;
   longPressMs: number;
+  doubleTapDragMs: number;
+  flingMinVpPerMs: number;
+  flingMaxVpPerMs: number;
+  flingStopVpPerMs: number;
+  flingTauMs: number;
+  flingMaxMs: number;
   accelV1: number;
   accelV2: number;
   accelMaxGain: number;
@@ -48,6 +64,12 @@ export function defaultGestureConfig(): GestureConfig {
     tapMaxVp: GestureDefaults.TAP_MAX_VP,
     twoFingerTapMaxMs: GestureDefaults.TWO_FINGER_TAP_MAX_MS,
     longPressMs: GestureDefaults.LONG_PRESS_MS,
+    doubleTapDragMs: GestureDefaults.DOUBLE_TAP_DRAG_MS,
+    flingMinVpPerMs: GestureDefaults.FLING_MIN_VP_PER_MS,
+    flingMaxVpPerMs: GestureDefaults.FLING_MAX_VP_PER_MS,
+    flingStopVpPerMs: GestureDefaults.FLING_STOP_VP_PER_MS,
+    flingTauMs: GestureDefaults.FLING_TAU_MS,
+    flingMaxMs: GestureDefaults.FLING_MAX_MS,
     accelV1: GestureDefaults.ACCEL_V1,
     accelV2: GestureDefaults.ACCEL_V2,
     accelMaxGain: GestureDefaults.ACCEL_MAX_GAIN,
