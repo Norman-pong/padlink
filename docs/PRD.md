@@ -133,7 +133,8 @@ padlink/
 
 1. **发现**：APP 进入发现页后向局域网发 UDP 广播（默认端口 53021）：bind `0.0.0.0` → `setExtraOptions({broadcast:true})`（**必须在 bind 成功之后**）→ `connection.getAllNets()` 筛 BEARER_WIFI 得 NetHandle 后 `netHandle.bindSocket(udpSocket)` 锁定 WiFi 出口（参考官方 FAQ faqs-network-96）；
 2. **配对**：用户选中主机 → daemon 侧生成 4 位数字确认码，60 秒有效、最多试 5 次；展示方式：`notify-send` 桌面通知 + `padlinkctl pair` 终端输出（无桌面环境时）。APP 输入码正确 → daemon 生成 32 字节 token 双端持久化（手机端安全存储，daemon 端 0600 文件）。
-3. **重连**：已配对主机打开 APP 直连（token 认证）；token 失效走重新配对。
+3. **同设备识别（v4 新增）**：APP 首次运行生成 16 字节设备指纹（`util.generateRandomUUID` → 32 位 hex，preferences 持久化），随 PAIR_REQ 上报；daemon 命中既有记录时**复用该记录、只轮换 token**（`clients.json` 仍一条、`id` 不变、不占 4 台名额），未命中/未上报才新增。APP 侧发现页对已在本机主机列表的主机标注「本机已配对」，点击直接用 token 连接（不再重新配对），token 失效自动落回配对流程。
+4. **重连**：已配对主机打开 APP 直连（token 认证）；token 失效走重新配对。
 
 ### 4.2 FR-1 触摸板主控（全屏手势式）
 
@@ -143,11 +144,17 @@ padlink/
 | --- | --- | --- |
 | 单指滑动 | 光标相对移动 | 位移差 × 灵敏度 × 加速曲线 |
 | 单指轻点 | 左键点击 | 按下 ≤150ms 且总位移 ≤8vp |
+| 单指双击 | 左键双击（打开文件/图片） | 两次轻点间隔 ≤300ms（`doubleTapDragMs`）且落点差 ≤8vp；两次 down+up 成对下发，daemon 侧合成 clickCount=2 |
+| 双击后拖动 | 按住左键拖拽（拖文件/选词） | 第二次轻点后不抬指、位移超 8vp → BTN_LEFT down + 拖拽；抬指 up |
 | 双指轻点 | 右键点击 | 两指按下时间差 ≤40ms，其余同上 |
-| 双指滑动 | 滚动（默认**自然滚动**） | 垂直分量累积映射 REL_WHEEL_HI_RES（平滑滚动） |
+| 双指滑动 | 滚动（默认**自然滚动**） | 垂直分量累积映射 REL_WHEEL_HI_RES（平滑滚动）；末指抬起按平滑末速起滑，惯性按 Δy=v·τ·(1−e^(−dt/τ)) 衰减（τ=300ms、初速上限 1.2vp/ms、≤900ms），新触摸/CANCEL 立即触停 |
 | 长按后拖动 | 按住左键拖拽 | 按下 ≥300ms 且位移 ≤8vp → BTN_LEFT down，抬指 up |
 | 三指接触 | 无动作（吸收抑制） | 第三指落下即入吸收态、零输出，防掌心/误触；回落双指无轻点资格 |
 
+- **多击与拖拽的平台差异（daemon 侧）**：macOS 合成的 CGEvent 必须显式写 `kCGMouseEventClickState`（1/2/3），
+  且按住按钮期间的位移必须投 `kCGEventLeftMouseDragged` 等拖拽事件——否则应用侧 `clickCount` 恒为 1、
+  `mouseDragged:` 不触发（双击打开文件、拖拽文件/选词失效）；双击间隔取系统设置（`NSEvent.doubleClickInterval`）。
+  Linux 侧多击与拖拽由内核时间戳 + 工具包（GTK 依 `gtk-double-click-time`）/合成器自行判定，uinput 后端无需额外字段。
 - **加速曲线**：慢速 1:1 精确、快速最高 2.5x 增益（分段线性，拐点可调）；灵敏度默认 1.2，设置范围 0.5–2.0。
 - 手势判定状态机要求：任何分支必须有 CANCEL/多指插入的复位路径，禁止出现"多指抬起后光标漂移"。
 - **绝对不做**屏幕上固定左右键按钮区（已确认交互形态）。
@@ -187,6 +194,11 @@ padlink/
 - 状态机：`发现中 → 配对中 → 已连接 → 重连中(指数退避 1s/2s/4s…上限 15s) → 失联`。
 - 心跳：TCP 通道 1Hz ECHO，RTT 展示于状态浮层与调试面板；3 次超时判失联。
 - 状态浮层：连接状态用 ImmersiveMaterial THIN 档悬浮胶囊常驻主控页角落（HDS 归层：层 1 材质表达层级）。
+- **多设备共存与控制权（v4 新增，全文见 PROTOCOL.md §4.9）**：同一台电脑最多 4 台手机同时连接，但同一时刻只有
+  一台设备（"第一设备"）的输入被注入。持权设备有操作时，其他设备的输入一律丢弃、向其下发一次 NOTICE
+  （手机端 toast「另一台设备正在控制，约 N 秒后可接管」）并进入 **15 秒冷静期**；冷静期满且持权设备当前无操作
+  （默认 1s 内无输入且未按住按键/按钮）才放行接管，接管者成为新的第一设备。持权设备断开即释放控制权；
+  被拒设备的残留按键由 daemon 兜底释放（§11.2 红线）。
 
 ### 4.8 FR-7 调试面板（隐藏入口：版本号连点 5 次）
 
@@ -211,7 +223,7 @@ magic(2B 'PL') | ver(1B) | type(1B) | flags(1B) | seq(2B) | payload_len(2B) |
 reserved(2B) | hmac_trunc(8B, 配对后启用) | payload(≤1400B, UDP 分片上限内)
 ```
 
-- 事件类型枚举：`HELLO / DISCOVER_RESP / PAIR_REQ / PAIR_OK / PAIR_NAK / MOVE(dx,dy) / SCROLL(dy_hi_res) / BUTTON(btn,down) / KEY(code,down) / TEXT(utf8) / ECHO / BYE / ERR`
+- 事件类型枚举：`HELLO / DISCOVER_RESP / PAIR_REQ / PAIR_OK / PAIR_NAK / MOVE(dx,dy) / SCROLL(dy_hi_res) / BUTTON(btn,down) / KEY(code,down) / TEXT(utf8) / ECHO / BYE / ERR / NOTICE(code,arg)`（NOTICE 为唯一的 daemon→手机事件：控制权裁决提示）
 - 鉴权：每包 HMAC-SHA256(token) 截断 64bit；未认证包一律丢弃并计数（防局域网伪造/重放）。
 - 版本协商：HELLO 交换 ver，不一致取双端较低值并告警。
 - **黄金测试向量**：`protocol/testvectors.json` 是两端编解码一致性的对拍单源；改头结构必须同步重生成向量并升 ver。

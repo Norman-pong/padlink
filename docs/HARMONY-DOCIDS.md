@@ -52,6 +52,8 @@
 | `FAQ/UI框架/组件使用/如何解决启动页背景和startWindowIcon属性设置为同一张图时出现的闪屏问题/faqs-arkui-1569` | 脚手架启动页避坑（startWindowIcon 与背景勿同图） |
 | `API参考/ArkUI_方舟UI框架/ArkTS组件/通用属性/无障碍属性/ts-universal-attributes-accessibility` | 自建键盘/触控组件必须配无障碍属性（PRD §6.3、HDS 硬约束 11） |
 | `开发指南/ArkTS_方舟编程语言/ArkTS并发/应用多线程开发实践/长时任务并发场景/长时任务开发指导_TaskPool/long-time-task-guide` | TaskPool 后台任务官方范式（v2 传感器采集场景；v1 发送循环参考） |
+| `API参考/ArkTS_方舟编程语言/ArkTS_API/ohos_util_util工具函数_/js-apis-util` | `import { util } from '@kit.ArkTS'`；`util.generateRandomUUID(entropyCache?: boolean): string` = **加密安全**随机 RFC 4122 v4 UUID（API 9+，SystemCapability.Utils.Lang）——配对设备指纹来源（去连字符取 32 位 hex，见 `PairingCore.uuidToDeviceId`） |
+| `FAQ/ArkTS语言/方舟编程语言_ArkTS/如何生成随机的uuid/faqs-arkts-14` | 随机 UUID 的官方推荐入口（指向 util.generateRandomUUID，勿用 Math.random 自拼） |
 
 ## 六、v2 预留能力（空中鼠标 / 息屏常采，v1 不使用）
 

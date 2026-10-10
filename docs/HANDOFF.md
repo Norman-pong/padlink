@@ -20,7 +20,7 @@
 
 ## 里程碑（通过标准即验收）
 
-> **状态（2026-10-05）：M0–M5 代码全部落地；M0 注入/网络链路已获真实 Linux 内核验证**（OrbStack 容器，见下），**GNOME Wayland 桌面消费层与鸿蒙真机验收仍待执行**（⏳ 项）。离线验证门：daemon `go vet`/`go test -race`/双架构交叉编译；鸿蒙 `devecocli build` 全量构建 + deveco 静态检查零诊断 + 黄金向量 27 例与纯逻辑单测 150+ 例全绿。
+> **状态（2026-10-05）：M0–M5 代码全部落地；M0 注入/网络链路已获真实 Linux 内核验证**（OrbStack 容器，见下），**GNOME Wayland 桌面消费层与鸿蒙真机验收仍待执行**（⏳ 项）。离线验证门：daemon `go vet`/`go test -race`/双架构交叉编译；鸿蒙 `devecocli build` 全量构建 + deveco 静态检查零诊断 + 黄金向量 28 例与纯逻辑单测 136 例全绿（2026-10-10 实测：prototest 28 / etstest 五目录 45+22+16+37+16）。
 
 ### 已获真实 Linux 内核验证的部分（OrbStack 容器，2026-10-05）
 - `padlinkd --test` 于 linux/arm64 容器（`--device /dev/uinput`）：**PASSED，退出码 0**（PROBE §4 自动化判据）；`/proc/bus/input/devices` 实证设备注册：`Name="PadLink Virtual Pointer"`、`Vendor=504c Product=0001`、`EV=7`（SYN|KEY|REL），与设计能力位一致。

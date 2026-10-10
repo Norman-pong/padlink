@@ -41,7 +41,7 @@ git tag v1.0.0 && git push origin v1.0.0
 | [docs/HARMONY-DOCIDS.md](docs/HARMONY-DOCIDS.md) | devecocli 官方文档 ID 索引（鸿蒙 API 查证唯一入口） |
 | [docs/RESEARCH-WAYLAND.md](docs/RESEARCH-WAYLAND.md) | GNOME Wayland 集成技术方案（含上游 URL 与可信度） |
 | [docs/PROBE-LINUX.md](docs/PROBE-LINUX.md) | Ubuntu 真机注入链路验证程序（M0 验收） |
-| [protocol/PROTOCOL.md](protocol/PROTOCOL.md) | 线协议规范 v1（19B 头、13 事件、HMAC） |
+| [protocol/PROTOCOL.md](protocol/PROTOCOL.md) | 线协议规范 v1（19B 头、14 事件、HMAC） |
 | [protocol/testvectors.json](protocol/testvectors.json) | 黄金测试向量（两端编解码对拍单源） |
 
 ## 约束速记

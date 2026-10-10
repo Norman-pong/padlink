@@ -69,6 +69,19 @@ darwin 后端实现与 Linux 相同的 `Open/KeyEvent/RelEvent/Sync/Close` 面�
 moveAbs/scrollPixel/key/button/axTrusted 五个函数级原语，业务逻辑留在 Go 侧。
 Linux 侧保持无 cgo 单二进制（PRD §4.8 既定：两平台构建互不影响）。
 
+**合成事件的两处必写字段（M-macOS-5 补全，Apple CGEventField 文档 + 社区实证）**：
+
+- 按钮事件必须显式写 `kCGMouseEventClickState`（1=单击 / 2=双击 / 3=三击）；
+  不写时应用侧 `NSEvent.clickCount` 恒为 1 —— 双击打开文件、三击选段全部失效。
+  点击序号由 `internal/inject/click.go`（同键、限时、限距的连续按下）合成，
+  间隔取系统设置 `NSEvent.doubleClickInterval`（`internal/quartz/interval_darwin.m`，
+  实测非 GUI 进程可直接取值，默认 0.5s）。
+- 按住按钮期间的位移必须投 `kCGEventLeftMouseDragged`（右/中键对应 Right/OtherMouseDragged），
+  否则 AppKit 的 `mouseDragged:` 不触发 —— 拖文件、拖窗口、选词拖拽失效。
+  `MouseMove.ButtonsDown`（由 inject 层多击合成器给出）决定事件类型。
+- Linux 侧无对应改动：evdev 事件自带内核时间戳，多击由工具包/合成器按时序自行判定，
+  拖拽由「BTN 按住 + REL 位移」天然表达。
+
 ### 2.2 位移语义：绝对定位合成，绕开指针加速
 
 CGEvent 鼠标事件显式携带目标位置。darwin 后端对 REL_X/REL_Y 的处理 =
