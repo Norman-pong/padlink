@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.zhimingcool.padlink",
     "vendor": "example",
-    "versionCode": 1000000,
-    "versionName": "1.0.0",
+    "versionCode": 1010000,
+    "versionName": "1.1.0",
     "icon": "$media:layered_image",
     "label": "$string:app_name",
     // 系统字号跟随（faqs-ability-166 / hds-components.md §四）：
