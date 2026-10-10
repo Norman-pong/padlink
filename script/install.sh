@@ -1,6 +1,6 @@
 #!/bin/sh
 # PadLink 一行远程安装：解析最新 Release → 按平台下载 tar.gz → SHA-256 校验 → 执行包内 install.sh。
-# 用法：curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+# 用法：curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 # 安装逻辑单源在 release 包内的 install.sh，本脚本只负责取包与验签，不复写安装步骤。
 set -eu
 
@@ -9,7 +9,7 @@ REPO="Norman-pong/padlink"
 CURL="curl -fsSL --connect-timeout 15 --retry 2"
 
 die() {
-  echo "install-remote: $*" >&2
+  echo "install: $*" >&2
   exit 1
 }
 

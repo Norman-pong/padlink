@@ -13,7 +13,7 @@
 在电脑终端执行：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 ```
 
 脚本自动识别系统与架构，下载最新 Release 安装包、校验 SHA-256 后完成安装（Ubuntu 仅 udev 规则一步需要 sudo 密码）。装完后按平台收尾：

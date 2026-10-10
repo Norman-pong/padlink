@@ -7,7 +7,7 @@
 > **使用者看这里**：在电脑上安装服务端、手机配对连接的完整步骤见 [docs/SETUP.md](docs/SETUP.md)；下文为开发向内容。电脑端一行安装：
 >
 > ```sh
-> curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+> curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 > ```
 
 ## 代码地图与常用命令

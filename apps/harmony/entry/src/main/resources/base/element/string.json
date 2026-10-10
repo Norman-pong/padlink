@@ -722,23 +722,23 @@
     },
     {
       "name": "guide_step1_title",
-      "value": "第 1 步 · 在电脑浏览器打开下载页"
+      "value": "第 1 步 · 在电脑终端执行安装命令"
     },
     {
       "name": "guide_step1_body",
-      "value": "在电脑浏览器的地址栏输入这个地址："
+      "value": "在电脑终端粘贴（或输入）这条命令："
     },
     {
-      "name": "guide_download_url",
-      "value": "github.com/Norman-pong/padlink"
+      "name": "guide_install_cmd",
+      "value": "curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh"
     },
     {
       "name": "guide_step1_hint",
-      "value": "打开后复制页面上方的一行安装命令，在电脑终端执行即可；也可按下方步骤手动安装。"
+      "value": "不想手敲？在电脑浏览器打开 github.com/Norman-pong/padlink，页面顶部可以直接复制这条命令。"
     },
     {
       "name": "guide_step2_title",
-      "value": "第 2 步 · 在电脑上安装并启动"
+      "value": "第 2 步 · 按电脑系统收尾"
     },
     {
       "name": "guide_ubuntu_title",
@@ -746,31 +746,15 @@
     },
     {
       "name": "guide_ubuntu_s1",
-      "value": "1. 下载 padlink_版本号_linux_amd64.deb 后，在下载目录执行："
+      "value": "1. 注销并重新登录电脑（首次安装必须，否则注入权限不生效）"
     },
     {
       "name": "guide_ubuntu_c1",
-      "value": "sudo apt install ./padlink_*.deb"
+      "value": "sudo apt install wl-clipboard"
     },
     {
       "name": "guide_ubuntu_s2",
-      "value": "2. 注销并重新登录电脑（首次安装必须，否则注入权限不生效）"
-    },
-    {
-      "name": "guide_ubuntu_s3",
-      "value": "3. 启动服务端并设为开机自启："
-    },
-    {
-      "name": "guide_ubuntu_c2",
-      "value": "systemctl --user enable --now padlink"
-    },
-    {
-      "name": "guide_ubuntu_s4",
-      "value": "4. 要用语音听写，再装一个依赖："
-    },
-    {
-      "name": "guide_ubuntu_c3",
-      "value": "sudo apt install wl-clipboard"
+      "value": "2. 要用语音听写，再装一个依赖："
     },
     {
       "name": "guide_macos_title",
@@ -778,19 +762,7 @@
     },
     {
       "name": "guide_macos_s1",
-      "value": "1. 下载 padlink_版本号_darwin_arm64.tar.gz（Intel 芯片选 amd64）并解压"
-    },
-    {
-      "name": "guide_macos_s2",
-      "value": "2. 在解压后的目录里执行："
-    },
-    {
-      "name": "guide_macos_c1",
-      "value": "./install.sh"
-    },
-    {
-      "name": "guide_macos_s3",
-      "value": "3. 首次运行会弹两项授权，都要允许：「辅助功能」和「接受传入连接」"
+      "value": "首次运行会弹两项授权，都要允许：「辅助功能」和「接受传入连接」"
     },
     {
       "name": "guide_step3_title",
@@ -819,6 +791,18 @@
     {
       "name": "guide_trouble_4",
       "value": "· 在电脑终端运行 padlinkctl status，能看到版本号才说明服务端在运行"
+    },
+    {
+      "name": "guide_copy",
+      "value": "复制"
+    },
+    {
+      "name": "guide_copied",
+      "value": "已复制，转发到电脑后在终端粘贴执行"
+    },
+    {
+      "name": "guide_copy_failed",
+      "value": "复制失败，请手动输入命令"
     }
   ]
 }

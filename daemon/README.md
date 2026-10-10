@@ -42,7 +42,7 @@ GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlin
 **一行命令（推荐）**：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 ```
 
 （自动识别架构、下载最新 Release、SHA-256 校验后执行包内 install.sh。）
@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/pac
 ### 方式零：一行命令（推荐）
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 ```
 
 ### 方式一：从 GitHub Releases 安装

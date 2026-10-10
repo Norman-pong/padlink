@@ -722,23 +722,23 @@
     },
     {
       "name": "guide_step1_title",
-      "value": "Step 1 · Open the download page on your computer"
+      "value": "Step 1 · Run the install command on your computer"
     },
     {
       "name": "guide_step1_body",
-      "value": "Type this address into your computer's browser:"
+      "value": "Paste (or type) this command into a terminal on your computer:"
     },
     {
-      "name": "guide_download_url",
-      "value": "github.com/Norman-pong/padlink"
+      "name": "guide_install_cmd",
+      "value": "curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh"
     },
     {
       "name": "guide_step1_hint",
-      "value": "Copy the one-line install command near the top of the page and run it in a terminal on your computer, or follow the manual steps below."
+      "value": "Don't want to type it? Open github.com/Norman-pong/padlink in the computer's browser — the command is near the top of the page."
     },
     {
       "name": "guide_step2_title",
-      "value": "Step 2 · Install and start on your computer"
+      "value": "Step 2 · Finish up by system"
     },
     {
       "name": "guide_ubuntu_title",
@@ -746,31 +746,15 @@
     },
     {
       "name": "guide_ubuntu_s1",
-      "value": "1. Download padlink_<version>_linux_amd64.deb, then in the download folder run:"
+      "value": "1. Log out and back in (required on first install for input injection to work)"
     },
     {
       "name": "guide_ubuntu_c1",
-      "value": "sudo apt install ./padlink_*.deb"
+      "value": "sudo apt install wl-clipboard"
     },
     {
       "name": "guide_ubuntu_s2",
-      "value": "2. Log out and back in (required on first install for input injection to work)"
-    },
-    {
-      "name": "guide_ubuntu_s3",
-      "value": "3. Start the server and enable autostart:"
-    },
-    {
-      "name": "guide_ubuntu_c2",
-      "value": "systemctl --user enable --now padlink"
-    },
-    {
-      "name": "guide_ubuntu_s4",
-      "value": "4. For voice typing, also install:"
-    },
-    {
-      "name": "guide_ubuntu_c3",
-      "value": "sudo apt install wl-clipboard"
+      "value": "2. For voice typing, also install:"
     },
     {
       "name": "guide_macos_title",
@@ -778,19 +762,7 @@
     },
     {
       "name": "guide_macos_s1",
-      "value": "1. Download padlink_<version>_darwin_arm64.tar.gz (amd64 for Intel) and extract it"
-    },
-    {
-      "name": "guide_macos_s2",
-      "value": "2. In the extracted folder, run:"
-    },
-    {
-      "name": "guide_macos_c1",
-      "value": "./install.sh"
-    },
-    {
-      "name": "guide_macos_s3",
-      "value": "3. On first run, allow both prompts: Accessibility and Incoming connections"
+      "value": "On first run, allow both prompts: Accessibility and Incoming connections"
     },
     {
       "name": "guide_step3_title",
@@ -819,6 +791,18 @@
     {
       "name": "guide_trouble_4",
       "value": "· Run padlinkctl status on the computer — it must print a version number"
+    },
+    {
+      "name": "guide_copy",
+      "value": "Copy"
+    },
+    {
+      "name": "guide_copied",
+      "value": "Copied. Forward it to your computer and paste into a terminal"
+    },
+    {
+      "name": "guide_copy_failed",
+      "value": "Copy failed — please type the command manually"
     }
   ]
 }
