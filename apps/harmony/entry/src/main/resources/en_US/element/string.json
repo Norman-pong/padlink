@@ -281,8 +281,16 @@
       "value": "Lost"
     },
     {
-      "name": "ctrl_busy_toast_fmt",
-      "value": "Another device is controlling. Try again in about %1$s s"
+      "name": "ctrl_busy_title",
+      "value": "Another device is controlling"
+    },
+    {
+      "name": "ctrl_busy_countdown_fmt",
+      "value": "You can take over in %1$s s"
+    },
+    {
+      "name": "ctrl_busy_a11y",
+      "value": "Another device is controlling. You can take over when the countdown ends"
     },
     {
       "name": "state_discovering",

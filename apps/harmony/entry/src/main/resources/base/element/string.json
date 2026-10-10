@@ -281,8 +281,16 @@
       "value": "失联"
     },
     {
-      "name": "ctrl_busy_toast_fmt",
-      "value": "另一台设备正在控制，请稍后再试（约 %1$s 秒后可接管）"
+      "name": "ctrl_busy_title",
+      "value": "另一台设备正在控制"
+    },
+    {
+      "name": "ctrl_busy_countdown_fmt",
+      "value": "%1$s 秒后可接管"
+    },
+    {
+      "name": "ctrl_busy_a11y",
+      "value": "另一台设备正在控制，倒计时结束后可接管"
     },
     {
       "name": "state_discovering",

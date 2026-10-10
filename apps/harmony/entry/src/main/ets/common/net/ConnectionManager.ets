@@ -5,7 +5,7 @@
 // 状态/RTT 经 @ObservedV2/@Trace 快照暴露给 UI；时间源统一 new Date().getTime()（系统 API）。
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { PacketType } from '../proto/PacketType';
+import { NoticeCode, PacketType } from '../proto/PacketType';
 import type { Packet } from '../proto/Packet';
 import { utf8DecodeStrict } from '../proto/Utf8';
 import { Transport, TCP_CONNECT_TIMEOUT_MS } from './Transport';
@@ -21,6 +21,8 @@ export class ConnPolicy {
   public static readonly HELLO_TIMEOUT_MS: number = 3000;
   public static readonly BACKOFF_MS: number[] = [1000, 2000, 4000, 8000, 15000];
   public static readonly MAX_RECONNECT_FAILURES: number = 8;
+  // 控制权冷静期倒计时刷新间隔（1Hz：文案按秒显示，无需更高频）。
+  public static readonly CTRL_BUSY_TICK_MS: number = 1000;
 }
 
 // 状态机状态（readonly 常量类，同 GestureStateName 风格；不占位的不用 TS enum）。
@@ -50,22 +52,15 @@ export class ConnectionState {
   @Trace lastErrorParams: string[] = [];
   // 当前重连轮次（1 起；CONNECTED 时归零）。
   @Trace reconnectAttempt: number = 0;
+  // 控制权冷静期剩余秒数（>0 = 本机输入正被其他设备占用，主控页据此常驻倒计时；
+  // 由 daemon NOTICE(0, 剩余秒数) 驱动，本端按 1Hz 递减，断开/换会话即清零）。
+  @Trace ctrlBusyLeftSec: number = 0;
 }
 
 // RTT 观察者（调试面板 echo 自测用）。
 export type RttListener = (rttMs: number) => void;
 // PAIR_* / DISCOVER_RESP 观察者（M2 配对流预留）。
 export type PairPacketListener = (pkt: Packet) => void;
-
-// NOTICE 语义（PROTOCOL.md §4.7）。
-export class NoticeInfo {
-  // 0 = 控制被其他设备占用（arg = 冷静期剩余秒数）
-  public code: number = 0;
-  public arg: number = 0;
-}
-
-// 控制权提示观察者（主控页据此 toast 提示用户）。
-export type NoticeListener = (notice: NoticeInfo) => void;
 
 export class ConnectionManager {
   public readonly snapshot: ConnectionState = new ConnectionState();
@@ -84,7 +79,8 @@ export class ConnectionManager {
   private epoch: number = 0;
   private helloWaiter: ((ok: boolean) => void) | null = null;
   private rttListeners: RttListener[] = [];
-  private noticeListeners: NoticeListener[] = [];
+  // 控制权冷静期倒计时定时器（-1 = 未计时；会话结束/断开即清）。
+  private ctrlBusyTimer: number = -1;
   public onPairPacket: PairPacketListener | null = null;
 
   constructor() {
@@ -123,16 +119,30 @@ export class ConnectionManager {
     }
   }
 
-  // 注册/移除控制权提示监听（主控页 toast）。
-  public addNoticeListener(cb: NoticeListener): void {
-    this.noticeListeners.push(cb);
+  // ---- 控制权冷静期倒计时（daemon NOTICE 驱动，主控页常驻展示） ----
+
+  // 本机输入被其他设备占用：按 daemon 给出的剩余秒数起倒计时；
+  // 已在倒计时则只刷新剩余值（每轮冷静期各收到一次 NOTICE，不重复起定时器）。
+  private startCtrlBusy(leftSec: number): void {
+    this.snapshot.ctrlBusyLeftSec = leftSec > 0 ? Math.floor(leftSec) : 1; // arg=0（未知）按 1 秒兜底
+    if (this.ctrlBusyTimer >= 0) {
+      return;
+    }
+    this.ctrlBusyTimer = setInterval(() => {
+      if (this.snapshot.ctrlBusyLeftSec <= 1) {
+        this.stopCtrlBusy();
+        return;
+      }
+      this.snapshot.ctrlBusyLeftSec -= 1;
+    }, ConnPolicy.CTRL_BUSY_TICK_MS);
   }
 
-  public removeNoticeListener(cb: NoticeListener): void {
-    const idx: number = this.noticeListeners.indexOf(cb);
-    if (idx >= 0) {
-      this.noticeListeners.splice(idx, 1);
+  private stopCtrlBusy(): void {
+    if (this.ctrlBusyTimer >= 0) {
+      clearInterval(this.ctrlBusyTimer);
+      this.ctrlBusyTimer = -1;
     }
+    this.snapshot.ctrlBusyLeftSec = 0;
   }
 
   // 手动连接（M1）：TCP 建连 + HELLO 握手 → CONNECTED → 心跳。失败抛错（文案进 UI 提示）。
@@ -353,6 +363,7 @@ export class ConnectionManager {
   // 释放一切：心跳/重连定时器清空，两 socket 关闭（closeBoth=false 时保留连接供重连续用）。
   private teardown(closeBoth: boolean): void {
     this.stopHeartbeat();
+    this.stopCtrlBusy(); // 会话结束：冷静期提示随之消失（控制权已与本机无关）
     if (this.reconnectTimer >= 0) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = -1;
@@ -442,12 +453,9 @@ export class ConnectionManager {
       return;
     }
     if (pkt.type === PacketType.NOTICE) {
-      // daemon → 手机提示（多设备控制权裁决）：不影响连接状态，仅转交 UI 提示
-      const info: NoticeInfo = new NoticeInfo();
-      info.code = pkt.notice.code;
-      info.arg = pkt.notice.arg;
-      for (const cb of this.noticeListeners) {
-        cb(info);
+      // daemon → 手机提示（多设备控制权裁决）：只驱动冷静期倒计时，不改连接状态
+      if (pkt.notice.code === NoticeCode.CONTROL_BUSY) {
+        this.startCtrlBusy(pkt.notice.arg);
       }
       return;
     }

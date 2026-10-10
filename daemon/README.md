@@ -136,7 +136,7 @@ flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 
 | PAIR_OK | S→C | 32B token | 封 FlagAuth（用刚签发 token，手机可端到端自证）；同时持久化 `clients.json` |
 | PAIR_NAK | S→C | 1B reason | 0=码错 1=过期 2=超次作废 3=无进行中配对 4=客户端已满；不封签（此时无 token） |
 | ERR | S→C | 1B code | 1=auth（未认证/连续 5 次错 HMAC）2=proto（会话层违规或坏 payload）3=rate（速率持续超限） |
-| NOTICE | S→C（TCP） | 2B `code \| arg` | 唯一的 daemon→手机事件（随该客户端 token 封签）：code 0=控制被其他设备占用（arg=冷静期剩余秒数）；未定义 code 手机端忽略 |
+| NOTICE | S→C（TCP） | 2B `code \| arg` | 唯一的 daemon→手机事件（随该客户端 token 封签）：code 0=控制被其他设备占用（arg=冷静期剩余秒数，手机端据此常驻倒计时）；未定义 code 手机端忽略 |
 | BYE | C→S | 空 | 优雅断开；daemon 补发本会话未释放的按键/按钮 up |
 
 会话层规则：
@@ -152,7 +152,7 @@ flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 
   未命中/未上报才新增记录；`dev` 非法 → ERR(2)+关。`clients` 输出指纹前缀便于人工比对。
 - 多设备控制权（PROTOCOL.md §4.9）：同一时刻只有一台设备（"第一设备"）的控制事件被注入，
   MOVE/SCROLL（UDP 与 TCP）与 BUTTON/KEY/TEXT 同闸；非持权设备被拒后进入 **15s 冷静期**（`Config.PreemptCooldown`）
-  并收到一次 NOTICE(0, 剩余秒数)（手机端 toast），冷静期满且持权设备当前无操作（默认 1s 内无事件且无按住的按键/按钮，
+  并收到一次 NOTICE(0, 剩余秒数)（手机端常驻倒计时提示），冷静期满且持权设备当前无操作（默认 1s 内无事件且无按住的按键/按钮，
   `Config.PreemptIdle`）才放行接管；ECHO 等非控制事件不受门控。`stats.preempted` 计数被拒事件。
 
 ## 控制通道（padlinkctl）

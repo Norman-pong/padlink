@@ -14,8 +14,7 @@ import { window, uiMaterial } from '@kit.ArkUI';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { ConnState } from '../common/net/ConnectionManager';
-import type { ConnectionManager, NoticeInfo } from '../common/net/ConnectionManager';
-import { NoticeCode } from '../common/proto/PacketType';
+import type { ConnectionManager } from '../common/net/ConnectionManager';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
@@ -38,6 +37,7 @@ const DOCK_BTN_SIZE_VP: number = 56;
 const DOCK_BTN_ICON_FP: number = 26;
 const DOCK_GAP_VP: number = 10; // 停靠簇内间距（浮键间 / 浮键与键盘层间）
 const DOCK_SIDE_MARGIN_VP: number = 8; // 停靠簇水平边距（键盘区到屏缘：8 + 层内 4 = 12vp）
+const CTRL_BUSY_TOP_GAP_VP: number = 12; // 控制权倒计时横幅距触摸面顶部的间距
 
 @ComponentV2
 export struct MainControlPage {
@@ -55,28 +55,11 @@ export struct MainControlPage {
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
-  // 多设备控制权提示（daemon NOTICE）：本机输入被其他设备抢占时轻提示。
-  // 回调暂存于字段，离开页面时按引用注销（匿名函数无法注销；同 avoidCb/sizeCb 模式）。
-  private noticeCb: ((notice: NoticeInfo) => void) | null = null;
-
   aboutToAppear(): void {
     this.setupWindow();
-    // 幂等注册：重复进入（不重复触发 aboutToDisappear 的极端时序）也不叠加监听
-    if (this.noticeCb !== null) {
-      this.conn.removeNoticeListener(this.noticeCb);
-    }
-    const cb = (notice: NoticeInfo): void => {
-      this.showNotice(notice);
-    };
-    this.noticeCb = cb;
-    this.conn.addNoticeListener(cb);
   }
 
   aboutToDisappear(): void {
-    if (this.noticeCb !== null) {
-      this.conn.removeNoticeListener(this.noticeCb);
-      this.noticeCb = null;
-    }
     // 切页先复位引擎（未释放按键先发 release，CANCEL 路径已含左键 up + 滚动冲账 + 终止惯性）
     this.touchpad.cancelGesture();
     // 键盘层残留红线（PRD §11.2）：页面离开时层可能仍挂载，zoneLeave 幂等补收口
@@ -177,16 +160,9 @@ export struct MainControlPage {
     return rtt >= 0 ? `${rtt} ms` : '-- ms';
   }
 
-  // 多设备控制权提示：另一台设备正在控制 → toast（含冷静期剩余秒数，用户知道等多久）。
-  // 未定义的 NOTICE code 忽略（向前兼容，PROTOCOL.md §4.7）。
-  private showNotice(notice: NoticeInfo): void {
-    if (notice.code !== NoticeCode.CONTROL_BUSY) {
-      return;
-    }
-    this.getUIContext().getPromptAction().showToast({
-      message: pageResFmt(this.getUIContext(), 'ctrl_busy_toast_fmt', [String(notice.arg)]),
-      duration: 2500,
-    });
+  // 控制权冷静期是否进行中（daemon NOTICE 置位，倒计时归零或断开即消失）。
+  private ctrlBusy(): boolean {
+    return this.conn.snapshot.ctrlBusyLeftSec > 0;
   }
 
   // 胶囊无障碍播报：连接状态 + RTT 动态拼接（硬约束 11；占位格式走 string.json 双语）。
@@ -340,6 +316,18 @@ export struct MainControlPage {
           if (!this.kbVisible) {
             this.touchGuide()
           }
+          // 控制权被占用：常驻倒计时（不拦手势——Transparent 透传给触摸面，冷却结束后可继续操作）
+          if (this.ctrlBusy()) {
+            Column() {
+              this.ctrlBusyBanner()
+            }
+            .width('100%')
+            .height('100%')
+            .padding({ top: CTRL_BUSY_TOP_GAP_VP })
+            .justifyContent(FlexAlign.Start)
+            .alignItems(HorizontalAlign.Center)
+            .hitTestBehavior(HitTestMode.Transparent)
+          }
         }
         .width('100%')
         .layoutWeight(1)
@@ -390,6 +378,35 @@ export struct MainControlPage {
     .hideTitleBar(true)
     .width('100%')
     .height('100%')
+  }
+
+  // 控制权占用提示：常驻（不自动消失）+ 每秒递减的剩余秒数，倒计时结束自动隐藏。
+  // 材质/描边与页头状态胶囊同族（层1 ULTRA_THIN + 0.5vp 分隔线兜底），不叠 blur、不挡触摸。
+  @Builder
+  ctrlBusyBanner() {
+    Column({ space: 2 }) {
+      Text($r('app.string.ctrl_busy_title'))
+        .fontSize($r('sys.float.ohos_id_text_size_body2'))
+        .fontColor($r('sys.color.font_secondary'))
+        .accessibilityLevel('no')
+      Text(pageResFmt(this.getUIContext(), 'ctrl_busy_countdown_fmt',
+        [String(this.conn.snapshot.ctrlBusyLeftSec)]))
+        .fontSize($r('sys.float.ohos_id_text_size_body1'))
+        .fontColor($r('sys.color.brand'))
+        .accessibilityLevel('no')
+    }
+    .padding({ left: CAPSULE_PAD_H_VP, right: CAPSULE_PAD_H_VP, top: CAPSULE_PAD_V_VP, bottom: CAPSULE_PAD_V_VP })
+    .borderRadius(CAPSULE_RADIUS_VP)
+    .backgroundColor(Color.Transparent)
+    .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+    .systemMaterial(new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
+      materialColor: $r('app.color.capsule_material'),
+      interactive: false // 纯信息展示，无按压语义
+    }))
+    .accessibilityLevel('yes')
+    // 播报只报稳定语义（秒数每秒变化，纳入播报会造成反复打断）
+    .accessibilityText($r('app.string.ctrl_busy_a11y'))
   }
 
   // 中央引导：连接态给三行手势速查，非连接态给状态与连接入口（Transparent 命中）。
