@@ -134,7 +134,7 @@
     },
     {
       "name": "voice_hold_hint",
-      "value": "按住说话，或点一下开始、再点一下停止"
+      "value": "按住说话"
     },
     {
       "name": "voice_need_connect",
@@ -602,11 +602,11 @@
     },
     {
       "name": "voice_a11y_hold_to_speak",
-      "value": "按住说话，或点按开始"
+      "value": "按住说话"
     },
     {
       "name": "voice_a11y_release_to_end",
-      "value": "松开结束，或再点按一次停止"
+      "value": "松开结束"
     },
     {
       "name": "pair_code_input_a11y",

@@ -134,7 +134,7 @@
     },
     {
       "name": "voice_hold_hint",
-      "value": "Hold to talk, or tap to start and tap again to stop"
+      "value": "Hold to talk"
     },
     {
       "name": "voice_need_connect",
@@ -602,11 +602,11 @@
     },
     {
       "name": "voice_a11y_hold_to_speak",
-      "value": "Hold to talk, or tap to start"
+      "value": "Hold to talk"
     },
     {
       "name": "voice_a11y_release_to_end",
-      "value": "Release to finish, or tap again to stop"
+      "value": "Release to finish"
     },
     {
       "name": "pair_code_input_a11y",

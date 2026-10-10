@@ -315,12 +315,12 @@ export struct MainControlPage {
         .width('100%')
         .layoutWeight(1)
 
-        // 底部停靠簇：浮动麦克风（VoiceDock，内含蹦字卡）+ 键盘召唤键（键盘层展开时隐去），
-        // 键盘层展开时停靠最底。流式独占底部条带（wrap 高），与触摸面分段互斥不叠层。
+        // 底部停靠簇：VoiceDock（蹦字卡 + 浮键行，键盘召唤键经尾闭包注入其停靠位——
+        // 行宽恒定，卡片出现只顶高不停键位），键盘层展开时停靠最底。流式独占底部条带（wrap 高）。
         Column({ space: DOCK_GAP_VP }) {
-          Row({ space: DOCK_GAP_VP }) {
+          VoiceDock({ voice: this.voice, conn: this.conn }) {
             if (!this.kbVisible) {
-              // 键盘召唤浮键
+              // 键盘召唤浮键（键盘层展开时隐去）
               Stack({ alignContent: Alignment.Center }) {
                 SymbolGlyph($r('sys.symbol.keyboard'))
                   .fontSize(DOCK_BTN_ICON_FP)
@@ -337,9 +337,7 @@ export struct MainControlPage {
               .accessibilityLevel('yes')
               .accessibilityText($r('app.string.main_kb_toggle_a11y'))
             }
-            VoiceDock({ voice: this.voice, conn: this.conn })
           }
-          .alignItems(VerticalAlign.Bottom)
 
           if (this.kbVisible) {
             KeyboardPage({

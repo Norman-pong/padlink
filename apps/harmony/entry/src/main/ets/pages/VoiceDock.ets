@@ -1,8 +1,9 @@
-// 语音浮件（PRD §4.5 单页融合形态）：右下角浮动麦克风按住说话——两种起手式等价：
-// ① 按住：DOWN=press / UP·CANCEL=release（按住时长 ≥ TAP_MAX_MS 判定）；
-// ② 点按：短点即开始、会话保持，再点一次停止（读屏/开关控制用户做不了按住手势，必须给点按路径）。
+// 语音浮件（PRD §4.5 单页融合形态）：右下角浮动麦克风，按住说话为唯一起手式
+//（DOWN 起会话 / UP·CANCEL 收会话；快速点按由 VoiceModel.finishWhenReady 兜底成短会话）。
 // 只认自己按下的 pointerId（KeyCap 同款模式，防多指串扰）；会话活跃/出错/空结果/待重发时
 // 按钮上方浮出蹦字卡（中间结果实时、失败原因 + 重发/去设置引导）。非连接态禁用降透明度。
+// 布局约束：本组件恒满宽，浮键行（停靠位 + 麦克风）宽度恒定——蹦字卡是流式兄弟节点，
+// 不得把停靠位（键盘召唤键）挤动；卡片出现只把停靠簇向上顶高。
 // 按压动效（motion.md §一 圆钮跟手缩放）：Down 走 animateTo 缩至 0.96，Up/Cancel 走
 // curves.springMotion 弹簧回弹——双事件驱动可中断（stateStyles 无过程驱动，禁用）。
 import { curves } from '@kit.ArkUI';
@@ -13,7 +14,6 @@ import { pageResStr } from './Res';
 
 const MIC_SIZE_VP: number = 56; // 浮动麦克风直径（按住说话拇指目标，大于页头浮键 40）
 const MIC_PRESS_SCALE: number = 0.96; // 按下跟手缩放档（motion.md §一 参考值）
-const TAP_MAX_MS: number = 300; // 点按/按住分界：短于此值为点按模式（松手不结束会话）
 const CARD_MAX_WIDTH_VP: number = 280; // 蹦字卡宽上限（右下角贴边，不横贯屏幕）
 
 // 页面文案键全集（aboutToAppear 一次性解析为本地化字符串，build 内查表）。
@@ -32,10 +32,11 @@ const TEXT_KEYS: string[] = [
 export struct VoiceDock {
   @Require @Param voice: VoiceModel;
   @Require @Param conn: ConnectionManager;
+  // 停靠位（键盘召唤键，宿主经尾闭包注入）：与麦克风同行居右，宽度不受蹦字卡影响。
+  @BuilderParam trailing: () => void = this.emptyTrailing;
   @Local private pressed: boolean = false;
   @Local private pressScale: number = 1; // 按住键跟手缩放（层3 物理动效：按下形变/弹簧回弹）
   private pointerId: number = -1; // 只认自己按下的指针
-  private pressStartMs: number = 0; // 本次按下时刻（点按/按住判定基准）
   private texts: Map<string, string> = new Map();
 
   aboutToAppear(): void {
@@ -88,7 +89,7 @@ export struct VoiceDock {
       || this.pressed;
   }
 
-  // 会话活跃判定（SENDING 不算：此时 release 已发生，再点应开新会话而非停止）。
+  // 会话活跃判定（SENDING 不算：此时 release 已发生）。
   private sessionActive(): boolean {
     return this.voice.phase === VoicePhase.INITIALIZING
       || this.voice.phase === VoicePhase.LISTENING
@@ -105,21 +106,14 @@ export struct VoiceDock {
       || (this.voice.phase === VoicePhase.DONE && this.voice.finalText.length === 0);
   }
 
-  // 麦克风触摸：
-  // - DOWN：会话空闲 → 登记 pointerId、press、起跟手缩放；会话活跃 → 点按停止（不登记指针）。
-  // - UP/CANCEL（匹配自己的指针）：回弹缩放；按住 ≥ TAP_MAX_MS 松手即结束，
-  //   短点按进入点按模式（会话保持，下一次 DOWN 停止）。
+  // 按住说话：DOWN 登记指针、起跟手缩放、press 起会话（model 对重复按下有相位门）；
+  // UP/CANCEL（匹配自己的指针）回弹缩放并 release 收会话。
   // 缩放动效（motion.md §一）：animateTo 弹簧可中断（按住即停、抬手即弹，无「播完才响应」）。
   private handleTouch(ev: TouchEvent): void {
     if (ev.type === TouchType.Down) {
-      if (this.pointerId === -1 && this.sessionActive()) {
-        this.voice.release();
-        return;
-      }
       if (this.pointerId === -1 && ev.changedTouches.length > 0) {
         this.pointerId = ev.changedTouches[0].id;
         this.pressed = true;
-        this.pressStartMs = Date.now();
         this.getUIContext().animateTo({
           duration: 120,
           curve: Curve.EaseOut
@@ -145,11 +139,13 @@ export struct VoiceDock {
         }, () => {
           this.pressScale = 1;
         });
-        if (Date.now() - this.pressStartMs >= TAP_MAX_MS) {
-          this.voice.release();
-        }
+        this.voice.release();
       }
     }
+  }
+
+  @Builder
+  private emptyTrailing(): void {
   }
 
   build() {
@@ -205,30 +201,37 @@ export struct VoiceDock {
         .border({ width: 0.5, color: $r('sys.color.comp_divider') })
       }
 
-      // 浮动麦克风：非连接态禁用（enabled 关断触摸）并降透明度。
-      Stack({ alignContent: Alignment.Center }) {
-        SymbolGlyph(this.holding() ? $r('sys.symbol.mic_fill') : $r('sys.symbol.mic'))
-          .fontSize(26)
-          .fontColor([this.holding()
-            ? $r('sys.color.font_on_primary') : $r('sys.color.icon_primary')])
+      // 浮键行：停靠位（键盘召唤键）+ 浮动麦克风。行宽恒定，不受蹦字卡影响。
+      Row({ space: 10 }) {
+        this.trailing()
+
+        // 浮动麦克风：非连接态禁用（enabled 关断触摸）并降透明度。
+        Stack({ alignContent: Alignment.Center }) {
+          SymbolGlyph(this.holding() ? $r('sys.symbol.mic_fill') : $r('sys.symbol.mic'))
+            .fontSize(26)
+            .fontColor([this.holding()
+              ? $r('sys.color.font_on_primary') : $r('sys.color.icon_primary')])
+        }
+        .width(MIC_SIZE_VP)
+        .height(MIC_SIZE_VP)
+        .borderRadius(MIC_SIZE_VP / 2)
+        .backgroundColor(this.holding()
+          ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_tertiary'))
+        .opacity(this.connected() ? 1 : 0.4)
+        .enabled(this.connected())
+        .scale({ x: this.pressScale, y: this.pressScale })
+        .onTouch((ev: TouchEvent) => {
+          this.handleTouch(ev);
+        })
+        .accessibilityText(this.str('voice_btn_a11y'))
+        .accessibilityLevel('yes')
+        // 动态操作提示：空闲播「按住说话」，按住中播「松开结束」。
+        .accessibilityDescription(this.holding()
+          ? this.str('voice_a11y_release_to_end') : this.str('voice_a11y_hold_to_speak'))
       }
-      .width(MIC_SIZE_VP)
-      .height(MIC_SIZE_VP)
-      .borderRadius(MIC_SIZE_VP / 2)
-      .backgroundColor(this.holding()
-        ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_tertiary'))
-      .opacity(this.connected() ? 1 : 0.4)
-      .enabled(this.connected())
-      .scale({ x: this.pressScale, y: this.pressScale })
-      .onTouch((ev: TouchEvent) => {
-        this.handleTouch(ev);
-      })
-      .accessibilityText(this.str('voice_btn_a11y'))
-      .accessibilityLevel('yes')
-      // 动态操作提示：空闲播「按住说话」，按住中播「松开结束」。
-      .accessibilityDescription(this.holding()
-        ? this.str('voice_a11y_release_to_end') : this.str('voice_a11y_hold_to_speak'))
+      .alignItems(VerticalAlign.Bottom)
     }
     .alignItems(HorizontalAlign.End)
+    .width('100%')
   }
 }
