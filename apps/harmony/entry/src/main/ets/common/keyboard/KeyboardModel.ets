@@ -13,11 +13,14 @@ export class KeyboardModel {
   @Trace ctrlLatched: boolean = false;
   @Trace altLatched: boolean = false;
   @Trace superLatched: boolean = false;
+  // IME 可见性（KeyboardPage 的 TextArea onEditChange 写入）：主控页据此把停靠簇底边距
+  // 收成 0 让键条贴齐 IME 顶——RESIZE 避让下窗口底边即 IME 顶边，手势条避让成死空隙。
+  @Trace imeVisible: boolean = false;
 
   // 区域生命周期回调（页面注册：唤起/收起输入法）。
   public onZoneEnter: (() => void) | null = null;
   public onZoneLeave: (() => void) | null = null;
-  // 首次 zoneEnter 可能早于 TabContent 懒构建，页面 aboutToAppear 据此补偿。
+  // zoneEnter 可能早于停靠层挂载（回调尚为 null），页面 onDidBuild 据此补偿进区。
   public zoneActive: boolean = false;
 
   private sticky: StickyModifiers = new StickyModifiers();

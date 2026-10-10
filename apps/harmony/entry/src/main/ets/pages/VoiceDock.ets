@@ -1,11 +1,8 @@
-// 语音听写页（PRD §4.5）：大「按住说话」按钮——两种起手式等价：
+// 语音浮件（PRD §4.5 单页融合形态）：右下角浮动麦克风按住说话——两种起手式等价：
 // ① 按住：DOWN=press / UP·CANCEL=release（按住时长 ≥ TAP_MAX_MS 判定）；
 // ② 点按：短点即开始、会话保持，再点一次停止（读屏/开关控制用户做不了按住手势，必须给点按路径）。
-// 只认自己按下的 pointerId（KeyCap 同款模式，防多指串扰）；中间结果实时显示区 +
-// 最终结果区（发送失败可手动重发）+ 权限拒绝引导态（文案 + 去设置开启）。
-// 非连接态按钮禁用并提示。四态齐全：初始化/识别中（加载）、已上屏（成功）、
-// 失败原因 + 重发/去设置（失败）、未识别到内容（空）。按钮带无障碍属性（HDS 硬约束 11），
-// 播报提示随按住态动态切换（按住说话 ⇄ 松开结束）。
+// 只认自己按下的 pointerId（KeyCap 同款模式，防多指串扰）；会话活跃/出错/空结果/待重发时
+// 按钮上方浮出蹦字卡（中间结果实时、失败原因 + 重发/去设置引导）。非连接态禁用降透明度。
 // 按压动效（motion.md §一 圆钮跟手缩放）：Down 走 animateTo 缩至 0.96，Up/Cancel 走
 // curves.springMotion 弹簧回弹——双事件驱动可中断（stateStyles 无过程驱动，禁用）。
 import { curves } from '@kit.ArkUI';
@@ -14,10 +11,10 @@ import type { ConnectionManager } from '../common/net/ConnectionManager';
 import { VoiceModel, VoicePhase } from '../common/voice/VoiceModel';
 import { pageResStr } from './Res';
 
-const BTN_SIZE_VP: number = 120; // 按住说话主按钮直径
-const BTN_PRESS_SCALE: number = 0.96; // 按下跟手缩放档（motion.md §一 参考值）
+const MIC_SIZE_VP: number = 56; // 浮动麦克风直径（按住说话拇指目标，大于页头浮键 40）
+const MIC_PRESS_SCALE: number = 0.96; // 按下跟手缩放档（motion.md §一 参考值）
 const TAP_MAX_MS: number = 300; // 点按/按住分界：短于此值为点按模式（松手不结束会话）
-const RESULT_MAX_HEIGHT_VP: number = 260;
+const CARD_MAX_WIDTH_VP: number = 280; // 蹦字卡宽上限（右下角贴边，不横贯屏幕）
 
 // 页面文案键全集（aboutToAppear 一次性解析为本地化字符串，build 内查表）。
 const TEXT_KEYS: string[] = [
@@ -32,12 +29,12 @@ const TEXT_KEYS: string[] = [
 ];
 
 @ComponentV2
-export struct VoicePage {
+export struct VoiceDock {
   @Require @Param voice: VoiceModel;
   @Require @Param conn: ConnectionManager;
   @Local private pressed: boolean = false;
   @Local private pressScale: number = 1; // 按住键跟手缩放（层3 物理动效：按下形变/弹簧回弹）
-  @Local private pointerId: number = -1; // 只认自己按下的指针
+  private pointerId: number = -1; // 只认自己按下的指针
   private pressStartMs: number = 0; // 本次按下时刻（点按/按住判定基准）
   private texts: Map<string, string> = new Map();
 
@@ -47,10 +44,7 @@ export struct VoicePage {
     }
   }
 
-  aboutToDisappear(): void {
-    // 兜底释放：切 Tab 由 MainControlPage.cancelSession 负责，这里覆盖页面被移除的路径。
-    this.voice.cancelSession();
-  }
+  // 会话收口不在此组件：宿主页面 aboutToDisappear 统一 cancelSession（PRD §12）。
 
   private str(key: string): string {
     const v: string | undefined = this.texts.get(key);
@@ -101,7 +95,17 @@ export struct VoicePage {
       || this.voice.phase === VoicePhase.RECOGNIZING;
   }
 
-  // 大按钮触摸：
+  // 蹦字卡可见性：会话进行中/发送中/出错/待重发/空结果收口。
+  // DONE 且有结果 = 文本已上屏，卡片收起不占道（重发场景由 sendFailed 覆盖）。
+  private cardVisible(): boolean {
+    return this.sessionActive()
+      || this.voice.phase === VoicePhase.SENDING
+      || this.voice.phase === VoicePhase.ERROR
+      || this.voice.sendFailed
+      || (this.voice.phase === VoicePhase.DONE && this.voice.finalText.length === 0);
+  }
+
+  // 麦克风触摸：
   // - DOWN：会话空闲 → 登记 pointerId、press、起跟手缩放；会话活跃 → 点按停止（不登记指针）。
   // - UP/CANCEL（匹配自己的指针）：回弹缩放；按住 ≥ TAP_MAX_MS 松手即结束，
   //   短点按进入点按模式（会话保持，下一次 DOWN 停止）。
@@ -120,7 +124,7 @@ export struct VoicePage {
           duration: 120,
           curve: Curve.EaseOut
         }, () => {
-          this.pressScale = BTN_PRESS_SCALE;
+          this.pressScale = MIC_PRESS_SCALE;
         });
         this.voice.press();
       }
@@ -149,9 +153,9 @@ export struct VoicePage {
   }
 
   build() {
-    Column({ space: 12 }) {
-      // 结果展示区：中间结果（次级色，实时刷新）/ 最终结果（主卡）/ 空结果提示。
-      Scroll() {
+    Column({ space: 10 }) {
+      // 蹦字卡：中间结果（次级色，实时刷新）/ 最终结果 / 空结果提示 + 状态行 + 错误动作。
+      if (this.cardVisible()) {
         Column({ space: 8 }) {
           if (this.voice.interimText.length > 0) {
             Text(this.voice.interimText)
@@ -164,85 +168,67 @@ export struct VoicePage {
               .fontSize($r('sys.float.ohos_id_text_size_body1'))
               .fontColor($r('sys.color.font_primary'))
               .width('100%')
-              .padding(12)
-              .borderRadius(12)
-              .backgroundColor($r('sys.color.comp_background_tertiary'))
           }
           if (this.voice.phase === VoicePhase.DONE && this.voice.finalText.length === 0) {
             Text(this.str('voice_empty_hint'))
               .fontSize($r('sys.float.ohos_id_text_size_body2'))
               .fontColor($r('sys.color.font_tertiary'))
           }
+          // 状态行（识别中 / 已上屏 / 失败原因），错误态用警示色。
+          Text(this.str(this.statusKey()))
+            .fontSize($r('sys.float.ohos_id_text_size_body2'))
+            .fontColor(this.isErrorPhase()
+              ? $r('sys.color.warning') : $r('sys.color.font_secondary'))
+            .width('100%')
+            .maxLines(2)
+          // 错误动作行：权限拒绝 → 去设置开启；发送失败 → 重发（finalText 已保留）。
+          if (this.isErrorPhase() && this.voice.errorKey === 'voice_err_mic_permission') {
+            Button(this.str('voice_open_settings'))
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .onClick(() => {
+                this.voice.openPermissionSettings();
+              })
+          }
+          if (this.voice.sendFailed) {
+            Button(this.str('voice_resend'))
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .onClick(() => {
+                this.voice.resend();
+              })
+          }
         }
-        .width('100%')
+        .width(CARD_MAX_WIDTH_VP)
         .alignItems(HorizontalAlign.Start)
-      }
-      .width('100%')
-      .constraintSize({ minHeight: 80, maxHeight: RESULT_MAX_HEIGHT_VP })
-      .align(Alignment.Top)
-      .layoutWeight(1)
-
-      // 状态行（识别中 / 已上屏 / 失败原因），错误态用警示色。
-      Text(this.str(this.statusKey()))
-        .fontSize($r('sys.float.ohos_id_text_size_body2'))
-        .fontColor(this.isErrorPhase()
-          ? $r('sys.color.warning') : $r('sys.color.font_secondary'))
-        .textAlign(TextAlign.Center)
-        .width('100%')
-        .maxLines(2)
-
-      // 错误动作行：权限拒绝 → 去设置开启；发送失败 → 重发（finalText 已保留）。
-      Row({ space: 12 }) {
-        if (this.isErrorPhase() && this.voice.errorKey === 'voice_err_mic_permission') {
-          Button(this.str('voice_open_settings'))
-            .buttonStyle(ButtonStyleMode.NORMAL)
-            .onClick(() => {
-              this.voice.openPermissionSettings();
-            })
-        }
-        if (this.voice.sendFailed) {
-          Button(this.str('voice_resend'))
-            .buttonStyle(ButtonStyleMode.NORMAL)
-            .onClick(() => {
-              this.voice.resend();
-            })
-        }
+        .padding(12)
+        .borderRadius(12)
+        .backgroundColor($r('sys.color.comp_background_primary'))
+        .border({ width: 0.5, color: $r('sys.color.comp_divider') })
       }
 
-      // 提示行：未连接给出原因，连接中提示操作方式。
-      Text(this.connected() ? this.str('voice_hold_hint') : this.str('voice_need_connect'))
-        .fontSize($r('sys.float.ohos_id_text_size_body2'))
-        .fontColor($r('sys.color.font_tertiary'))
-        .textAlign(TextAlign.Center)
-        .width('100%')
-
-      // 大「按住说话」按钮：非连接态禁用（enabled 关断触摸）并降透明度。
-      Text(this.str('voice_btn_label'))
-        .fontSize($r('sys.float.ohos_id_text_size_body1'))
-        .fontColor(this.holding()
-          ? $r('sys.color.font_on_primary') : $r('sys.color.font_primary'))
-        .textAlign(TextAlign.Center)
-        .width(BTN_SIZE_VP)
-        .height(BTN_SIZE_VP)
-        .borderRadius(BTN_SIZE_VP / 2)
-        .backgroundColor(this.holding()
-          ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_tertiary'))
-        .opacity(this.connected() ? 1 : 0.4)
-        .enabled(this.connected())
-        .scale({ x: this.pressScale, y: this.pressScale })
-        .onTouch((ev: TouchEvent) => {
-          this.handleTouch(ev);
-        })
-        .accessibilityText(this.str('voice_btn_a11y'))
-        .accessibilityLevel('yes')
-        // 动态操作提示（D12）：空闲播「按住说话」，按住中播「松开结束」。
-        .accessibilityDescription(this.holding()
-          ? this.str('voice_a11y_release_to_end') : this.str('voice_a11y_hold_to_speak'))
-        .margin({ bottom: 16 })
+      // 浮动麦克风：非连接态禁用（enabled 关断触摸）并降透明度。
+      Stack({ alignContent: Alignment.Center }) {
+        SymbolGlyph(this.holding() ? $r('sys.symbol.mic_fill') : $r('sys.symbol.mic'))
+          .fontSize(26)
+          .fontColor([this.holding()
+            ? $r('sys.color.font_on_primary') : $r('sys.color.icon_primary')])
+      }
+      .width(MIC_SIZE_VP)
+      .height(MIC_SIZE_VP)
+      .borderRadius(MIC_SIZE_VP / 2)
+      .backgroundColor(this.holding()
+        ? $r('sys.color.comp_background_emphasize') : $r('sys.color.comp_background_tertiary'))
+      .opacity(this.connected() ? 1 : 0.4)
+      .enabled(this.connected())
+      .scale({ x: this.pressScale, y: this.pressScale })
+      .onTouch((ev: TouchEvent) => {
+        this.handleTouch(ev);
+      })
+      .accessibilityText(this.str('voice_btn_a11y'))
+      .accessibilityLevel('yes')
+      // 动态操作提示：空闲播「按住说话」，按住中播「松开结束」。
+      .accessibilityDescription(this.holding()
+        ? this.str('voice_a11y_release_to_end') : this.str('voice_a11y_hold_to_speak'))
     }
-    .width('100%')
-    .height('100%')
-    .padding({ left: 24, right: 24, top: 12 })
-    .alignItems(HorizontalAlign.Center)
+    .alignItems(HorizontalAlign.End)
   }
 }

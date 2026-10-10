@@ -121,18 +121,6 @@
       "value": "Reconnect"
     },
     {
-      "name": "tab_touchpad",
-      "value": "Touchpad"
-    },
-    {
-      "name": "tab_keyboard",
-      "value": "Keyboard"
-    },
-    {
-      "name": "tab_voice",
-      "value": "Voice"
-    },
-    {
       "name": "mic_permission_reason",
       "value": "Microphone is used only for push-to-talk dictation: while held, your speech is transcribed and typed into your PC."
     },
@@ -593,6 +581,10 @@
       "value": "Connect host"
     },
     {
+      "name": "main_kb_toggle_a11y",
+      "value": "Open keyboard"
+    },
+    {
       "name": "main_guide_offline_hint",
       "value": "Pair a host and this screen becomes its touchpad"
     },
@@ -605,16 +597,8 @@
       "value": "Two fingers: scroll · tap: right click"
     },
     {
-      "name": "main_hint_switch",
-      "value": "Three fingers: swipe sideways to switch zones"
-    },
-    {
-      "name": "a11y_zone_format",
-      "value": "%1$s, zone %2$d of 3"
-    },
-    {
-      "name": "a11y_zone_switch_hint",
-      "value": "Double-tap to switch to this zone"
+      "name": "main_hint_keyboard",
+      "value": "Corner keys: open keyboard, hold mic to talk"
     },
     {
       "name": "voice_a11y_hold_to_speak",
@@ -715,6 +699,14 @@
     {
       "name": "kb_input_placeholder",
       "value": "Type here to send text to your PC"
+    },
+    {
+      "name": "kb_key_collapse",
+      "value": "Hide"
+    },
+    {
+      "name": "kb_key_collapse_a11y",
+      "value": "Hide keyboard"
     }
   ]
 }

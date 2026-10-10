@@ -1,5 +1,5 @@
 // GestureEngine 状态机单测：轻点/双指轻点边界、长按拖拽全流程、第二指插入取消、
-// 双指滚动方向与冲账、三指切换与节流、CANCEL 复位、慢速亚像素累积。
+// 双指滚动方向与冲账、三指吸收与回落、CANCEL 复位、慢速亚像素累积。
 import assert from 'node:assert';
 import { GestureCommandType, GestureEngine, GestureStateName, HidButton } from './GestureEngine.ets';
 import { defaultGestureConfig } from './GestureConfig.ets';
@@ -10,7 +10,6 @@ const IDLE = GestureStateName.IDLE;
 const BUTTON = GestureCommandType.BUTTON;
 const CURSOR = GestureCommandType.CURSOR_MOVE;
 const SCROLL = GestureCommandType.SCROLL;
-const SWITCH = GestureCommandType.SWITCH_TAB;
 
 function newEngine() {
   return new GestureEngine(defaultGestureConfig());
@@ -96,10 +95,10 @@ test('长按拖拽全流程命令序列精确断言：down→hold→move×2→up
     up(1, 6.5, 0, 330),
   ]);
   assert.deepEqual(cmds, [
-    { type: BUTTON, dx: 0, dy: 0, btn: HidButton.LEFT, down: true, dyHiRes: 0, direction: 0 },
-    { type: CURSOR, dx: 10, dy: 0, btn: 0, down: false, dyHiRes: 0, direction: 0 },
-    { type: CURSOR, dx: 1, dy: 0, btn: 0, down: false, dyHiRes: 0, direction: 0 },
-    { type: BUTTON, dx: 0, dy: 0, btn: HidButton.LEFT, down: false, dyHiRes: 0, direction: 0 },
+    { type: BUTTON, dx: 0, dy: 0, btn: HidButton.LEFT, down: true, dyHiRes: 0 },
+    { type: CURSOR, dx: 10, dy: 0, btn: 0, down: false, dyHiRes: 0 },
+    { type: CURSOR, dx: 1, dy: 0, btn: 0, down: false, dyHiRes: 0 },
+    { type: BUTTON, dx: 0, dy: 0, btn: HidButton.LEFT, down: false, dyHiRes: 0 },
   ]);
   assert.equal(eng.currentState(), IDLE);
 });
@@ -225,7 +224,7 @@ test('滚动中一指抬起 → 另一指继续到抬起', () => {
   assert.equal(eng.currentState(), IDLE);
 });
 
-test('三指水平同向 ≥60vp → SwitchTab(+1) 恰一次', () => {
+test('三指滑动被吸收：水平大位移零输出（切换手势已删除，仅存抑制语义）', () => {
   const eng = newEngine();
   const cmds = feedAll(eng, [
     down(1, 0, 0, 0),
@@ -233,46 +232,16 @@ test('三指水平同向 ≥60vp → SwitchTab(+1) 恰一次', () => {
     down(3, 20, 0, 10),
     move(1, 70, 0, 50),
     move(2, 80, 0, 55),
-    move(3, 90, 0, 60), // 第三指到位 → 触发
+    move(3, 90, 0, 60),
     up(1, 70, 0, 70),
     up(2, 80, 0, 75),
     up(3, 90, 0, 80),
   ]);
-  assert.equal(cmds.length, 1);
-  assert.equal(cmds[0].type, SWITCH);
-  assert.equal(cmds[0].direction, 1);
+  assert.deepEqual(cmds, []);
   assert.equal(eng.currentState(), IDLE);
 });
 
-test('三指反向水平位移 → SwitchTab(-1)', () => {
-  const eng = newEngine();
-  const cmds = feedAll(eng, [
-    down(1, 100, 0, 0),
-    down(2, 110, 0, 5),
-    down(3, 120, 0, 10),
-    move(1, 30, 0, 50),
-    move(2, 40, 0, 55),
-    move(3, 50, 0, 60),
-  ]);
-  assert.equal(cmds.length, 1);
-  assert.equal(cmds[0].type, SWITCH);
-  assert.equal(cmds[0].direction, -1);
-});
-
-test('三指水平但位移 59vp < 60 → 不触发', () => {
-  const eng = newEngine();
-  const cmds = feedAll(eng, [
-    down(1, 0, 0, 0),
-    down(2, 10, 0, 5),
-    down(3, 20, 0, 10),
-    move(1, 59, 0, 50),
-    move(2, 69, 0, 55),
-    move(3, 79, 0, 60),
-  ]);
-  assert.deepEqual(cmds, []);
-});
-
-test('三指垂直位移不触发（系统三指下滑为截屏，不拦截不响应）', () => {
+test('三指垂直位移同样被吸收（系统三指下滑为截屏，不拦截不响应）', () => {
   const eng = newEngine();
   const cmds = feedAll(eng, [
     down(1, 0, 0, 0),
@@ -286,36 +255,36 @@ test('三指垂直位移不触发（系统三指下滑为截屏，不拦截不�
   assert.equal(eng.currentState(), GestureStateName.THREE_PENDING);
 });
 
-test('三指切换 500ms 节流：窗口内二次触发忽略，窗口后可再触发', () => {
+test('三指回落 TWO_PENDING：起点重置且无轻点资格，余指轻抬不误触右键', () => {
   const eng = newEngine();
-  feedAll(eng, [
+  const cmds = feedAll(eng, [
     down(1, 0, 0, 0),
     down(2, 10, 0, 5),
     down(3, 20, 0, 10),
-    move(1, 70, 0, 50),
-    move(2, 80, 0, 55),
-    move(3, 90, 0, 60), // 第一次触发，lastSwitch=60
+    move(3, 40, 0, 30), // 吸收态内移动（已被重置起点前的小位移）
+    up(3, 40, 0, 40), // 回落 TWO_PENDING：起点重置为当前位置
+    up(1, 0, 0, 50), // 双指快速轻抬（若轻点资格残留会误发右键）
+    up(2, 10, 0, 55),
   ]);
-  const again = feedAll(eng, [
-    move(1, 140, 0, 100), // 100-60=40 < 500 → 忽略
-    move(2, 150, 0, 105),
-    move(3, 160, 0, 110),
-    up(1, 140, 0, 120),
-    up(2, 150, 0, 125),
-    up(3, 160, 0, 130),
+  assert.deepEqual(cmds, []);
+  assert.equal(eng.currentState(), IDLE);
+});
+
+test('三指回落后余指可继续滚动', () => {
+  const eng = newEngine();
+  const cmds = feedAll(eng, [
+    down(1, 0, 0, 0),
+    down(2, 10, 0, 5),
+    down(3, 20, 0, 10),
+    up(3, 20, 0, 40), // 回落 TWO_PENDING
+    move(1, 0, 12, 60), // 超 8vp → SCROLLING
+    move(2, 10, 24, 80), // Scroll(累积 2 指位移)
+    up(1, 0, 12, 100),
+    up(2, 10, 24, 105),
   ]);
-  assert.deepEqual(again, []);
-  const third = feedAll(eng, [
-    down(1, 0, 0, 700),
-    down(2, 10, 0, 705),
-    down(3, 20, 0, 710),
-    move(1, 70, 0, 740),
-    move(2, 80, 0, 745),
-    move(3, 90, 0, 750), // 750-60=690 ≥ 500 → 触发
-  ]);
-  assert.equal(third.length, 1);
-  assert.equal(third[0].type, SWITCH);
-  assert.equal(third[0].direction, 1);
+  const scrolls = cmds.filter((c) => c.type === SCROLL);
+  assert.ok(scrolls.length > 0);
+  assert.equal(eng.currentState(), IDLE);
 });
 
 test('CANCEL 拖拽：补发左键 up，后续 Move 忽略，随后新手势正常', () => {

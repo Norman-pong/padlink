@@ -1,4 +1,9 @@
-// 主控页：全屏触摸面 + 三功能区 Tabs（三指切换）+ 页头行（左锚状态胶囊 / 中锚圆点 / 右锚设置圆键，同带 40vp）。
+// 主控页（单页融合形态）：触摸面/键盘/语音收进一页——键盘为可召唤的底部停靠层
+//（点触摸区不收起，收起走键条「收起」键），语音为右下角浮动麦克风按住说话（VoiceDock）。
+// 布局为 Column 流式分段（页头行 / 触摸面 layoutWeight / 底部停靠簇），触摸面与停靠簇
+// 区间互斥不叠层：叠层命中实测会双派——Transparent 容器子树的命中会下穿到下层触摸面
+// （点键盘层同时触发鼠标点击），Block 阻下则子件失命中（子件全灭），故只留流式排布。
+// 页头行：左锚状态胶囊 / 右锚设置圆键（同带 40vp）。
 // 避让：setWindowLayoutFullScreen 后 getWindowAvoidArea/avoidAreaChange 返回 px（需 px2vp）；
 // 底部手势条仅 TYPE_NAVIGATION_INDICATOR 可取；侧边手势区无 API，左右 12vp 经验边距（真机待校准）。
 // 浮层：systemMaterial ULTRA_THIN + 透明背景（材质层在 background 之下，禁再叠 blur）；
@@ -14,7 +19,7 @@ import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { KeyboardPage } from './KeyboardPage';
-import { VoicePage } from './VoicePage';
+import { VoiceDock } from './VoiceDock';
 import type { VoiceModel } from '../common/voice/VoiceModel';
 import { pageResStr, pageResFmt, connStateKey } from './Res';
 
@@ -27,11 +32,11 @@ const CAPSULE_RADIUS_VP: number = 18; // 胶囊圆角（上下内边距 6 + 行�
 // 浮动圆键：视觉直径 40（框架基准 38 对齐，兼满足 40vp 命中区）。
 const FLOAT_BTN_SIZE_VP: number = 40;
 const FLOAT_BTN_ICON_FP: number = 22; // SymbolGlyph 基准（框架 menu 键同值）
-// 位置指示：命中区 40vp（可触达命中区下限），视觉点 8vp、选中胶囊 20vp。
-const ZONE_DOT_HIT_VP: number = 40;
-const ZONE_DOT_SIZE_VP: number = 8;
-const ZONE_DOT_ACTIVE_W_VP: number = 20;
-const ZONE_COUNT: number = 3;
+// 底部停靠浮键：56vp 拇指目标（按住说话需稳定按压面，大于页头浮键）。
+const DOCK_BTN_SIZE_VP: number = 56;
+const DOCK_BTN_ICON_FP: number = 26;
+const DOCK_GAP_VP: number = 10; // 停靠簇内间距（浮键间 / 浮键与键盘层间）
+const DOCK_SIDE_MARGIN_VP: number = 8; // 停靠簇水平边距（键盘区到屏缘：8 + 层内 4 = 12vp）
 
 @ComponentV2
 export struct MainControlPage {
@@ -45,51 +50,45 @@ export struct MainControlPage {
   @Local bottomAvoidVp: number = 0;
   @Local topAvoidVp: number = 0; // 状态栏避让：胶囊不得压入系统状态栏（否则点击被状态栏窗口拦截）
   @Local guideOpacity: number = 1; // 触摸面引导层透明度：手指按下即淡出（不挡操作），抬手淡回
-  // 直接改 Tabs index 跳页无切换动效，动效统一走 changeIndex；@Local 驱动圆点/区名刷新。
-  @Local curTabIndex: number = 0;
-  private tabController: TabsController = new TabsController();
+  @Local kbVisible: boolean = false; // 键盘停靠层开关（浮动键盘键召唤，键条「收起」键收起）
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
 
   aboutToAppear(): void {
-    this.touchpad.onSwitchTab = (direction: number) => {
-      this.switchTab(direction);
-    };
     this.setupWindow();
   }
 
   aboutToDisappear(): void {
-    // 切页先复位引擎（FR-2：未释放按键先发 release，CANCEL 路径已含左键 up + 滚动冲账）
+    // 切页先复位引擎（未释放按键先发 release，CANCEL 路径已含左键 up + 滚动冲账）
     this.touchpad.cancelGesture();
-    this.touchpad.onSwitchTab = null;
+    // 键盘层残留红线（PRD §11.2）：页面离开时层可能仍挂载，zoneLeave 幂等补收口
+    if (this.keyboard.zoneActive) {
+      this.keyboard.zoneLeave();
+    }
     // 语音会话随页收口：cancel 在途识别，麦克风仅按住期间占用（PRD §12）
     this.voice.cancelSession();
     this.restoreWindow();
   }
 
-  // 三指左右滑（FR-2）：触摸板 ⇄ 键盘 ⇄ 语音 循环；系统三指下滑为截屏，不拦截。
-  private switchTab(direction: number): void {
-    this.switchTo((this.curTabIndex + direction + ZONE_COUNT) % ZONE_COUNT);
-  }
-
-  // 切换唯一入口（三指手势与位置指示点共用）。
-  private switchTo(index: number): void {
-    if (index === this.curTabIndex) {
+  // 召唤键盘：先出层再进区——zoneActive 标记同步置位，KeyboardPage aboutToAppear
+  // 据此补偿 doZoneEnter（与 TabContent 懒构建补偿同一模式）。
+  private openKeyboard(): void {
+    if (this.kbVisible) {
       return;
     }
-    this.touchpad.cancelGesture();
-    // 离开语音 Tab 即取消会话（PRD §12：麦克风仅按住期间占用；空闲时为 no-op）
-    this.voice.cancelSession();
-    if (this.curTabIndex === 1) {
-      this.keyboard.zoneLeave();
+    this.kbVisible = true;
+    this.keyboard.zoneEnter();
+  }
+
+  // 收起键盘：先 zoneLeave（隐 IME + 释放残留键，组件仍在挂载态回调可达），再卸载层
+  //（aboutToDisappear 内 releaseAll/restoreAvoid 幂等兜底）。
+  private closeKeyboard(): void {
+    if (!this.kbVisible) {
+      return;
     }
-    if (index === 1) {
-      this.keyboard.zoneEnter();
-    }
-    this.curTabIndex = index;
-    // changeIndex 是官方内置切换动效的唯一入口（scrollable(false) 不影响该过渡），禁手写复刻。
-    this.tabController.changeIndex(this.curTabIndex);
+    this.keyboard.zoneLeave();
+    this.kbVisible = false;
   }
 
   private setupWindow(): void {
@@ -198,17 +197,6 @@ export struct MainControlPage {
     return this.conn.snapshot.state === ConnState.CONNECTED;
   }
 
-  // 圆点无障碍播报用区名（视觉层不出区名：各区内容自证身份，读屏经圆点播报）。
-  private zoneName(index: number): string {
-    if (index === 0) {
-      return pageResStr(this.getUIContext(), 'tab_touchpad');
-    }
-    if (index === 1) {
-      return pageResStr(this.getUIContext(), 'tab_keyboard');
-    }
-    return pageResStr(this.getUIContext(), 'tab_voice');
-  }
-
   // 触摸面事件包装：手势流原样转发引擎；附带维护引导层淡出（按下隐去不挡操作，全指抬起淡回）。
   private onSurfaceTouch(ev: TouchEvent): void {
     this.touchpad.onTouch(ev);
@@ -220,7 +208,10 @@ export struct MainControlPage {
       }
       return;
     }
-    if ((ev.type === TouchType.Up || ev.type === TouchType.Cancel) && ev.touches.length === 0) {
+    // 全指抬起判据：真机 Up 的 touches 不含已抬指，注入事件含——
+    // 取 touches − changedTouches ≤ 0 两种口径同义（单指：0−1 / 1−1 均判全抬）。
+    if ((ev.type === TouchType.Up || ev.type === TouchType.Cancel)
+      && ev.touches.length - ev.changedTouches.length <= 0) {
       this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseIn }, () => {
         this.guideOpacity = 1;
       });
@@ -229,82 +220,8 @@ export struct MainControlPage {
 
   build() {
     NavDestination() {
-      Stack({ alignContent: Alignment.TopEnd }) {
-        // 三功能区（HdsTabs 必带页签条，无页签条形态只能 plain Tabs + barHeight(0)）。
-        Tabs({ barPosition: BarPosition.End, controller: this.tabController }) {
-          TabContent() {
-            // 触摸面 + 中央引导（引导 Transparent 命中，不挡手势）
-            Stack({ alignContent: Alignment.Center }) {
-              Column()
-                .width('100%')
-                .height('100%')
-                .padding({ left: SIDE_MARGIN_VP, right: SIDE_MARGIN_VP, bottom: this.bottomAvoidVp })
-                .onTouch((ev: TouchEvent) => {
-                  this.onSurfaceTouch(ev);
-                })
-              this.touchGuide()
-            }
-          }
-          .tabBar($r('app.string.tab_touchpad'))
-
-          TabContent() {
-            // 键盘区：系统输入法承接文本 + 自绘键条（PRD §4.4）。
-            Column() {
-              KeyboardPage({ model: this.keyboard })
-            }
-            .width('100%')
-            .height('100%')
-            .padding({ bottom: this.bottomAvoidVp })
-          }
-          .tabBar($r('app.string.tab_keyboard'))
-
-          TabContent() {
-            // 语音听写（PRD §4.5）：按住说话，最终结果发 TEXT（daemon 写剪贴板 + Ctrl+V）。
-            Column() {
-              VoicePage({ voice: this.voice, conn: this.conn })
-            }
-            .width('100%')
-            .height('100%')
-            .padding({ bottom: this.bottomAvoidVp })
-          }
-          .tabBar($r('app.string.tab_voice'))
-        }
-        .barHeight(0) // 隐藏默认页签条/指示器
-        .scrollable(false) // 横滑语义归触摸板手势，禁内容滑动切换
-        .width('100%')
-        .height('100%')
-
-        // barHeight(0) 后 Tabs 无独立指示器（Indicator 为 Swiper 专属），此处自绘。
-        // 单行圆点与左右浮件同带同高；不出区名文字（各区内容自证身份，读屏经圆点播报区名）。
-        Row() {
-          ForEach([0, 1, 2], (i: number) => {
-            Column() {
-              Row()
-                .width(this.curTabIndex === i ? ZONE_DOT_ACTIVE_W_VP : ZONE_DOT_SIZE_VP)
-                .height(ZONE_DOT_SIZE_VP)
-                .borderRadius(ZONE_DOT_SIZE_VP / 2)
-                .backgroundColor(this.curTabIndex === i
-                  ? $r('sys.color.brand') : $r('sys.color.icon_tertiary'))
-            }
-            .width(ZONE_DOT_HIT_VP)
-            .height(ZONE_DOT_HIT_VP)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .onClick(() => {
-              this.switchTo(i);
-            })
-            .accessibilityLevel('yes')
-            .accessibilityText($r('app.string.a11y_zone_format', this.zoneName(i), i + 1))
-            .accessibilityDescription($r('app.string.a11y_zone_switch_hint'))
-          }, (i: number) => `zone-${i}`)
-        }
-        .width('100%')
-        .height(FLOAT_BTN_SIZE_VP)
-        .justifyContent(FlexAlign.Center)
-        .margin({ top: this.topAvoidVp + CAPSULE_MARGIN_VP })
-        .hitTestBehavior(HitTestMode.Transparent) // 空白区放行给下层功能区，圆点命中区照常消费
-
-        // 页头行：左锚状态胶囊 + 右锚设置圆键，与中间圆点同带同高；空白区 Transparent 放行给下层。
+      Column() {
+        // 页头行：左锚状态胶囊 + 右锚设置圆键（流式独占顶部条带，不与触摸面叠层）。
         Row() {
           // 状态浮层：RECONNECTING 展示原因与轮次；LOST 给「重新连接」动作（整胶囊单动作，不嵌按钮）。
           Column({ space: 4 }) {
@@ -336,7 +253,7 @@ export struct MainControlPage {
             }
           }
           .alignItems(HorizontalAlign.Start)
-          .constraintSize({ maxWidth: '33%' }) // 长文案上限：不与中锚圆点相碰，超出省略
+          .constraintSize({ maxWidth: '60%' }) // 长文案上限：避让右侧设置圆键，超出省略
           .padding({ left: CAPSULE_PAD_H_VP, right: CAPSULE_PAD_H_VP, top: CAPSULE_PAD_V_VP, bottom: CAPSULE_PAD_V_VP })
           .borderRadius(CAPSULE_RADIUS_VP)
           // 材质层在 background 之下：透明背景 + ImmersiveMaterial，禁再叠 backgroundBlurStyle。
@@ -381,7 +298,64 @@ export struct MainControlPage {
         .width('100%')
         .padding({ left: CAPSULE_MARGIN_VP, right: CAPSULE_MARGIN_VP })
         .margin({ top: this.topAvoidVp + CAPSULE_MARGIN_VP })
-        .hitTestBehavior(HitTestMode.Transparent) // 空白区放行给下层功能区，胶囊/圆键照常消费
+
+        // 触摸面段：layoutWeight 占满页头与停靠簇之间 + 中央引导（引导 Transparent 命中，不挡手势）
+        Stack({ alignContent: Alignment.Center }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .padding({ left: SIDE_MARGIN_VP, right: SIDE_MARGIN_VP })
+            .onTouch((ev: TouchEvent) => {
+              this.onSurfaceTouch(ev);
+            })
+          if (!this.kbVisible) {
+            this.touchGuide()
+          }
+        }
+        .width('100%')
+        .layoutWeight(1)
+
+        // 底部停靠簇：浮动麦克风（VoiceDock，内含蹦字卡）+ 键盘召唤键（键盘层展开时隐去），
+        // 键盘层展开时停靠最底。流式独占底部条带（wrap 高），与触摸面分段互斥不叠层。
+        Column({ space: DOCK_GAP_VP }) {
+          Row({ space: DOCK_GAP_VP }) {
+            if (!this.kbVisible) {
+              // 键盘召唤浮键
+              Stack({ alignContent: Alignment.Center }) {
+                SymbolGlyph($r('sys.symbol.keyboard'))
+                  .fontSize(DOCK_BTN_ICON_FP)
+                  .fontColor([$r('sys.color.icon_primary')])
+              }
+              .width(DOCK_BTN_SIZE_VP)
+              .height(DOCK_BTN_SIZE_VP)
+              .borderRadius(DOCK_BTN_SIZE_VP / 2)
+              .backgroundColor($r('sys.color.comp_background_tertiary'))
+              .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+              .onClick(() => {
+                this.openKeyboard();
+              })
+              .accessibilityLevel('yes')
+              .accessibilityText($r('app.string.main_kb_toggle_a11y'))
+            }
+            VoiceDock({ voice: this.voice, conn: this.conn })
+          }
+          .alignItems(VerticalAlign.Bottom)
+
+          if (this.kbVisible) {
+            KeyboardPage({
+              model: this.keyboard,
+              onClose: () => {
+                this.closeKeyboard();
+              }
+            })
+          }
+        }
+        .alignItems(HorizontalAlign.End)
+        .width('100%')
+        // IME 展开时底边距归零（RESIZE 下窗口底边即 IME 顶边，手势条避让成死空隙）；
+        // IME 未起（键盘层收起态/用户收了 IME）仍让开手势条。
+        .padding({ left: DOCK_SIDE_MARGIN_VP, right: DOCK_SIDE_MARGIN_VP,
+          bottom: this.kbVisible && this.keyboard.imeVisible ? 0 : this.bottomAvoidVp })
       }
       .width('100%')
       .height('100%')
@@ -410,7 +384,7 @@ export struct MainControlPage {
           .fontSize($r('sys.float.ohos_id_text_size_body2'))
           .fontColor($r('sys.color.font_tertiary'))
           .accessibilityLevel('no')
-        Text($r('app.string.main_hint_switch'))
+        Text($r('app.string.main_hint_keyboard'))
           .fontSize($r('sys.float.ohos_id_text_size_body2'))
           .fontColor($r('sys.color.font_tertiary'))
           .accessibilityLevel('no')

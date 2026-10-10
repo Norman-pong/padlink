@@ -1,4 +1,4 @@
-// 触摸板手势判定状态机（PRD §4.2 手势表 / §4.3 三指切换）。
+// 触摸板手势判定状态机（PRD §4.2 手势表；单页融合后功能区切换归浮动按钮，三指仅存吸收态）。
 // 纯被动引擎：不取时钟、不持定时器，超时判定在样本到达时用 tMs 差惰性比较；
 // 任何分支都有复位路径（CANCEL / 全部抬起 → 释放按键、冲账滚动、清状态回 Idle）。
 // 纯逻辑层：禁止 @ohos 依赖、禁止装饰器、不用 TS enum（保证 node 可直跑）。
@@ -13,7 +13,6 @@ export class GestureCommandType {
   public static readonly CURSOR_MOVE: number = 0;
   public static readonly BUTTON: number = 1;
   public static readonly SCROLL: number = 2;
-  public static readonly SWITCH_TAB: number = 3;
 }
 
 // 按钮 code（与协议 BUTTON btn 一致：1=左 3=右）。
@@ -30,26 +29,20 @@ export interface GestureCommand {
   btn: number; // BUTTON：1 左 / 3 右
   down: boolean; // BUTTON：按下/抬起
   dyHiRes: number; // SCROLL：HI_RES 单位
-  direction: number; // SWITCH_TAB：位移符号 -1 | +1
 }
 
 export function cmdCursorMove(dx: number, dy: number): GestureCommand {
-  const c: GestureCommand = { type: GestureCommandType.CURSOR_MOVE, dx: dx, dy: dy, btn: 0, down: false, dyHiRes: 0, direction: 0 };
+  const c: GestureCommand = { type: GestureCommandType.CURSOR_MOVE, dx: dx, dy: dy, btn: 0, down: false, dyHiRes: 0 };
   return c;
 }
 
 export function cmdButton(btn: number, down: boolean): GestureCommand {
-  const c: GestureCommand = { type: GestureCommandType.BUTTON, dx: 0, dy: 0, btn: btn, down: down, dyHiRes: 0, direction: 0 };
+  const c: GestureCommand = { type: GestureCommandType.BUTTON, dx: 0, dy: 0, btn: btn, down: down, dyHiRes: 0 };
   return c;
 }
 
 export function cmdScroll(dyHiRes: number): GestureCommand {
-  const c: GestureCommand = { type: GestureCommandType.SCROLL, dx: 0, dy: 0, btn: 0, down: false, dyHiRes: dyHiRes, direction: 0 };
-  return c;
-}
-
-export function cmdSwitchTab(direction: number): GestureCommand {
-  const c: GestureCommand = { type: GestureCommandType.SWITCH_TAB, dx: 0, dy: 0, btn: 0, down: false, dyHiRes: 0, direction: direction };
+  const c: GestureCommand = { type: GestureCommandType.SCROLL, dx: 0, dy: 0, btn: 0, down: false, dyHiRes: dyHiRes };
   return c;
 }
 
@@ -87,16 +80,16 @@ export class GestureStateName {
   // 进入：TWO_PENDING 判滚（超位移或窗口过期后移动）。
   // 退出：末指 UP → 冲账 Scroll 回 IDLE；第三指 DOWN → 冲账后 THREE_PENDING；CANCEL → 冲账回 IDLE。
   public static readonly SCROLLING: number = 6;
-  // ≥3 指存活：仅水平同向位移各 ≥60vp 触发 SwitchTab（垂直不触发——系统三指下滑为截屏，不拦截不响应）；
-  // 500ms 节流，窗口内二次触发忽略；触发后重置起点供连续滑动。
-  // 进入：任一状态存活指达 3（SCROLLING 先冲账；DRAGGING/HOLD_MULTI 不进入，转 HOLD_MULTI 保持按键）。
+  // ≥3 指存活：吸收一切输入、无任何输出（防手掌/多指误触——三指切换手势已随单页融合删除，
+  // 本态只保留抑制语义；SCROLLING 进入前先冲账，DRAGGING/HOLD_MULTI 不进入，转 HOLD_MULTI 保持按键）。
+  // 进入：任一状态存活指达 3。
   // 退出：存活指 <3 → 回落 TWO_PENDING（起点重置、无轻点资格）；CANCEL → IDLE。
   public static readonly THREE_PENDING: number = 7;
 }
 
 // 指针跟踪记录（引擎内部）。
 interface PointerTrack {
-  startX: number; // 本段判定的起点（触发切换后重置）
+  startX: number; // 本段判定的起点（多指接管/回落时重置）
   startY: number;
   lastX: number;
   lastY: number;
@@ -115,8 +108,6 @@ export class GestureEngine {
   private cursorResX: number = 0; // 光标亚像素残差
   private cursorResY: number = 0;
   private scrollAccUnits: number = 0; // 滚动累积器（HI_RES 单位，含小数）
-  private lastSwitchTMs: number = 0; // 上次三指切换时刻（节流跨手势生效）
-  private hasSwitched: boolean = false;
 
   constructor(cfg: GestureConfig) {
     this.cfg = cfg;
@@ -168,10 +159,10 @@ export class GestureEngine {
     // SINGLE_PENDING / CURSOR / TWO_PENDING / SCROLLING 上的新指
     this.pointers.set(s.pointerId, tr);
     if (this.state === GestureStateName.SCROLLING) {
-      this.flushScroll(out); // 三指接管前冲账滚动余量，不丢尾
+      this.flushScroll(out); // 多指接管前冲账滚动余量，不丢尾
     }
     if (this.pointers.size >= 3) {
-      // 第三指插入：取消此前一切未定型判定（尚无按键按下，无命令可发）
+      // 第三指插入：取消此前一切未定型判定（尚无按键按下，无命令可发），转多指吸收态
       this.state = GestureStateName.THREE_PENDING;
       this.tapCandidate = false;
       this.tapFirstLiftOk = false;
@@ -230,9 +221,7 @@ export class GestureEngine {
       this.accumulateScroll(s.y - prevY, out);
       return;
     }
-    if (this.state === GestureStateName.THREE_PENDING) {
-      this.evalSwitch(s.tMs, out);
-    }
+    // THREE_PENDING：多指吸收态，移动不产生任何输出。
   }
 
   private onUp(s: TouchSample, out: GestureCommand[]): void {
@@ -336,7 +325,7 @@ export class GestureEngine {
     }
   }
 
-  // 结束/三指接管前冲账：累积余量（|余量|<1）四舍五入成最后一条 Scroll，不得丢尾。
+  // 结束/多指接管前冲账：累积余量（|余量|<1）四舍五入成最后一条 Scroll，不得丢尾。
   private flushScroll(out: GestureCommand[]): void {
     const tail: number = Math.round(this.scrollAccUnits);
     this.scrollAccUnits = 0;
@@ -345,43 +334,7 @@ export class GestureEngine {
     }
   }
 
-  // 三指切换判定：≥3 指存活、水平位移同号且各 ≥threeFingerSwipeVp；垂直位移不触发；
-  // swipeThrottleMs 窗口内二次触发忽略。触发后重置各指起点供连续滑动。
-  private evalSwitch(tMs: number, out: GestureCommand[]): void {
-    if (this.pointers.size < 3) {
-      return;
-    }
-    let dir: number = 0;
-    let ok: boolean = true;
-    this.pointers.forEach((tr: PointerTrack) => {
-      const hx: number = tr.lastX - tr.startX;
-      if (Math.abs(hx) < this.cfg.threeFingerSwipeVp) {
-        ok = false;
-        return;
-      }
-      const sgn: number = hx > 0 ? 1 : -1;
-      if (dir === 0) {
-        dir = sgn;
-      } else if (dir !== sgn) {
-        ok = false;
-      }
-    });
-    if (!ok || dir === 0) {
-      return;
-    }
-    if (this.hasSwitched && tMs - this.lastSwitchTMs < this.cfg.swipeThrottleMs) {
-      return; // 节流窗口内忽略（起点不重置，窗口后可凭累计位移继续触发）
-    }
-    this.hasSwitched = true;
-    this.lastSwitchTMs = tMs;
-    out.push(cmdSwitchTab(dir));
-    this.pointers.forEach((tr: PointerTrack) => {
-      tr.startX = tr.lastX;
-      tr.startY = tr.lastY;
-    });
-  }
-
-  // 三指回落：存活指 <3 时起点重置为当前位置，转 TWO_PENDING（无轻点资格，防回落即误触右键）。
+  // 多指回落：存活指 <3 时起点重置为当前位置，转 TWO_PENDING（无轻点资格，防回落即误触右键）。
   private rebaseAfterThree(): void {
     this.pointers.forEach((tr: PointerTrack) => {
       tr.startX = tr.lastX;

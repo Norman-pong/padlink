@@ -16,9 +16,6 @@ import type { GestureConfig } from '../gesture/GestureConfig';
 import { newButton } from '../proto/Packet';
 import type { Transport } from '../net/Transport';
 
-// 三指切换回调：direction = -1 / +1（FR-2 循环切换由页面执行）。
-export type SwitchTabHandler = (direction: number) => void;
-
 export class TouchpadModel {
   private cfg: GestureConfig = defaultGestureConfig();
   private engine: GestureEngine = new GestureEngine(this.cfg);
@@ -34,8 +31,6 @@ export class TouchpadModel {
   private sendSecStart: number = 0;
   private sendsInSec: number = 0;
   private sendRate: number = 0;
-
-  public onSwitchTab: SwitchTabHandler | null = null;
 
   public bindTransport(t: Transport): void {
     this.transport = t;
@@ -111,7 +106,7 @@ export class TouchpadModel {
     this.dispatch(cmds);
   }
 
-  // 命令分发：MOVE/SCROLL→UDP（自然滚动已在引擎内换算，此处不二次取反）；BUTTON→TCP；SWITCH_TAB→页面回调。
+  // 命令分发：MOVE/SCROLL→UDP（自然滚动已在引擎内换算，此处不二次取反）；BUTTON→TCP。
   private dispatch(cmds: GestureCommand[]): void {
     if (cmds.length === 0) {
       return;
@@ -132,10 +127,6 @@ export class TouchpadModel {
           this.transport.sendReliable(newButton(this.transport.nextSeq(), c.btn, c.down));
         }
         this.noteSend();
-      } else if (c.type === GestureCommandType.SWITCH_TAB) {
-        if (this.onSwitchTab !== null) {
-          this.onSwitchTab(c.direction);
-        }
       }
     }
   }

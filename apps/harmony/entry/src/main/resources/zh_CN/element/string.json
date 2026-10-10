@@ -121,18 +121,6 @@
       "value": "重新连接"
     },
     {
-      "name": "tab_touchpad",
-      "value": "触摸板"
-    },
-    {
-      "name": "tab_keyboard",
-      "value": "键盘"
-    },
-    {
-      "name": "tab_voice",
-      "value": "语音"
-    },
-    {
       "name": "mic_permission_reason",
       "value": "麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑。"
     },
@@ -593,6 +581,10 @@
       "value": "连接主机"
     },
     {
+      "name": "main_kb_toggle_a11y",
+      "value": "打开键盘"
+    },
+    {
       "name": "main_guide_offline_hint",
       "value": "配对连接电脑后，这里就是你的触摸板"
     },
@@ -605,16 +597,8 @@
       "value": "双指滑动滚动，双指轻点右键"
     },
     {
-      "name": "main_hint_switch",
-      "value": "三指左右滑动切换功能区"
-    },
-    {
-      "name": "a11y_zone_format",
-      "value": "%1$s，第 %2$d 区，共 3 区"
-    },
-    {
-      "name": "a11y_zone_switch_hint",
-      "value": "双击切换到此功能区"
+      "name": "main_hint_keyboard",
+      "value": "右下角圆键打开键盘、按住麦克风说话"
     },
     {
       "name": "voice_a11y_hold_to_speak",
@@ -715,6 +699,14 @@
     {
       "name": "kb_input_placeholder",
       "value": "输入文字，同步到电脑"
+    },
+    {
+      "name": "kb_key_collapse",
+      "value": "收起"
+    },
+    {
+      "name": "kb_key_collapse_a11y",
+      "value": "收起键盘"
     }
   ]
 }

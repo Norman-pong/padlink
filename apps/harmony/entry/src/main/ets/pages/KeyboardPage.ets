@@ -1,4 +1,6 @@
-// 键盘区：系统输入法承接文本（组合态不上行，仅提交增量镜像到电脑）+ 自绘键条补键语义。
+// 键盘层：系统输入法承接文本（组合态不上行，仅提交增量镜像到电脑）+ 自绘键条补键语义。
+// 单页融合形态：底部停靠层（非整页），上方触摸区仍是触摸板；点击触摸区不收起键盘
+// （防断「点输入框→继续打字」高频流），收起只走键条右端「收起」键。
 import { HidUsage } from '../common/hid/KeyCodes';
 import { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { StickyMod } from '../common/keyboard/StickyModifiers';
@@ -8,9 +10,9 @@ import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
 const KEY_GAP_VP: number = 4; // 键间距
-const KEY_HEIGHT_VP: number = 42; // 键高（触摸目标）
+const KEY_HEIGHT_VP: number = 34; // 键高（辅条压扁让位触摸面，低于 40 常规目标属刻意取舍）
 const KEY_WIDTH_VP: number = 64; // 键宽：定宽保文案不裁切，整条约 812vp 超出视口走横滑
-const SIDE_PADDING_VP: number = 6; // 键区左右边距
+const SIDE_PADDING_VP: number = 4; // 键区左右边距（叠停靠簇边距共 12vp 到屏缘）
 const KEY_RADIUS_VP: number = 6; // 键帽圆角
 const INPUT_MAX_HEIGHT_VP: number = 132; // 输入区高上限（约 3 行；超出内部滚动）
 
@@ -19,7 +21,7 @@ const A11Y_KEYS: string[] = [
   'kb_key_esc', 'kb_key_tab', 'kb_key_shift', 'kb_key_ctrl', 'kb_key_alt',
   'kb_key_super', 'kb_key_enter', 'kb_key_backspace',
   'kb_key_up', 'kb_key_down', 'kb_key_left', 'kb_key_right', 'kb_a11y_modifier_hint',
-  'kb_input_placeholder',
+  'kb_input_placeholder', 'kb_key_collapse', 'kb_key_collapse_a11y',
 ];
 
 // 单键帽：定宽定高（横滑条内 layoutWeight 会把键压到裁切文案），按压高亮自管，长按由 KeyStep 两段式直发。
@@ -65,7 +67,7 @@ struct KeyCap {
 
   build() {
     Text(this.label)
-      .fontSize($r('sys.float.ohos_id_text_size_body1'))
+      .fontSize($r('sys.float.ohos_id_text_size_body2'))
       .fontColor(this.lit() ? $r('sys.color.font_on_primary') : $r('sys.color.font_primary'))
       .textAlign(TextAlign.Center)
       .maxLines(1)
@@ -87,6 +89,8 @@ struct KeyCap {
 @ComponentV2
 export struct KeyboardPage {
   @Require @Param model: KeyboardModel;
+  // 收起键回调（宿主收起键盘层；点击触摸区不收起，见文件头注释）。
+  @Param onClose: () => void = () => {};
   @Local inputText: string = '';
   private lastStable: string = ''; // 增量 diff 基准，组合态期间不改写
   private textCtrl: TextAreaController = new TextAreaController();
@@ -103,6 +107,11 @@ export struct KeyboardPage {
     this.model.onZoneLeave = (): void => {
       this.doZoneLeave();
     };
+  }
+
+  onDidBuild(): void {
+    // 挂载补偿：zoneEnter 先于组件挂载时（onZoneEnter 回调尚为 null）补做进区；
+    // 焦点请求须在节点建成后发（aboutToAppear 时节点未建，requestFocus 静默落空）。
     if (this.model.zoneActive) {
       this.doZoneEnter();
     }
@@ -183,8 +192,6 @@ export struct KeyboardPage {
 
   build() {
     Column({ space: KEY_GAP_VP }) {
-      Blank()
-
       TextArea({ text: this.inputText, controller: this.textCtrl,
         placeholder: this.str('kb_input_placeholder') })
         .id('kb_input')
@@ -200,33 +207,49 @@ export struct KeyboardPage {
         .onChange((value: string, previewText?: PreviewText) => {
           this.onInput(value, previewText);
         })
+        // 编辑态即 IME 可见性：写 model 供主控页收停靠簇底边距（键条贴齐 IME 顶）。
+        .onEditChange((editing: boolean) => {
+          this.model.imeVisible = editing;
+        })
 
-      Scroll() {
-        // 键序按使用频率排：Enter/⌫/方向键最高频必须默认可见（横滑条左缘即首屏），
-        // Tab/Esc 次之，粘滞修饰键（点一次等组合键）最低频放末段
-        Row({ space: KEY_GAP_VP }) {
-          this.tapKey('Enter', this.str('kb_key_enter'), HidUsage.ENTER)
-          this.tapKey('⌫', this.str('kb_key_backspace'), HidUsage.BACKSPACE)
-          this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT)
-          this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP)
-          this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN)
-          this.tapKey('→', this.str('kb_key_right'), HidUsage.RIGHT)
-          this.tapKey('Tab', this.str('kb_key_tab'), HidUsage.TAB)
-          this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC)
-          this.modKey('Ctrl', 'kb_key_ctrl', StickyMod.CTRL, this.model.ctrlLatched)
-          this.modKey('Alt', 'kb_key_alt', StickyMod.ALT, this.model.altLatched)
-          this.modKey('Shift', 'kb_key_shift', StickyMod.SHIFT, this.model.shiftLatched)
-          this.modKey('Super', 'kb_key_super', StickyMod.SUPER, this.model.superLatched)
+      Row({ space: KEY_GAP_VP }) {
+        Scroll() {
+          // 键序按使用频率排：Enter/⌫/方向键最高频必须默认可见（横滑条左缘即首屏），
+          // Tab/Esc 次之，粘滞修饰键（点一次等组合键）最低频放末段
+          Row({ space: KEY_GAP_VP }) {
+            this.tapKey('Enter', this.str('kb_key_enter'), HidUsage.ENTER)
+            this.tapKey('⌫', this.str('kb_key_backspace'), HidUsage.BACKSPACE)
+            this.tapKey('←', this.str('kb_key_left'), HidUsage.LEFT)
+            this.tapKey('↑', this.str('kb_key_up'), HidUsage.UP)
+            this.tapKey('↓', this.str('kb_key_down'), HidUsage.DOWN)
+            this.tapKey('→', this.str('kb_key_right'), HidUsage.RIGHT)
+            this.tapKey('Tab', this.str('kb_key_tab'), HidUsage.TAB)
+            this.tapKey('Esc', this.str('kb_key_esc'), HidUsage.ESC)
+            this.modKey('Ctrl', 'kb_key_ctrl', StickyMod.CTRL, this.model.ctrlLatched)
+            this.modKey('Alt', 'kb_key_alt', StickyMod.ALT, this.model.altLatched)
+            this.modKey('Shift', 'kb_key_shift', StickyMod.SHIFT, this.model.shiftLatched)
+            this.modKey('Super', 'kb_key_super', StickyMod.SUPER, this.model.superLatched)
+          }
+          .height(KEY_HEIGHT_VP)
         }
-        .height(KEY_HEIGHT_VP)
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
+
+        // 收起键定置键条右端：收起键盘层回全屏触摸板（收起唯一入口，触摸区点击不收起）
+        KeyCap({
+          label: this.str('kb_key_collapse'), a11y: this.str('kb_key_collapse_a11y'),
+          onPress: () => {
+            this.onClose();
+          }
+        })
       }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
       .width('100%')
     }
     .width('100%')
-    .height('100%')
-    .padding({ left: SIDE_PADDING_VP, right: SIDE_PADDING_VP, bottom: 8 })
+    .padding({ left: SIDE_PADDING_VP, right: SIDE_PADDING_VP, top: 8, bottom: 4 })
     .justifyContent(FlexAlign.End)
+    .backgroundColor($r('sys.color.comp_background_primary'))
+    .border({ width: { top: 0.5 }, color: $r('sys.color.comp_divider') })
   }
 }
