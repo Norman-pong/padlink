@@ -99,3 +99,19 @@ func cgButton(code uint16) (int, bool) {
 	}
 	return 0, false
 }
+
+// cgModFlag 把修饰键 KEY_* 映射为 quartz Flag* 位；非修饰键返回 ok=false。
+// 键值域与 keyToCGKeyCode 修饰键段一一对应（左右各四枚）。
+func cgModFlag(code uint16) (uint64, bool) {
+	switch code {
+	case 42, 54: // LShift/RShift
+		return quartz.FlagShift, true
+	case 29, 97: // LCtrl/RCtrl
+		return quartz.FlagControl, true
+	case 56, 100: // LAlt/RAlt
+		return quartz.FlagAlt, true
+	case 125, 126: // LSuper/RSuper
+		return quartz.FlagCommand, true
+	}
+	return 0, false
+}

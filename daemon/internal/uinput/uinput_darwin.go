@@ -18,9 +18,10 @@ import (
 // legacy REL_WHEEL 忽略，像素滚轮只从 REL_WHEEL_HI_RES 单边推导，双发会重复滚动。
 type Device struct {
 	mu    sync.Mutex
-	dx    int32 // 待合成 REL_X 累积
-	dy    int32 // 待合成 REL_Y 累积
-	wheel int32 // 待合成 REL_WHEEL_HI_RES 累积（1/120 格）
+	dx    int32  // 待合成 REL_X 累积
+	dy    int32  // 待合成 REL_Y 累积
+	wheel int32  // 待合成 REL_WHEEL_HI_RES 累积（1/120 格）
+	mods  uint64 // 当前按住的修饰键 quartz Flag* 位（合成事件必须显式携带修饰标志）
 }
 
 // TCC 辅助功能授权等待：弹窗后轮询直到授权；不设超时——launchd 场景下超时会引发
@@ -61,7 +62,23 @@ func (d *Device) KeyEvent(code uint16, value int32) error {
 	if !ok {
 		return fmt.Errorf("uinput(darwin): KEY code %d 无 CGKeyCode 映射", code)
 	}
-	return quartz.PostKey(kc, value != 0)
+	return quartz.PostKey(kc, value != 0, d.trackMod(code, value != 0))
+}
+
+// trackMod 更新按住修饰键状态并返回本事件应携带的 flags：
+// 修饰键自身按下含自身位、抬起不含（同物理键盘）；非修饰键原样返回当前掩码。
+func (d *Device) trackMod(code uint16, down bool) uint64 {
+	bit, isMod := cgModFlag(code)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if isMod {
+		if down {
+			d.mods |= bit
+		} else {
+			d.mods &^= bit
+		}
+	}
+	return d.mods
 }
 
 // RelEvent 只缓冲不投递，Sync 收帧时统一合成。

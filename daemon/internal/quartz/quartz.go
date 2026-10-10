@@ -60,11 +60,14 @@ static int postScrollPixel(long dy) {
 	return 0;
 }
 
-static int postKey(CGKeyCode code, int down) {
+// flags 必须显式设置：CGEvent 投递的合成修饰键 keyDown 不会进入系统修饰状态，
+// 后续合成按键事件的 flags 恒 0（实测 Cmd 按下后 V 事件被当裸键，目标 App 收到 v 而非粘贴）。
+static int postKey(CGKeyCode code, int down, uint64_t flags) {
 	CGEventRef ev = CGEventCreateKeyboardEvent(NULL, code, down ? true : false);
 	if (ev == NULL) {
 		return -1;
 	}
+	CGEventSetFlags(ev, (CGEventFlags)flags);
 	CGEventPost(kCGHIDEventTap, ev);
 	CFRelease(ev);
 	return 0;
@@ -112,6 +115,15 @@ const (
 	ButtonMiddle = 2
 )
 
+// 修饰键标志位（CGEventTypes.h kCGEventFlagMask*，ABI 稳定常量）。
+// 由 Go 侧按当前按住的修饰键合成，随 PostKey 显式写入事件。
+const (
+	FlagShift   uint64 = 1 << 17 // kCGEventFlagMaskShift
+	FlagControl uint64 = 1 << 18 // kCGEventFlagMaskControl
+	FlagAlt     uint64 = 1 << 19 // kCGEventFlagMaskAlternate
+	FlagCommand uint64 = 1 << 20 // kCGEventFlagMaskCommand
+)
+
 // Trusted 报告当前进程是否已获 TCC 辅助功能权限；prompt=true 时同时拉起系统授权弹窗。
 func Trusted(prompt bool) bool {
 	if prompt {
@@ -151,12 +163,14 @@ func PostScrollPixel(dy int32) error {
 }
 
 // PostKey 投递键盘事件（CGKeyCode 虚拟键码，按下/抬起）。
-func PostKey(code uint16, down bool) error {
+// flags 为调用方合成的修饰键标志（Flag* 位或）；修饰键自身事件的
+// 标志约定同物理键盘：keyDown 含自身位，keyUp 不含。
+func PostKey(code uint16, down bool, flags uint64) error {
 	d := 0
 	if down {
 		d = 1
 	}
-	if C.postKey(C.CGKeyCode(code), C.int(d)) != 0 {
+	if C.postKey(C.CGKeyCode(code), C.int(d), C.uint64_t(flags)) != 0 {
 		return errEventCreate
 	}
 	return nil

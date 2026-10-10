@@ -23,6 +23,11 @@ E2E 实测结论（2026-10-09，模拟器 Pura90API26 ↔ 本机 Mac）：
    慢输码必断连。修复=配对轮次期间读超时宽限至码 TTL+10s（session 层 pairWaitUntil）。
 3. 滚轮手机端双指手势 CLI 无法模拟，注入路径由 `--test` 像素滚轮覆盖；
    语音听写模拟器无 MIC 链路，留真机验证。
+4. **踩出修饰键合成缺陷**（2026-10-09 用户报障复现，已修）：CGEvent 投递的合成
+   修饰键 keyDown 不进入系统修饰状态，后续合成按键 flags 恒 0——Cmd+V 退化为
+   裸 v（TEXT 注入整体失效，中文/语音落地全灭），Shift+字母退化为小写。
+   修复=Go 侧跟踪按住修饰键，PostKey 显式 CGEventSetFlags；
+   探针实证 TextEdit 落「你好世界中文ABC」+「A」，剪贴板原内容恢复。
 
 ## 0. PoC 结论（本机实测，/tmp/padlink-mac-poc 一次性程序）
 
