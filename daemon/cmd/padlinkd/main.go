@@ -113,7 +113,12 @@ func run(cfg config) error {
 	mgr := pairing.NewManager(store)
 
 	// ④ 网络（会话/配对/发现）与文本注入
-	ti := textinject.New(textinject.ExecRunner{}, inj.CtrlV, cfg.restoreDelay)
+	// 粘贴组合键按平台选：Linux Ctrl+V，macOS Cmd+V（inject 接口不动）。
+	pasteKey := inj.CtrlV
+	if runtime.GOOS == "darwin" {
+		pasteKey = inj.SuperV
+	}
+	ti := textinject.New(textinject.ExecRunner{}, pasteKey, cfg.restoreDelay)
 	srv := session.New(session.Config{
 		Port:          cfg.port,
 		DaemonVersion: daemonVersion,

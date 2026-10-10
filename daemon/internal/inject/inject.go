@@ -157,9 +157,14 @@ func (in *Injector) PressCombo(mods []uint16, key uint16) error {
 	return nil
 }
 
-// CtrlV 注入粘贴组合键（文本注入路径用）。
+// CtrlV 注入粘贴组合键（Linux 文本注入路径用）。
 func (in *Injector) CtrlV() error {
 	return in.PressCombo([]uint16{HIDLeftCtrl}, HIDV)
+}
+
+// SuperV 注入 Super+V（macOS 粘贴组合键 Cmd+V，文本注入路径按平台选用）。
+func (in *Injector) SuperV() error {
+	return in.PressCombo([]uint16{HIDLeftSuper}, HIDV)
 }
 
 // Close 停止所有连发并关闭后端。

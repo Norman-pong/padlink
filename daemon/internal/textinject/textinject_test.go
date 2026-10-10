@@ -57,8 +57,11 @@ func (r *recorder) snapshot() []string {
 	return append([]string(nil), r.ops...)
 }
 
+// newInjector 钉住 wlClipboard：wl-* 命令序列断言与运行平台无关（darwin 宿主机同样覆盖 Linux 逻辑）。
 func newInjector(fr *fakeRunner, rec *recorder, delay time.Duration) *Injector {
-	return New(fr, func() error { rec.add("ctrlv"); return nil }, delay)
+	in := New(fr, func() error { rec.add("ctrlv"); return nil }, delay)
+	in.clip = wlClipboard
+	return in
 }
 
 func TestInjectCommandSequence(t *testing.T) {
@@ -159,6 +162,7 @@ func TestInjectPasteFailStillRestores(t *testing.T) {
 	}}
 	rec := &recorder{}
 	in := New(fr, func() error { rec.add("ctrlv"); return errors.New("注入器故障") }, time.Millisecond)
+	in.clip = wlClipboard
 	in.Env = func(string) string { return "wayland-0" }
 
 	err := in.Inject("x")
@@ -213,6 +217,7 @@ func TestInjectTimeoutContext(t *testing.T) {
 
 func TestAvailable(t *testing.T) {
 	in := New(&fakeRunner{}, func() error { return nil }, 0)
+	in.clip = wlClipboard
 	in.Env = func(k string) string {
 		if k == "WAYLAND_DISPLAY" {
 			return "wayland-0"
@@ -228,5 +233,68 @@ func TestAvailable(t *testing.T) {
 	}
 	if err := in.Inject("x"); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("缺失环境 Inject: got %v, want ErrUnavailable", err)
+	}
+}
+
+// ---- macOS pbcopy/pbpaste 后端 ----
+
+// darwin 命令序列：备份(pbpaste) → 写入(pbcopy) → CmdV → 延迟 → 恢复(pbcopy)。
+// darwin 无环境门槛：Env 全空也应可用。
+func TestInjectDarwinSequence(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if i == 0 { // 备份
+			return []byte("原内容"), nil
+		}
+		return nil, nil
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+
+	if !in.Available() {
+		t.Fatal("darwin 无环境门槛，Available = false")
+	}
+	if err := in.Inject("注入文本"); err != nil {
+		t.Fatalf("Inject: %v", err)
+	}
+
+	calls := fr.recorded()
+	if len(calls) != 3 {
+		t.Fatalf("命令数 = %d, want 3（darwin 不记 MIME）:\n%+v", len(calls), calls)
+	}
+	want := []call{
+		{"pbpaste", nil, nil},
+		{"pbcopy", nil, []byte("注入文本")},
+		{"pbcopy", nil, []byte("原内容")},
+	}
+	for i, w := range want {
+		if calls[i].name != w.name || len(calls[i].args) != 0 || string(calls[i].stdin) != string(w.stdin) {
+			t.Errorf("call[%d] = %+v, want %+v", i, calls[i], w)
+		}
+	}
+	if ops := rec.snapshot(); len(ops) != 1 || ops[0] != "ctrlv" {
+		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
+	}
+}
+
+// darwin 降级：pbpaste 失败 → ErrUnavailable 且不再写剪贴板。
+func TestInjectDarwinDegradesOnBackupFail(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		return nil, errors.New("pbpaste: 未知错误")
+	}}
+	in := newInjector(fr, &recorder{}, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+
+	err := in.Inject("x")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("got %v, want ErrUnavailable", err)
+	}
+	if !strings.Contains(err.Error(), "pbcopy/pbpaste") {
+		t.Errorf("错误文案缺工具名: %v", err)
+	}
+	if len(fr.recorded()) != 1 {
+		t.Errorf("备份失败后不应继续写剪贴板，命令数 = %d", len(fr.recorded()))
 	}
 }
