@@ -31,6 +31,12 @@ export interface EchoField {
   tsMs: number;
 }
 
+// NOTICE：daemon → 手机提示（code 语义见 PROTOCOL.md §4.7）。
+export interface NoticeField {
+  code: number;
+  arg: number;
+}
+
 // 一次解码后的完整报文。
 export interface Packet {
   type: number;
@@ -44,6 +50,7 @@ export interface Packet {
   button: ButtonField;
   key: KeyField;
   echo: EchoField;
+  notice: NoticeField; // type == NOTICE 时有效
   text: string; // type == TEXT 时有效
 }
 
@@ -59,6 +66,7 @@ function zeroPacket(type: number, seq: number, payload: ArrayBuffer): Packet {
     button: { btn: 0, down: false },
     key: { hidUsage: 0, down: false },
     echo: { tsMs: 0 },
+    notice: { code: 0, arg: 0 },
     text: '',
   };
   return pkt;
@@ -144,5 +152,15 @@ export function newEcho(seq: number, tsMs: number): Packet {
   be32(p, 4, lo | 0);
   const pkt: Packet = zeroPacket(PacketType.ECHO, seq, p.buffer as ArrayBuffer);
   pkt.echo = { tsMs: tsMs };
+  return pkt;
+}
+
+// NOTICE 报文（daemon → 手机；daemon 侧 Seal 后下发，手机端只收不发）。
+export function newNotice(seq: number, code: number, arg: number): Packet {
+  const p = new Uint8Array(2);
+  p[0] = code & 0xff;
+  p[1] = arg & 0xff;
+  const pkt: Packet = zeroPacket(PacketType.NOTICE, seq, p.buffer as ArrayBuffer);
+  pkt.notice = { code: code, arg: arg };
   return pkt;
 }

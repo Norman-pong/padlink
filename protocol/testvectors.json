@@ -23,7 +23,8 @@
     "10": "TEXT",
     "11": "ECHO",
     "12": "BYE",
-    "13": "ERR"
+    "13": "ERR",
+    "14": "NOTICE"
   },
   "vectors": [
     {
@@ -154,6 +155,19 @@
       "valid": false,
       "authenticated": false,
       "expect_error": "truncated"
+    },
+    {
+      "id": 12,
+      "desc": "NOTICE code=0 (control held by peer device) arg=15 (cooldown seconds left), daemon->phone",
+      "hex": "504c010e000009000200000000000000000000000f",
+      "valid": true,
+      "type": "NOTICE",
+      "seq": 9,
+      "authenticated": false,
+      "payload_semantics": {
+        "code": 0,
+        "arg": 15
+      }
     }
   ]
 }

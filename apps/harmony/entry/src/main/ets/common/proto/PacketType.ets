@@ -16,6 +16,14 @@ export class PacketType {
   public static readonly ECHO: number = 11;
   public static readonly BYE: number = 12;
   public static readonly ERR: number = 13;
+  // daemon → 手机提示（唯一的下行事件，PROTOCOL.md §4.7）；未定义 code 忽略。
+  public static readonly NOTICE: number = 14;
+}
+
+// NOTICE.code 取值（PROTOCOL.md §4.7）。
+export class NoticeCode {
+  // 控制被其他设备占用：arg = 冷静期剩余秒数。
+  public static readonly CONTROL_BUSY: number = 0;
 }
 
 // flags 位定义（PROTOCOL.md §2.1）。

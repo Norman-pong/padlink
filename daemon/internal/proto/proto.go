@@ -40,6 +40,7 @@ const (
 	TypeEcho         Type = 11
 	TypeBye          Type = 12
 	TypeErr          Type = 13
+	TypeNotice       Type = 14 // daemon → 手机提示（唯一的下行事件，PROTOCOL.md §4.7）
 )
 
 func (t Type) String() string {
@@ -70,6 +71,8 @@ func (t Type) String() string {
 		return "BYE"
 	case TypeErr:
 		return "ERR"
+	case TypeNotice:
+		return "NOTICE"
 	default:
 		return fmt.Sprintf("UNKNOWN(0x%02X)", uint8(t))
 	}
@@ -111,6 +114,16 @@ type (
 	Echo struct {
 		TsMs int64
 	}
+	// NOTICE：daemon → 手机提示（code 语义见 PROTOCOL.md §4.7）。
+	Notice struct {
+		Code uint8
+		Arg  uint8
+	}
+)
+
+// NoticeCode 是 NOTICE.code 的取值（PROTOCOL.md §4.7）。
+const (
+	NoticeControlBusy uint8 = 0 // 控制被其他设备占用：arg = 冷静期剩余秒数
 )
 
 // Packet 是一次解码后的完整报文。类型化字段仅在与 Type 匹配时有效；
@@ -128,6 +141,7 @@ type Packet struct {
 	Button Button
 	Key    Key
 	Echo   Echo
+	Notice Notice
 	Text   string // Type==TypeText 时有效
 }
 
@@ -195,6 +209,11 @@ func Decode(data []byte) (Packet, error) {
 			return p, fmt.Errorf("%w: ECHO 需要 8B，实得 %d", ErrPayloadLen, len(p.Payload))
 		}
 		p.Echo = Echo{TsMs: int64(binary.BigEndian.Uint64(p.Payload))}
+	case TypeNotice:
+		if len(p.Payload) != 2 {
+			return p, fmt.Errorf("%w: NOTICE 需要 2B，实得 %d", ErrPayloadLen, len(p.Payload))
+		}
+		p.Notice = Notice{Code: p.Payload[0], Arg: p.Payload[1]}
 	case TypeHello, TypeDiscoverResp, TypePairReq, TypePairOK, TypePairNak, TypeBye, TypeErr:
 		// 会话层 payload 本层不解析，保留在 p.Payload
 	default:
@@ -302,4 +321,9 @@ func NewEcho(seq uint16, tsMs int64) Packet {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, uint64(tsMs))
 	return Packet{Type: TypeEcho, Seq: seq, Payload: payload}
+}
+
+// NewNotice 构造 NOTICE 报文（daemon → 手机；下发前须 Seal）。
+func NewNotice(seq uint16, code, arg uint8) Packet {
+	return Packet{Type: TypeNotice, Seq: seq, Payload: []byte{code, arg}}
 }

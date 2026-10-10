@@ -105,6 +105,7 @@ export function decode(data: ArrayBuffer): DecodeResult {
     button: { btn: 0, down: false },
     key: { hidUsage: 0, down: false },
     echo: { tsMs: 0 },
+    notice: { code: 0, arg: 0 },
     text: '',
   };
   const pv = new DataView(payload);
@@ -150,6 +151,13 @@ export function decode(data: ArrayBuffer): DecodeResult {
         return fail(DecodeError.PayloadLen, `ECHO 需要 8B，实得 ${plen}`);
       }
       pkt.echo = { tsMs: pv.getInt32(0, false) * 4294967296 + pv.getUint32(4, false) };
+      break;
+    }
+    case PacketType.NOTICE: {
+      if (plen !== 2) {
+        return fail(DecodeError.PayloadLen, `NOTICE 需要 2B，实得 ${plen}`);
+      }
+      pkt.notice = { code: u[Protocol.HEADER_SIZE], arg: u[Protocol.HEADER_SIZE + 1] };
       break;
     }
     case PacketType.HELLO:

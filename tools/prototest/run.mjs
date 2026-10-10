@@ -70,6 +70,7 @@ try {
     ECHO: PacketType.ECHO,
     BYE: PacketType.BYE,
     ERR: PacketType.ERR,
+    NOTICE: PacketType.NOTICE,
   };
   const errorByName = {
     bad_magic: Codec.DecodeError.BadMagic,
@@ -98,6 +99,8 @@ try {
         return Packet.newText(v.seq, s.text);
       case 'ECHO':
         return Packet.newEcho(v.seq, Number(s.ts_ms));
+      case 'NOTICE':
+        return Packet.newNotice(v.seq, s.code, s.arg);
       default:
         return Packet.newRaw(typeByName[v.type], v.seq, new ArrayBuffer(0));
     }
@@ -133,6 +136,10 @@ try {
         break;
       case 'ECHO':
         eq('ts_ms', pkt.echo.tsMs, Number(s.ts_ms));
+        break;
+      case 'NOTICE':
+        eq('code', pkt.notice.code, s.code);
+        eq('arg', pkt.notice.arg, s.arg);
         break;
       default:
         break;

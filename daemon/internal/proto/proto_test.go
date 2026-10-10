@@ -61,6 +61,7 @@ var typeByName = map[string]Type{
 	"PAIR_REQ": TypePairReq, "PAIR_OK": TypePairOK, "PAIR_NAK": TypePairNak,
 	"MOVE": TypeMove, "SCROLL": TypeScroll, "BUTTON": TypeButton,
 	"KEY": TypeKey, "TEXT": TypeText, "ECHO": TypeEcho, "BYE": TypeBye, "ERR": TypeErr,
+	"NOTICE": TypeNotice,
 }
 
 var expectErrByName = map[string]error{
@@ -182,6 +183,12 @@ func TestGoldenVectors(t *testing.T) {
 				want := int64(num(t, v.Semantics, "ts_ms"))
 				if pkt.Echo.TsMs != want {
 					t.Errorf("Echo = %+v, want {TsMs:%d}", pkt.Echo, want)
+				}
+			case TypeNotice:
+				wantCode := uint8(num(t, v.Semantics, "code"))
+				wantArg := uint8(num(t, v.Semantics, "arg"))
+				if pkt.Notice.Code != wantCode || pkt.Notice.Arg != wantArg {
+					t.Errorf("Notice = %+v, want {Code:%d Arg:%d}", pkt.Notice, wantCode, wantArg)
 				}
 			}
 
