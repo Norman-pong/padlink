@@ -1,6 +1,6 @@
 // 应用宿主：HdsNavigation + NavPathStack（PRD §6.1 导航一律 Navigation；D4 升级 HDS 官方
 // 导航容器 @kit.UIDesignKit，titleMode MINI + hideBackButton(true)，ui-design-hdsnavigation）。
-// 页面注册：discover（发现与配对）/ control（主控，首页）/ settings / debug。
+// 页面注册：discover（发现与配对）/ control（主控，首页）/ settings / debug / guide（服务端安装向导）。
 // 共享对象（ConnectionManager/TouchpadModel/SettingsModel/PairingModel）在此创建，经 @Param 下发各页。
 // App 启动（首页即主控页）：settings 就绪后按 lastHost 静默自动重连（FR-6，AutoConnect）。
 import type { BusinessError } from '@kit.BasicServicesKit';
@@ -18,6 +18,7 @@ import { MainControlPage } from './MainControlPage';
 import { DiscoverPage } from './DiscoverPage';
 import { SettingsPage } from './SettingsPage';
 import { DebugPanelPage } from './DebugPanelPage';
+import { GuidePage } from './GuidePage';
 
 const TAG: string = 'PadLink.Index';
 const DOMAIN: number = 0x5050;
@@ -71,6 +72,8 @@ struct Index {
       SettingsPage({ settings: this.settings, touchpad: this.touchpad, pathStack: this.pathStack })
     } else if (name === 'debug') {
       DebugPanelPage({ conn: this.conn, touchpad: this.touchpad, settings: this.settings, pathStack: this.pathStack })
+    } else if (name === 'guide') {
+      GuidePage()
     }
   }
 }

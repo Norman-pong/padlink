@@ -293,7 +293,7 @@ export struct DiscoverPage {
         .clip(false)
         .cachedCount(3, true)
       } else {
-        // 空态：无主机 + 排查提示 + 重扫
+        // 空态：无主机 + 排查提示 + 重扫；首次用户大概率是电脑没装服务端 → 安装向导入口
         Column({ space: 12 }) {
           Text($r('app.string.discover_empty_title'))
             .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -305,6 +305,12 @@ export struct DiscoverPage {
           Button($r('app.string.discover_refresh'))
             .onClick(() => {
               this.pairing.startDiscovery();
+            })
+          Text($r('app.string.discover_guide_entry'))
+            .fontSize($r('sys.float.ohos_id_text_size_body2'))
+            .fontColor($r('sys.color.brand'))
+            .onClick(() => {
+              this.pathStack.pushPathByName('guide', null);
             })
         }
         .width('100%')

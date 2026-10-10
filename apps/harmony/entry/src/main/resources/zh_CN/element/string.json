@@ -707,6 +707,118 @@
     {
       "name": "kb_key_collapse_a11y",
       "value": "收起键盘"
+    },
+    {
+      "name": "page_guide",
+      "value": "在电脑上安装 padlink"
+    },
+    {
+      "name": "discover_guide_entry",
+      "value": "电脑还没装服务端？查看安装指南"
+    },
+    {
+      "name": "settings_guide",
+      "value": "服务端安装指南"
+    },
+    {
+      "name": "guide_step1_title",
+      "value": "第 1 步 · 在电脑浏览器打开下载页"
+    },
+    {
+      "name": "guide_step1_body",
+      "value": "在电脑浏览器的地址栏输入这个地址："
+    },
+    {
+      "name": "guide_download_url",
+      "value": "github.com/Norman-pong/padlink/releases"
+    },
+    {
+      "name": "guide_step1_hint",
+      "value": "打开后下载对应电脑系统的安装包（Ubuntu 选 deb，Mac 选 darwin tar.gz）。"
+    },
+    {
+      "name": "guide_step2_title",
+      "value": "第 2 步 · 在电脑上安装并启动"
+    },
+    {
+      "name": "guide_ubuntu_title",
+      "value": "Ubuntu"
+    },
+    {
+      "name": "guide_ubuntu_s1",
+      "value": "1. 下载 padlink_版本号_linux_amd64.deb 后，在下载目录执行："
+    },
+    {
+      "name": "guide_ubuntu_c1",
+      "value": "sudo apt install ./padlink_*.deb"
+    },
+    {
+      "name": "guide_ubuntu_s2",
+      "value": "2. 注销并重新登录电脑（首次安装必须，否则注入权限不生效）"
+    },
+    {
+      "name": "guide_ubuntu_s3",
+      "value": "3. 启动服务端并设为开机自启："
+    },
+    {
+      "name": "guide_ubuntu_c2",
+      "value": "systemctl --user enable --now padlink"
+    },
+    {
+      "name": "guide_ubuntu_s4",
+      "value": "4. 要用语音听写，再装一个依赖："
+    },
+    {
+      "name": "guide_ubuntu_c3",
+      "value": "sudo apt install wl-clipboard"
+    },
+    {
+      "name": "guide_macos_title",
+      "value": "macOS"
+    },
+    {
+      "name": "guide_macos_s1",
+      "value": "1. 下载 padlink_版本号_darwin_arm64.tar.gz（Intel 芯片选 amd64）并解压"
+    },
+    {
+      "name": "guide_macos_s2",
+      "value": "2. 在解压后的目录里执行："
+    },
+    {
+      "name": "guide_macos_c1",
+      "value": "./install.sh"
+    },
+    {
+      "name": "guide_macos_s3",
+      "value": "3. 首次运行会弹两项授权，都要允许：「辅助功能」和「接受传入连接」"
+    },
+    {
+      "name": "guide_step3_title",
+      "value": "第 3 步 · 回到手机连接"
+    },
+    {
+      "name": "guide_step3_body",
+      "value": "装好后服务端会在电脑上常驻运行。回到发现页点「重新扫描」，点搜索到的主机发起配对，4 位确认码会显示在电脑屏幕的通知上（也可以在电脑终端运行 padlinkctl pair 查看）。"
+    },
+    {
+      "name": "guide_trouble_title",
+      "value": "装好了还是搜不到？"
+    },
+    {
+      "name": "guide_trouble_1",
+      "value": "· 手机和电脑连同一个 WiFi；路由器若开了「AP 隔离/客户端隔离」需要关掉"
+    },
+    {
+      "name": "guide_trouble_2",
+      "value": "· 电脑防火墙放行 UDP/TCP 53021 端口"
+    },
+    {
+      "name": "guide_trouble_3",
+      "value": "· Ubuntu 首次安装后必须注销重新登录一次"
+    },
+    {
+      "name": "guide_trouble_4",
+      "value": "· 在电脑终端运行 padlinkctl status，能看到版本号才说明服务端在运行"
     }
   ]
 }

@@ -355,6 +355,28 @@ export struct SettingsPage {
                     this.openPrivacyPolicy();
                   })
               }
+              // 服务端安装向导常驻入口（手机装了 APP 但电脑没装服务端时的自助指引）
+              PressedRow({
+                a11yText: this.resStr('settings_guide'),
+                onActivated: (): void => {
+                  this.pathStack.pushPathByName('guide', null);
+                }
+              }) {
+                Row({ space: 12 }) {
+                  SymbolGlyph($r('sys.symbol.computer'))
+                    .fontSize(22)
+                    .fontColor([$r('sys.color.brand')])
+                  Text($r('app.string.settings_guide'))
+                    .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                    .fontColor($r('sys.color.brand'))
+                    .layoutWeight(1)
+                  SymbolGlyph($r('sys.symbol.chevron_forward'))
+                    .fontSize(20)
+                    .fontColor([$r('sys.color.icon_tertiary')])
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+              }
             }
             .alignItems(HorizontalAlign.Start)
             .width('100%')
