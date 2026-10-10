@@ -4,6 +4,8 @@
 
 本仓库为 **Monorepo**：`daemon/`（Go Linux 守护进程）+ `apps/harmony/`（鸿蒙 APP）+ `protocol/`（协议单源）+ `tools/`（对拍/单测 harness）。v1 代码已全部落地（M0–M4），**真机验收（Ubuntu GNOME Wayland + 鸿蒙真机）待执行**——程序见 [docs/PROBE-LINUX.md](docs/PROBE-LINUX.md)，里程碑状态见 [docs/HANDOFF.md](docs/HANDOFF.md)。执行入口：[docs/HANDOFF.md](docs/HANDOFF.md)。
 
+> **使用者看这里**：在电脑上安装服务端、手机配对连接的完整步骤见 [docs/SETUP.md](docs/SETUP.md)；下文为开发向内容。
+
 ## 代码地图与常用命令
 
 | 目录 | 内容 | 常用命令 |
@@ -29,6 +31,7 @@ git tag v1.0.0 && git push origin v1.0.0
 
 | 文件 | 内容 |
 | --- | --- |
+| [docs/SETUP.md](docs/SETUP.md) | **安装与使用指南（使用者入口：服务端安装 / 配对连接 / 主控页用法 / 排查表）** |
 | [docs/PRD.md](docs/PRD.md) | 产品需求（§0 执行铁律与事实源裁决、§4 功能规格、§11 验收） |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | **执行交接（agent 第一入口：环境 / 里程碑 M0–M5 与通过标准 / 关键坑→文档 ID / 红线）** |
 | [docs/HARMONY-DOCIDS.md](docs/HARMONY-DOCIDS.md) | devecocli 官方文档 ID 索引（鸿蒙 API 查证唯一入口） |

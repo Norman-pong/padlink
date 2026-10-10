@@ -1,5 +1,7 @@
 # padlink daemon（padlinkd）
 
+> 使用者向的「装服务端 → 手机配对连接 → 排查」完整指南见 [docs/SETUP.md](../docs/SETUP.md)；本文档为开发/运维向。
+
 PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 cgo，macOS 经薄 cgo 封装调 Quartz CGEvent，见 docs/PLAN-MACOS.md）。交付：协议编解码（黄金向量对拍）、注入编排、Linux uinput / macOS CGEvent 双注入后端与 `--test` 注入自测、网络层（发现应答 / 配对 / token 认证 / TCP 会话 / UDP 数据面）、wl-clipboard 文本注入、`padlinkctl` 控制通道与安装物。
 
 ## 模块划分
