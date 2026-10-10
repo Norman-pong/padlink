@@ -1,5 +1,6 @@
 // Package control 实现 padlinkctl ↔ padlinkd 的本机控制通道：
-// Unix socket（$XDG_RUNTIME_DIR/padlinkd/control.sock）上的行分隔 JSON 协议。
+// Unix socket（Linux $XDG_RUNTIME_DIR/padlinkd/control.sock；
+// macOS $TMPDIR/padlinkd/control.sock）上的行分隔 JSON 协议。
 package control
 
 import (
@@ -11,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -23,14 +25,20 @@ const (
 	maxLineBytes = 64 * 1024
 )
 
-// ErrDisabled 表示 XDG_RUNTIME_DIR 未设置：控制通道禁用（调用方告警后继续）。
-var ErrDisabled = errors.New("XDG_RUNTIME_DIR 未设置，控制通道禁用（ctl 与配对终端展示不可用）")
+// ErrDisabled 表示无可用运行目录（Linux 上 XDG_RUNTIME_DIR 未设置）：控制通道禁用（调用方告警后继续）。
+var ErrDisabled = errors.New("无运行目录（XDG_RUNTIME_DIR 未设置），控制通道禁用（ctl 与配对终端展示不可用）")
 
-// SocketPath 返回控制 socket 路径；无 XDG_RUNTIME_DIR 时返回 ErrDisabled。
+// SocketPath 返回控制 socket 路径。Linux 用 $XDG_RUNTIME_DIR（缺失即 ErrDisabled）；
+// macOS 无 XDG 概念，回落 os.TempDir()（launchd 代理与终端同用户共享 TMPDIR，
+// 两侧各自计算可收敛到同一路径）。
 func SocketPath() (string, error) {
 	rd := os.Getenv("XDG_RUNTIME_DIR")
 	if rd == "" {
-		return "", ErrDisabled
+		if runtime.GOOS == "darwin" {
+			rd = os.TempDir()
+		} else {
+			return "", ErrDisabled
+		}
 	}
 	return filepath.Join(rd, sockDir, sockName), nil
 }

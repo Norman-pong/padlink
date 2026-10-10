@@ -12,13 +12,13 @@ PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 
 | `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin 构建）：绝对定位位移/像素滚轮/键鼠 post 与 TCC 辅助功能权限检测 |
 | `internal/pairing` | 4 位确认码生命周期（60s/最多 5 次/常数时间比较/同时最多一轮）、token 签发与 `clients.json`（0600）持久化、客户端上限 4、`notify-send` 展示 |
 | `internal/session` | TCP 会话（HELLO 协商、配对路径、逐包 token 认证、心跳超时、速率限制、会话结束按键兜底）与 UDP 数据面（发现应答、MOVE/SCROLL/ECHO）；所有注入经单一 goroutine 串行化 |
-| `internal/textinject` | TEXT → wl-clipboard 剪贴板备份/写入/CtrlV/延迟恢复（`--no-newline`、显式 `--type`、可配恢复延迟；缺失/超时结构化降级） |
-| `internal/hostinfo` | 启动自检：WAYLAND_DISPLAY 缺失、gsettings accel-profile 非 flat（双重加速警告） |
-| `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON） |
+| `internal/textinject` | TEXT → 剪贴板备份/写入/粘贴组合键/延迟恢复：Linux 走 wl-clipboard（`--no-newline`、显式 `--type`、可配恢复延迟），macOS 走 pbcopy/pbpaste（Cmd+V）；缺失/超时结构化降级 |
+| `internal/hostinfo` | Linux 启动自检：WAYLAND_DISPLAY 缺失、gsettings accel-profile 非 flat（双重加速警告）；macOS 由调用方跳过（绝对定位注入不经过加速曲线） |
+| `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON；Linux 取 `$XDG_RUNTIME_DIR`，macOS 回落 `$TMPDIR`） |
 | `cmd/padlinkd` | 守护进程入口（`--test` 自测 + 常驻模式） |
 | `cmd/padlinkctl` | CLI：status / pair / clients / unpair |
 | `cmd/padlinktoy` | 联调工具三件套：record/replay 合成录制回放、fuzz 协议变异模糊测试、latency ECHO RTT 压测（PRD §2.2 `tools/` 的 daemon 侧承载） |
-| `packaging/` | 安装物与发版脚本（udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子脚本） |
+| `packaging/` | 安装物与发版脚本（Linux：udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子；macOS：launchd LaunchAgent plist 模板与 install.sh） |
 
 ## 构建与测试
 
@@ -34,6 +34,13 @@ GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinkctl-linux-arm64 ./cmd/padlin
 GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinktoy-linux-amd64 ./cmd/padlinktoy
 GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlinktoy
 ```
+
+## 安装（macOS，Apple Silicon / Intel）
+
+GitHub Releases 下载 `padlink_<版本>_darwin_<arch>.tar.gz`，解压后在包根目录执行 `./install.sh`
+（二进制装 `~/.local/bin`，LaunchAgent 装 `~/Library/LaunchAgents/`，全程无需 sudo）。
+首次运行需两项系统授权（各弹一次窗）：**辅助功能**（注入前提，不授权则事件被静默丢弃）与
+**接受传入连接**（局域网端口 53021）。日志在 `~/Library/Logs/padlinkd.log`。
 
 ## 安装（Ubuntu 26.04 / GNOME Wayland）
 

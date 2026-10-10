@@ -3,7 +3,6 @@
 package uinput
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -24,14 +23,12 @@ type Device struct {
 	wheel int32 // 待合成 REL_WHEEL_HI_RES 累积（1/120 格）
 }
 
-// TCC 辅助功能授权等待参数：弹窗后轮询，超时退出让用户授权后重跑。
-const (
-	axPollInterval = 500 * time.Millisecond
-	axWaitTimeout  = 2 * time.Minute
-)
+// TCC 辅助功能授权等待：弹窗后轮询直到授权；不设超时——launchd 场景下超时会引发
+// 退出/重启反复弹窗，前台场景用户可自行 Ctrl+C 中断。
+const axPollInterval = 500 * time.Millisecond
 
 // Open 过 TCC 辅助功能门控后返回后端。未授权时 CGEvent 注入被系统静默丢弃
-// （PoC 实测），所以先弹系统授权框再轮询等待授权，而不是带病启动。
+// （PoC 实测），所以先弹系统授权框再驻留轮询授权，而不是带病启动。
 func Open() (*Device, error) {
 	if quartz.Trusted(false) {
 		return &Device{}, nil
@@ -39,16 +36,20 @@ func Open() (*Device, error) {
 	fmt.Fprintln(os.Stderr, "padlinkd 需要「辅助功能」权限才能注入键鼠事件：")
 	fmt.Fprintln(os.Stderr, "  系统设置 → 隐私与安全性 → 辅助功能 → 勾选本终端（或 padlinkd）")
 	quartz.Trusted(true) // 拉起系统授权弹窗
-	fmt.Fprintln(os.Stderr, "等待授权中…（授权后自动继续，最多等待 2 分钟）")
-	deadline := time.Now().Add(axWaitTimeout)
-	for time.Now().Before(deadline) {
+	fmt.Fprintln(os.Stderr, "等待授权中…（授权后自动继续；前台运行可按 Ctrl+C 取消）")
+	remind := time.NewTicker(30 * time.Second)
+	defer remind.Stop()
+	for {
 		if quartz.Trusted(false) {
 			fmt.Fprintln(os.Stderr, "已获得辅助功能权限")
 			return &Device{}, nil
 		}
-		time.Sleep(axPollInterval)
+		select {
+		case <-time.After(axPollInterval):
+		case <-remind.C:
+			fmt.Fprintln(os.Stderr, "仍在等待辅助功能授权（系统设置 → 隐私与安全性 → 辅助功能）…")
+		}
 	}
-	return nil, errors.New("uinput(darwin): 等待辅助功能授权超时——请在 系统设置 → 隐私与安全性 → 辅助功能 勾选本终端（或 padlinkd）后重跑")
 }
 
 // KeyEvent 投递键盘/鼠标按钮事件；value 非 0 即按下（含连发值 2）。

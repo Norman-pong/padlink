@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -167,6 +168,19 @@ func TestSocketRoundTripFourCommands(t *testing.T) {
 
 func TestDisabledWithoutXDGRuntimeDir(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
+	if runtime.GOOS == "darwin" {
+		// darwin 回落 os.TempDir()，控制通道保持可用
+		srv, err := Start(&fakeBackend{})
+		if err != nil {
+			t.Fatalf("darwin 回落 TMPDIR 后 Start: %v", err)
+		}
+		t.Cleanup(srv.Stop)
+		want := filepath.Join(os.TempDir(), sockDir, sockName)
+		if srv.Path() != want {
+			t.Errorf("darwin socket 路径 = %q, want %q", srv.Path(), want)
+		}
+		return
+	}
 	if _, err := Start(&fakeBackend{}); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("got %v, want ErrDisabled", err)
 	}
