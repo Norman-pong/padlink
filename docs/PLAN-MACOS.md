@@ -8,10 +8,21 @@
 - M-macOS-1 ✅ 注入后端（quartz/uinput_darwin/键表/AX 门控），`--test` 真机 PASSED
 - M-macOS-2 ✅ 文本注入 pbcopy/pbpaste 后端 + Cmd+V 平台化
 - M-macOS-3 ✅ 控制 socket `$TMPDIR` 回落、配对通知 osascript、launchd 安装物（install.sh 本机实测通过）
-- M-macOS-4 ½ CI 迁 macos-latest + darwin cgo 构建（快照全产物验证）；端到端联调待做
+- M-macOS-4 ✅ CI 迁 macos-latest + darwin cgo 构建（快照 8 产物验证）；端到端联调通过——
+  模拟器经调试手动配对入口连本机 Mac：配对（15s 慢输码）→ Connected（RTT 1ms）→
+  位移/按键/点击注入全部实证（光标坐标探针 + TextEdit AppleScript 回读）
 
 设计变更记录：AX 授权等待从「2 分钟超时退出」改为「驻留轮询不限时」——
 launchd 场景下超时退出会触发 KeepAlive 重启并反复弹系统授权框；前台场景用户可 Ctrl+C 中断。
+
+E2E 实测结论（2026-10-09，模拟器 Pura90API26 ↔ 本机 Mac）：
+
+1. **模拟器发现非对称**：UDP HELLO 能出模拟器（宿主收到，源地址 127.0.0.1），
+   但应答路由不回去——广播发现在模拟器不可用，实锤只能走手动 IP（调试入口）。
+2. **踩出跨平台配对缺陷**（已修）：配对会话 10s 读超时 < 用户读码输码时长，
+   慢输码必断连。修复=配对轮次期间读超时宽限至码 TTL+10s（session 层 pairWaitUntil）。
+3. 滚轮手机端双指手势 CLI 无法模拟，注入路径由 `--test` 像素滚轮覆盖；
+   语音听写模拟器无 MIC 链路，留真机验证。
 
 ## 0. PoC 结论（本机实测，/tmp/padlink-mac-poc 一次性程序）
 

@@ -26,7 +26,7 @@ import { CryptoHmacProvider } from '../net/CryptoHmac';
 const TAG: string = 'PadLink.Pairing';
 const DOMAIN: number = 0x5050;
 // daemon 单端口约定：发现广播与 TCP/UDP 数据面同端口（PROTOCOL.md §1）。
-const DEFAULT_PORT: number = 53021;
+export const DEFAULT_PORT: number = 53021;
 // PAIR_OK/PAIR_NAK 应答超时：覆盖 daemon 侧校验与回包（本机局域网 RTT ≪ 1s，取 4s 容忍抖动）。
 const PAIR_REPLY_TIMEOUT_MS: number = 4000;
 

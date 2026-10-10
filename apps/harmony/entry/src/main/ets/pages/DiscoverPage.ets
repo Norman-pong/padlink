@@ -7,9 +7,10 @@
 // 状态栏避让），列表 clip(false)+cachedCount 让滚动内容穿透到标题栏下方显影模糊
 // （ui-design-navigation-dynamic-blur 官方模式）。页底色/卡面 token 对齐 D3 分组列表规范。
 import { HdsNavDestination } from '@kit.UIDesignKit';
-import { PairPhase } from '../common/viewmodel/PairingModel';
+import { DEFAULT_PORT, PairPhase } from '../common/viewmodel/PairingModel';
 import type { PairingModel } from '../common/viewmodel/PairingModel';
-import type { DiscoveredHost } from '../common/net/DiscoverCore';
+import type { SettingsModel } from '../common/viewmodel/SettingsModel';
+import { DiscoveredHost } from '../common/net/DiscoverCore';
 import { pageResStr, pageResFmt } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { PressedRow } from './PressedRow';
@@ -22,6 +23,9 @@ const PAIRED_STAY_MS: number = 800; // 成功提示停留时长，之后返回�
 export struct DiscoverPage {
   @Require @Param pathStack: NavPathStack;
   @Require @Param pairing: PairingModel;
+  @Require @Param settings: SettingsModel;
+
+  @Local manualIp: string = ''; // 调试手动配对的 IP 输入镜像
 
   private scroller: Scroller = new Scroller(); // 主机列表滚动器（标题栏滚动模糊联动）
   private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
@@ -307,9 +311,57 @@ export struct DiscoverPage {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       }
+      // 调试入口（设置页开启调试面板后可见）：模拟器 NAT/AP 隔离等广播不可达场景，
+      // 手工输入主机 IP 走与列表选中完全一致的配对流程（selectHost 复用，不新增协议路径）。
+      if (this.settings.debugEnabled) {
+        this.manualPairCard()
+      }
     }
     .width('100%')
     .layoutWeight(1)
+  }
+
+  @Builder
+  manualPairCard() {
+    Column({ space: 8 }) {
+      Text($r('app.string.debug_manual_pair_title'))
+        .fontSize($r('sys.float.ohos_id_text_size_body2'))
+        .fontColor($r('sys.color.font_secondary'))
+      Row({ space: 8 }) {
+        TextInput({ text: this.manualIp, placeholder: this.resStr('debug_manual_pair_ip_hint') })
+          .height(40)
+          .layoutWeight(1)
+          .backgroundColor($r('sys.color.comp_background_tertiary'))
+          .onChange((v: string) => {
+            this.manualIp = v;
+          })
+        Button($r('app.string.debug_manual_pair_button'))
+          .onClick(() => {
+            this.onManualPair();
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  // 手动配对：宽松校验点分四段（调试工具，连接错误由配对失败态兜底），构造合成
+  // DiscoveredHost 走既有 selectHost 流程。
+  private onManualPair(): void {
+    const ip: string = this.manualIp.trim();
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+      this.getUIContext().getPromptAction().showToast({
+        message: this.resStr('debug_manual_pair_ip_invalid'),
+        duration: 2000
+      });
+      return;
+    }
+    const h: DiscoveredHost = new DiscoveredHost();
+    h.ip = ip;
+    h.port = DEFAULT_PORT;
+    h.name = ip;
+    this.pairing.selectHost(h);
   }
 
   // 主机行副文案：os · daemon 版本 · 已配对数（展示与无障碍播报共用）。

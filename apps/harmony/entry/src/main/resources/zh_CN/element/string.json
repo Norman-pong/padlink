@@ -441,6 +441,22 @@
       "value": "手动连接（M1 联调）"
     },
     {
+      "name": "debug_manual_pair_title",
+      "value": "手动配对（调试入口）"
+    },
+    {
+      "name": "debug_manual_pair_ip_hint",
+      "value": "主机 IP 地址"
+    },
+    {
+      "name": "debug_manual_pair_button",
+      "value": "配对"
+    },
+    {
+      "name": "debug_manual_pair_ip_invalid",
+      "value": "请输入合法的主机 IP 地址"
+    },
+    {
       "name": "debug_ip_hint",
       "value": "主机 IP，如 192.168.1.10"
     },

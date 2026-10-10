@@ -66,7 +66,7 @@ struct Index {
   @Builder
   pageMap(name: string) {
     if (name === 'discover') {
-      DiscoverPage({ pathStack: this.pathStack, pairing: this.pairing })
+      DiscoverPage({ pathStack: this.pathStack, pairing: this.pairing, settings: this.settings })
     } else if (name === 'settings') {
       SettingsPage({ settings: this.settings, touchpad: this.touchpad, pathStack: this.pathStack })
     } else if (name === 'debug') {
