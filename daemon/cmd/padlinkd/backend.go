@@ -32,8 +32,12 @@ func (b *ctlBackend) Status() control.StatusData {
 		PairedClients:  b.store.Count(),
 		ActiveSessions: b.srv.ActiveSessions(),
 		Pairing:        pi,
-		Stats:          control.StatsInfo{HMACFail: st.HMACFail, Dropped: st.Dropped},
-		AccelProfile:   b.accel,
+		Stats: control.StatsInfo{
+			HMACFail:  st.HMACFail,
+			Dropped:   st.Dropped,
+			Preempted: st.Preempted,
+		},
+		AccelProfile: b.accel,
 	}
 }
 
