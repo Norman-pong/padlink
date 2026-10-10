@@ -37,8 +37,8 @@ base="https://github.com/$REPO/releases/download/$tag"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-echo "下载 $pkg（$tag）…"
-$CURL "$base/$pkg" -o "$tmp/$pkg" || die "下载失败：$base/$pkg（该平台的安装包可能尚未发布）"
+echo "下载 ${pkg}（${tag}）…"
+$CURL "$base/$pkg" -o "$tmp/$pkg" || die "下载失败：${base}/${pkg}（该平台的安装包可能尚未发布）"
 $CURL "$base/checksums.txt" -o "$tmp/checksums.txt" || die "下载 checksums.txt 失败"
 
 grep "  $pkg\$" "$tmp/checksums.txt" > "$tmp/check.line" || die "checksums.txt 中未找到 $pkg"
