@@ -730,11 +730,11 @@
     },
     {
       "name": "guide_download_url",
-      "value": "github.com/Norman-pong/padlink/releases"
+      "value": "github.com/Norman-pong/padlink"
     },
     {
       "name": "guide_step1_hint",
-      "value": "Download the package for your system (deb for Ubuntu, darwin tar.gz for Mac)."
+      "value": "Copy the one-line install command near the top of the page and run it in a terminal on your computer, or follow the manual steps below."
     },
     {
       "name": "guide_step2_title",

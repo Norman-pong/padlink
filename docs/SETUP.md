@@ -8,7 +8,22 @@
 
 ## 一、在电脑上安装服务端
 
-### Ubuntu 26.04
+### 一行命令安装（Ubuntu / macOS，推荐）
+
+在电脑终端执行：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+```
+
+脚本自动识别系统与架构，下载最新 Release 安装包、校验 SHA-256 后完成安装（Ubuntu 仅 udev 规则一步需要 sudo 密码）。装完后按平台收尾：
+
+- **Ubuntu**：**注销并重新登录**（首次安装必须，否则注入权限不生效）；语音听写再装 `sudo apt install wl-clipboard`；建议 `gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'`。
+- **macOS**：允许首次运行弹出的两项授权——「辅助功能」与「接受传入连接」。
+
+`padlinkctl status` 能看到版本号即安装成功。以下为手动安装（备选）。
+
+### Ubuntu 26.04（手动安装）
 
 1. 从 GitHub Releases 下载对应包：
    - **deb**（推荐）：`sudo apt install ./padlink_<版本>_linux_amd64.deb`
@@ -34,7 +49,7 @@
    gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'
    ```
 
-### macOS
+### macOS（手动安装）
 
 1. 从 GitHub Releases 下载 `padlink_<版本>_darwin_<arch>.tar.gz`（arm64 = Apple Silicon，amd64/x86_64 = Intel），解压后在包根目录执行 `./install.sh`（全程无需 sudo）。
 2. 首次运行系统会各弹一次授权窗，**两项都必须允许**：

@@ -4,7 +4,11 @@
 
 本仓库为 **Monorepo**：`daemon/`（Go Linux 守护进程）+ `apps/harmony/`（鸿蒙 APP）+ `protocol/`（协议单源）+ `tools/`（对拍/单测 harness）。v1 代码已全部落地（M0–M4），**真机验收（Ubuntu GNOME Wayland + 鸿蒙真机）待执行**——程序见 [docs/PROBE-LINUX.md](docs/PROBE-LINUX.md)，里程碑状态见 [docs/HANDOFF.md](docs/HANDOFF.md)。执行入口：[docs/HANDOFF.md](docs/HANDOFF.md)。
 
-> **使用者看这里**：在电脑上安装服务端、手机配对连接的完整步骤见 [docs/SETUP.md](docs/SETUP.md)；下文为开发向内容。
+> **使用者看这里**：在电脑上安装服务端、手机配对连接的完整步骤见 [docs/SETUP.md](docs/SETUP.md)；下文为开发向内容。电脑端一行安装：
+>
+> ```sh
+> curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+> ```
 
 ## 代码地图与常用命令
 

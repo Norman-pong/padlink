@@ -101,6 +101,14 @@ nfpms:
 checksum:
   name_template: "checksums.txt"
 
+release:
+  extra_files:
+    # 一行安装脚本随版本入资产（不可变副本）；脚本只取包验签，安装逻辑单源在包内 install.sh
+    - daemon/packaging/install-remote.sh
+  footer: |
+    ---
+    一行安装（Linux/macOS）：`curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh`
+
 changelog:
   use: git
   sort: asc

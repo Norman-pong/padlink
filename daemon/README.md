@@ -39,14 +39,28 @@ GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlin
 
 ## 安装（macOS，Apple Silicon / Intel）
 
-GitHub Releases 下载 `padlink_<版本>_darwin_<arch>.tar.gz`，解压后在包根目录执行 `./install.sh`
+**一行命令（推荐）**：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+```
+
+（自动识别架构、下载最新 Release、SHA-256 校验后执行包内 install.sh。）
+
+手动方式：GitHub Releases 下载 `padlink_<版本>_darwin_<arch>.tar.gz`，解压后在包根目录执行 `./install.sh`
 （二进制装 `~/.local/bin`，LaunchAgent 装 `~/Library/LaunchAgents/`，全程无需 sudo）。
 首次运行需两项系统授权（各弹一次窗）：**辅助功能**（注入前提，不授权则事件被静默丢弃）与
 **接受传入连接**（局域网端口 53021）。日志在 `~/Library/Logs/padlinkd.log`。
 
 ## 安装（Ubuntu 26.04 / GNOME Wayland）
 
-### 方式一：从 GitHub Releases 安装（推荐）
+### 方式零：一行命令（推荐）
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/daemon/packaging/install-remote.sh | sh
+```
+
+### 方式一：从 GitHub Releases 安装
 
 - **deb（Debian/Ubuntu）**：`sudo apt install ./padlink_<版本>_linux_amd64.deb`
   ——udev 规则与 user 单元随包安装，postinst 自动重载 udev。

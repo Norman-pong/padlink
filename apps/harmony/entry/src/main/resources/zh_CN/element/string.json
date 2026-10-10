@@ -730,11 +730,11 @@
     },
     {
       "name": "guide_download_url",
-      "value": "github.com/Norman-pong/padlink/releases"
+      "value": "github.com/Norman-pong/padlink"
     },
     {
       "name": "guide_step1_hint",
-      "value": "打开后下载对应电脑系统的安装包（Ubuntu 选 deb，Mac 选 darwin tar.gz）。"
+      "value": "打开后复制页面上方的一行安装命令，在电脑终端执行即可；也可按下方步骤手动安装。"
     },
     {
       "name": "guide_step2_title",
