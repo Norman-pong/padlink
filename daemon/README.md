@@ -1,6 +1,6 @@
 # padlink daemon（padlinkd）
 
-PadLink 的 Linux 守护进程（Go，无 cgo、零第三方依赖单二进制）。交付：协议编解码（黄金向量对拍）、注入编排、uinput 后端与 `--test` 注入自测、网络层（发现应答 / 配对 / token 认证 / TCP 会话 / UDP 数据面）、wl-clipboard 文本注入、`padlinkctl` 控制通道与安装物。
+PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 cgo，macOS 经薄 cgo 封装调 Quartz CGEvent，见 docs/PLAN-MACOS.md）。交付：协议编解码（黄金向量对拍）、注入编排、Linux uinput / macOS CGEvent 双注入后端与 `--test` 注入自测、网络层（发现应答 / 配对 / token 认证 / TCP 会话 / UDP 数据面）、wl-clipboard 文本注入、`padlinkctl` 控制通道与安装物。
 
 ## 模块划分
 
@@ -8,7 +8,8 @@ PadLink 的 Linux 守护进程（Go，无 cgo、零第三方依赖单二进制�
 | --- | --- |
 | `internal/proto` | 线协议 v1 编解码（19B 头 + payload，大端）、HMAC-SHA256 截断认证；以 `protocol/testvectors.json` 为对拍单源 |
 | `internal/inject` | 平台无关注入编排：MOVE/SCROLL/BUTTON/KEY → 事件序列、修饰键组合（CtrlV）、daemon 侧 key repeat（250ms + 33ms）、HID usage → Linux KEY_* 映射 |
-| `internal/uinput` | Linux uinput 后端（`DeviceWriter` 实现）；`caps.go` 为跨平台可测的能力位/ABI 纯逻辑，非 Linux 平台由 stub 保证可编译 |
+| `internal/uinput` | 注入后端（`DeviceWriter` 实现）：Linux uinput + macOS CGEvent（darwin）；`caps.go` 为跨平台可测的能力位/ABI 纯逻辑，其余平台由 stub 保证可编译 |
+| `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin 构建）：绝对定位位移/像素滚轮/键鼠 post 与 TCC 辅助功能权限检测 |
 | `internal/pairing` | 4 位确认码生命周期（60s/最多 5 次/常数时间比较/同时最多一轮）、token 签发与 `clients.json`（0600）持久化、客户端上限 4、`notify-send` 展示 |
 | `internal/session` | TCP 会话（HELLO 协商、配对路径、逐包 token 认证、心跳超时、速率限制、会话结束按键兜底）与 UDP 数据面（发现应答、MOVE/SCROLL/ECHO）；所有注入经单一 goroutine 串行化 |
 | `internal/textinject` | TEXT → wl-clipboard 剪贴板备份/写入/CtrlV/延迟恢复（`--no-newline`、显式 `--type`、可配恢复延迟；缺失/超时结构化降级） |

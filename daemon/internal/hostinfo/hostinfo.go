@@ -44,6 +44,7 @@ const accelCheckTimeout = 3 * time.Second
 const FlatHint = "gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'"
 
 // Check 执行自检。/dev/uinput 存在性不在此查（uinput.Open 的错误文案已覆盖）。
+// 本包检查项（Wayland/gsettings）仅对 Linux 有意义，非 Linux 平台由调用方跳过。
 func Check(opts Options) Report {
 	if opts.Env == nil {
 		opts.Env = os.Getenv

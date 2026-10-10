@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -77,10 +78,15 @@ type config struct {
 func run(cfg config) error {
 	logf := log.New(os.Stdout, "padlinkd ", log.LstdFlags)
 
-	// ① 主机环境自检（警告不阻断）
-	rep := hostinfo.Check(hostinfo.Options{})
-	for _, f := range rep.Findings {
-		logf.Printf("警告[%s] %s", f.Check, f.Message)
+	// ① 主机环境自检（警告不阻断）；hostinfo 检查项仅对 Linux 有意义
+	// （macOS 指针加速由 darwin 注入后端的绝对定位语义绕开，docs/PLAN-MACOS.md §2.2）。
+	// 非 Linux 平台 rep 保持零值（AccelProfile 空 = 未检测到，控制通道语义不变）。
+	var rep hostinfo.Report
+	if runtime.GOOS == "linux" {
+		rep = hostinfo.Check(hostinfo.Options{})
+		for _, f := range rep.Findings {
+			logf.Printf("警告[%s] %s", f.Check, f.Message)
+		}
 	}
 
 	// ② 注入后端（uinput.Open 失败即 fatal，错误文案含处置指引）
