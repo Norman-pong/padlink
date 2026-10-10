@@ -62,18 +62,25 @@ type Config struct {
 	DaemonVersion string
 	Verbose       bool
 	Log           *log.Logger // nil 时用标准 logger
+
+	// PreemptCooldown 非持权设备被拒后的冷静期（默认 15s，PROTOCOL.md §4.9；测试可压小）。
+	PreemptCooldown time.Duration
+	// PreemptIdle 持权设备多久无输入算"没有在操作"（默认 1s；测试可压小）。
+	PreemptIdle time.Duration
 }
 
 // Stats 计数器（原子）。
 type Stats struct {
-	HMACFail atomic.Uint64 // FlagAuth 包无匹配 token 或 HMAC 错
-	Dropped  atomic.Uint64 // 解码失败 / 超速丢弃 / UDP 未认证丢弃等
+	HMACFail  atomic.Uint64 // FlagAuth 包无匹配 token 或 HMAC 错
+	Dropped   atomic.Uint64 // 解码失败 / 超速丢弃 / UDP 未认证丢弃等
+	Preempted atomic.Uint64 // 多设备控制权裁决拒绝的控制事件数
 }
 
 // Snapshot 是 Stats 的瞬时快照。
 type Snapshot struct {
-	HMACFail uint64
-	Dropped  uint64
+	HMACFail  uint64
+	Dropped   uint64
+	Preempted uint64
 }
 
 // Server 是 TCP+UDP 服务。经 New 创建，Start 启动，Stop 优雅停止。
@@ -85,7 +92,8 @@ type Server struct {
 	onText func(string) error
 
 	stats   Stats
-	limiter *rateBucket // UDP 数据面全局限速（UDP 无会话概念）
+	limiter *rateBucket     // UDP 数据面全局限速（UDP 无会话概念）
+	arb     *controlArbiter // 多设备控制权裁决（TCP/UDP 控制事件统一过闸）
 
 	injCh      chan func()
 	closed     chan struct{}
@@ -134,6 +142,7 @@ func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.In
 		inj:      inj,
 		onText:   onText,
 		limiter:  newRateBucket(cfg.RatePerSec, cfg.RateBurst),
+		arb:      newControlArbiter(cfg.PreemptCooldown, cfg.PreemptIdle),
 		injCh:    make(chan func(), MaxInflightInj),
 		closed:   make(chan struct{}),
 		sessions: make(map[*tcpSession]struct{}),
@@ -207,7 +216,11 @@ func (s *Server) Stop() {
 
 // StatsSnapshot 返回计数快照（ctl status 用）。
 func (s *Server) StatsSnapshot() Snapshot {
-	return Snapshot{HMACFail: s.stats.HMACFail.Load(), Dropped: s.stats.Dropped.Load()}
+	return Snapshot{
+		HMACFail:  s.stats.HMACFail.Load(),
+		Dropped:   s.stats.Dropped.Load(),
+		Preempted: s.stats.Preempted.Load(),
+	}
 }
 
 // ActiveSessions 返回活跃 TCP 会话数。
@@ -223,8 +236,8 @@ func (s *Server) OnlineClients() map[string]bool {
 	defer s.mu.Unlock()
 	online := make(map[string]bool)
 	for sess := range s.sessions {
-		if sess.boundID != "" {
-			online[sess.boundID] = true
+		if id := sess.bound(); id != "" {
+			online[id] = true
 		}
 	}
 	return online
@@ -235,7 +248,7 @@ func (s *Server) KickClient(id string) int {
 	s.mu.Lock()
 	var targets []*tcpSession
 	for sess := range s.sessions {
-		if sess.boundID == id {
+		if sess.bound() == id {
 			targets = append(targets, sess)
 		}
 	}
@@ -243,7 +256,102 @@ func (s *Server) KickClient(id string) int {
 	for _, sess := range targets {
 		sess.conn.Close() // run() 退出 → finish 补发释放
 	}
+	s.arb.release(id) // 控制权不留给已解除配对的设备
 	return len(targets)
+}
+
+// admitControl 裁决一次控制事件（MOVE/SCROLL/BUTTON/KEY/TEXT，TCP 与 UDP 共用）。
+// 被拒时按需下发一次 NOTICE 并兜底释放该设备残留的按键（异常时序防御）。
+func (s *Server) admitControl(clientID string) bool {
+	if clientID == "" {
+		return true // 未绑定（理论上不会到达注入路径）：不参与多设备裁决
+	}
+	res := s.arb.admit(clientID, time.Now())
+	if res.Allowed {
+		return true
+	}
+	s.stats.Preempted.Add(1)
+	if res.FirstDenied {
+		s.vlogf("控制权在设备 %s，已拒绝 %s 的输入并进入冷静期（剩余 %.0fs）",
+			s.arb.primaryID(), clientID, res.RetryAfter.Seconds())
+		s.notifyControlBusy(clientID, res.RetryAfter)
+		if s.arb.isHeld(clientID) {
+			s.dropHeld(clientID) // 被拒设备若仍按住按键/按钮（竞态兜底），先补发释放
+		}
+	}
+	return false
+}
+
+// notifyControlBusy 向被拒设备下发 NOTICE(控制被占用, 剩余秒数)。
+// 手机端据此 toast；无 TCP 会话（仅 UDP 在发）时静默丢弃——提示不是控制路径的必要条件。
+func (s *Server) notifyControlBusy(clientID string, retryAfter time.Duration) {
+	sess := s.sessionOf(clientID)
+	if sess == nil {
+		return
+	}
+	secs := uint8(0)
+	if secsF := retryAfter.Seconds(); secsF > 0 {
+		n := int(secsF + 0.999)
+		if n > 255 {
+			n = 255
+		}
+		secs = uint8(n)
+	}
+	tok := sess.token()
+	if tok == nil {
+		return // 未认证会话无法封签，手机端会丢包
+	}
+	pkt := proto.NewNotice(sess.nextSeq(), proto.NoticeControlBusy, secs)
+	proto.Seal(&pkt, tok)
+	if err := sess.writePkt(pkt); err != nil {
+		s.vlogf("NOTICE 下发失败（%s）: %v", clientID, err)
+	}
+}
+
+// sessionOf 返回绑定该客户端的一条会话（优先已缓存 token 的会话）。
+func (s *Server) sessionOf(clientID string) *tcpSession {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var fallback *tcpSession
+	for sess := range s.sessions {
+		if sess.bound() != clientID {
+			continue
+		}
+		if sess.token() != nil {
+			return sess
+		}
+		fallback = sess
+	}
+	return fallback
+}
+
+// dropHeld 释放某设备残留的按键/按钮（被拒时的防御路径，PRD §11.2 零残留红线）。
+func (s *Server) dropHeld(clientID string) {
+	s.mu.Lock()
+	targets := make([]*tcpSession, 0, 1)
+	for sess := range s.sessions {
+		if sess.bound() == clientID {
+			targets = append(targets, sess)
+		}
+	}
+	s.mu.Unlock()
+	for _, sess := range targets {
+		if keys, btns := sess.takeHeld(); len(keys) > 0 || len(btns) > 0 {
+			s.enqueueBlocking(func() {
+				for _, hid := range keys {
+					if err := s.inj.Key(hid, false); err != nil {
+						s.logf("被拒设备残留按键释放失败 hid=0x%04X: %v", hid, err)
+					}
+				}
+				for _, b := range btns {
+					if err := s.inj.Button(b, false); err != nil {
+						s.logf("被拒设备残留按钮释放失败 btn=%d: %v", b, err)
+					}
+				}
+			})
+			s.logf("设备 %s 被拒控制权时仍按住输入，已补发释放", clientID)
+		}
+	}
 }
 
 func (s *Server) logf(format string, args ...any) {

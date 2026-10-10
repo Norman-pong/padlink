@@ -64,6 +64,11 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 		s.stats.HMACFail.Add(1)
 		return
 	}
+	// 多设备控制权与 TCP 同闸：MOVE/SCROLL 是光标与滚动的主通道，
+	// 不过闸则非持权设备仍能驱动指针（裁决形同虚设）。ECHO 属心跳，不受门控。
+	if isControlType(pkt.Type) && !s.admitControl(client.ID) {
+		return
+	}
 	switch pkt.Type {
 	case proto.TypeMove:
 		dx, dy := pkt.Move.DX, pkt.Move.DY
@@ -83,6 +88,5 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 	default:
 		// BUTTON/KEY/TEXT 属 TCP 专属；UDP 入站视为异常丢弃
 		s.stats.Dropped.Add(1)
-		_ = client
 	}
 }

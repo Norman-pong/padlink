@@ -9,16 +9,17 @@ PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 
 | 路径 | 职责 |
 | --- | --- |
 | `internal/proto` | 线协议 v1 编解码（19B 头 + payload，大端）、HMAC-SHA256 截断认证；以 `protocol/testvectors.json` 为对拍单源 |
-| `internal/inject` | 平台无关注入编排：MOVE/SCROLL/BUTTON/KEY → 事件序列、修饰键组合（CtrlV）、daemon 侧 key repeat（250ms + 33ms）、HID usage → Linux KEY_* 映射 |
+| `internal/inject` | 平台无关注入编排：MOVE/SCROLL/BUTTON/KEY → 事件序列、修饰键组合（CtrlV）、daemon 侧 key repeat（250ms + 33ms）、HID usage → Linux KEY_* 映射、多击点击序号合成（`click.go`：同键限时限距连续按下 → clickCount 1/2/3，仅 darwin 消费） |
 | `internal/uinput` | 注入后端（`DeviceWriter` 实现）：Linux uinput + macOS CGEvent（darwin）；`caps.go` 为跨平台可测的能力位/ABI 纯逻辑，其余平台由 stub 保证可编译 |
-| `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin 构建）：绝对定位位移/像素滚轮/键鼠 post 与 TCC 辅助功能权限检测 |
-| `internal/pairing` | 4 位确认码生命周期（60s/最多 5 次/常数时间比较/同时最多一轮）、token 签发与 `clients.json`（0600）持久化、客户端上限 4、`notify-send` 展示 |
-| `internal/session` | TCP 会话（HELLO 协商、配对路径、逐包 token 认证、心跳超时、速率限制、会话结束按键兜底）与 UDP 数据面（发现应答、MOVE/SCROLL/ECHO）；所有注入经单一 goroutine 串行化 |
+| `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin 构建）：绝对定位位移（按住按钮时投 `mouseDragged`）/像素滚轮/键鼠 post（按钮写 `kCGMouseEventClickState`，否则应用侧 clickCount 恒为 1、双击失效）与 TCC 辅助功能权限检测；`interval_darwin.m` 取系统双击间隔 |
+| `internal/pairing` | 4 位确认码生命周期（60s/最多 5 次/常数时间比较/同时最多一轮）、token 签发与 `clients.json`（0600）持久化、客户端上限 4、同设备指纹复用记录并轮换 token、`notify-send` 展示 |
+| `internal/session` | TCP 会话（HELLO 协商、配对路径、逐包 token 认证、心跳超时、速率限制、会话结束按键兜底）、UDP 数据面（发现应答、MOVE/SCROLL/ECHO）与多设备控制权裁决（`priority.go`：15s 冷静期 + 无操作接管 + NOTICE 下发）；所有注入经单一 goroutine 串行化 |
+| `internal/service` | `padlinkctl` 的启停与卸载编排：安装形态探测（Linux tar.gz / deb-rpm / macOS LaunchAgent）→ 有序 Plan（命令/删除/提示）→ 执行层（路径守卫 + 逐个 `os.Remove`） |
 | `internal/textinject` | TEXT → 剪贴板备份/写入/粘贴组合键/延迟恢复：Linux 走 wl-clipboard（`--no-newline`、显式 `--type`、可配恢复延迟），macOS 走 pbcopy/pbpaste（Cmd+V）；缺失/超时结构化降级 |
 | `internal/hostinfo` | Linux 启动自检：WAYLAND_DISPLAY 缺失、gsettings accel-profile 非 flat（双重加速警告）；macOS 由调用方跳过（绝对定位注入不经过加速曲线） |
 | `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON；Linux 取 `$XDG_RUNTIME_DIR`，macOS 回落 `$TMPDIR`） |
 | `cmd/padlinkd` | 守护进程入口（`--test` 自测 + 常驻模式） |
-| `cmd/padlinkctl` | CLI：status / pair / clients / unpair |
+| `cmd/padlinkctl` | CLI：status / pair / clients / unpair（控制通道）+ start / stop / restart / uninstall（服务管理与卸载，不经控制通道） |
 | `cmd/padlinktoy` | 联调工具三件套：record/replay 合成录制回放、fuzz 协议变异模糊测试、latency ECHO RTT 压测（PRD §2.2 `tools/` 的 daemon 侧承载） |
 | `packaging/` | 安装物与发版脚本（Linux：udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子；macOS：launchd LaunchAgent plist 模板与 install.sh） |
 
@@ -130,11 +131,12 @@ flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 
 | HELLO | C→S / S→C | 2B BE 版本号 | TCP **首包必须**未认证 HELLO；回应 `min(双方)`（当前 v1，降级仅告警） |
 | HELLO | C→S | 同上 | UDP 收到任意 HELLO（含广播）即回 DISCOVER_RESP 单播 |
 | DISCOVER_RESP | S→C（UDP 单播） | JSON | `{"name":<主机名>,"os":<runtime.GOOS>,"daemon":<版本>,"ver":1,"paired":<已配对数>,"port":53021}`；不认证、不含敏感信息 |
-| PAIR_REQ（发起） | C→S | 0B 或 JSON `{"name":"..."}`（≤64B） | 发起配对；**成功不回包**（确认码在主机侧展示：notify-send + `padlinkctl pair`）；失败回 PAIR_NAK；JSON 非法/名字超长 → ERR(2)+关 |
+| PAIR_REQ（发起） | C→S | 0B 或 JSON `{"name":"<设备名>","dev":"<设备指纹>"}`（name ≤64B，dev 32 位小写 hex 或省略） | 发起配对；**成功不回包**（确认码在主机侧展示：notify-send + `padlinkctl pair`）；失败回 PAIR_NAK；JSON 非法/名字超长/指纹非法 → ERR(2)+关 |
 | PAIR_REQ（尝试） | C→S | 4B ASCII 数字 | 校验确认码；其余 payload 形态 → ERR(2)+关 |
 | PAIR_OK | S→C | 32B token | 封 FlagAuth（用刚签发 token，手机可端到端自证）；同时持久化 `clients.json` |
 | PAIR_NAK | S→C | 1B reason | 0=码错 1=过期 2=超次作废 3=无进行中配对 4=客户端已满；不封签（此时无 token） |
 | ERR | S→C | 1B code | 1=auth（未认证/连续 5 次错 HMAC）2=proto（会话层违规或坏 payload）3=rate（速率持续超限） |
+| NOTICE | S→C（TCP） | 2B `code \| arg` | 唯一的 daemon→手机事件（随该客户端 token 封签）：code 0=控制被其他设备占用（arg=冷静期剩余秒数）；未定义 code 手机端忽略 |
 | BYE | C→S | 空 | 优雅断开；daemon 补发本会话未释放的按键/按钮 up |
 
 会话层规则：
@@ -146,6 +148,12 @@ flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 
 - 速率限制：每 TCP 会话令牌桶 **2000 包/s、桶 4000**；超限丢弃+计数，1s 窗口内超限丢弃 >2000 → ERR(3)+关。UDP 用同参数全局桶，超限静默丢弃。
 - 注入串行化：TCP 多会话 + UDP 并发源收敛到单一注入 goroutine（channel），保证事件序与 DeviceWriter 无并发写。
 - 会话结束（BYE/断开/超时/unpair）兜底补发本会话按下未释放的 KEY/BUTTON up（PRD §11.2 零残留的服务端兜底）。
+- 同设备识别：`dev` 指纹命中既有客户端 → **复用该记录并只轮换 32B token**（`id` 不变、不占新名额，满 4 台也能重配）；
+  未命中/未上报才新增记录；`dev` 非法 → ERR(2)+关。`clients` 输出指纹前缀便于人工比对。
+- 多设备控制权（PROTOCOL.md §4.9）：同一时刻只有一台设备（"第一设备"）的控制事件被注入，
+  MOVE/SCROLL（UDP 与 TCP）与 BUTTON/KEY/TEXT 同闸；非持权设备被拒后进入 **15s 冷静期**（`Config.PreemptCooldown`）
+  并收到一次 NOTICE(0, 剩余秒数)（手机端 toast），冷静期满且持权设备当前无操作（默认 1s 内无事件且无按住的按键/按钮，
+  `Config.PreemptIdle`）才放行接管；ECHO 等非控制事件不受门控。`stats.preempted` 计数被拒事件。
 
 ## 控制通道（padlinkctl）
 
@@ -158,17 +166,34 @@ Unix socket：`$XDG_RUNTIME_DIR/padlinkd/control.sock`（`XDG_RUNTIME_DIR` 未�
 {"ok":true,"data":{...}} / {"ok":false,"error":"..."}
 ```
 
-- status data：`version`、`uptime_sec`、`paired_clients`、`active_sessions`、`pairing{active,code,expires_in_sec}`、`stats{hmac_fail,dropped}`、`accel_profile`。
+- status data：`version`、`uptime_sec`、`paired_clients`、`active_sessions`、`pairing{active,code,expires_in_sec}`、`stats{hmac_fail,dropped,preempted}`、`accel_profile`。
 - pair：无进行中配对则生成新码（60s），返回 `{"code":"1234"}`；进行中复用同码（幂等）。
-- clients data：`[{id,name,paired_at,online}]`。
+- clients data：`[{id,name,dev_id,paired_at,online}]`（`dev_id` 为设备指纹，空 = 旧版手机未上报）。
 - unpair：删 token 并踢下线（会话兜底补发按键）。
 
 ```sh
 padlinkctl status
 padlinkctl pair           # 终端显示确认码（与桌面通知同码）
-padlinkctl clients
+padlinkctl clients         # 设备指纹列可看出"同一台手机重配"（同指纹、同 id）
 padlinkctl unpair 1a2b3c4d
 ```
+
+### 服务启停与卸载（不经控制 socket，padlinkd 未运行时也可用）
+
+```sh
+padlinkctl start / stop / restart        # Linux: systemctl --user；macOS: launchctl
+padlinkctl uninstall                     # 停服 + 移除服务定义与用户级二进制（保留配置与 token）
+padlinkctl uninstall --purge --yes       # 连配置/token/日志一起删（--purge 需二次确认，--yes 跳过）
+padlinkctl uninstall --dry-run           # 只打印将执行的命令与将删除的路径
+```
+
+- 安装形态探测：Linux tar.gz（`~/.local/bin` + `~/.config/systemd/user/padlink.service`）、
+  Linux deb/rpm（`/usr/bin` + `/usr/lib/systemd/user/padlink.service`）、macOS LaunchAgent（`~/Library/LaunchAgents/com.zhimingcool.padlink.plist`）。
+- deb/rpm 形态**不删** `/usr` 下文件，只提示 `sudo apt remove padlink` / `sudo dnf remove padlink`。
+- Linux udev 规则需 root，只打印可直接复制的 `sudo rm -f /etc/udev/rules.d/69-padlink-uinput.rules …`。
+- macOS `stop` 用 `launchctl bootout`（plist 的 `KeepAlive=true` 下 `kill` 会被 launchd 立刻拉起）；
+  `start` = `bootstrap`（已注册时该步无害失败）+ `kickstart`，`restart` 用 `kickstart -k`。
+- 删除前双重校验路径（构建期 + 执行期：绝对路径、Clean 后不变、含 `padlink`、落在期望前缀下），只 `os.Remove` 单个已知路径，不用 `RemoveAll`。
 
 ## 注入自测（无手机，调试分层第一层）
 

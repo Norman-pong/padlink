@@ -33,6 +33,10 @@ type DeviceWriter interface {
 	RelEvent(code uint16, value int32) error
 	Sync() error
 	Close() error
+	// SetPointerState 更新注入端指针状态（多击序号 + 按住的按钮位），在按钮事件与位移帧前调用。
+	// darwin 后端据此写 kCGMouseEventClickState 并选择 mouseDragged 事件类型；
+	// Linux uinput 后端为空实现（多击与拖拽由内核时间戳/合成器自行判定，见 click.go）。
+	SetPointerState(st PointerState)
 }
 
 // Config 可调参数；零值字段取默认值。
@@ -41,6 +45,10 @@ type Config struct {
 	RepeatDelay time.Duration
 	// RepeatInterval 连发间隔（默认 33ms，≈30Hz）。
 	RepeatInterval time.Duration
+	// DoubleClickInterval 多击合成的最大按下间隔（默认 500ms，仅 darwin 消费）。
+	DoubleClickInterval time.Duration
+	// DoubleClickDistance 多击合成的最大指针位移（计数，默认 8，仅 darwin 消费）。
+	DoubleClickDistance int32
 }
 
 type repeatHandle struct {
@@ -51,19 +59,27 @@ type repeatHandle struct {
 // Injector 把 MOVE/SCROLL/BUTTON/KEY 事件编排为带 SYN 边界的 uinput 事件序列，
 // 并管理 daemon 侧 key repeat。零值不可用，经 NewInjector 创建。
 type Injector struct {
-	w   DeviceWriter
-	cfg Config
+	w     DeviceWriter
+	cfg   Config
+	click *clickTracker
 
 	mu      sync.Mutex
 	repeats map[uint16]*repeatHandle // KEY_* code → 活跃连发
 }
 
 func NewInjector(w DeviceWriter, cfg Config) *Injector {
-	return &Injector{w: w, cfg: cfg, repeats: make(map[uint16]*repeatHandle)}
+	return &Injector{
+		w:       w,
+		cfg:     cfg,
+		click:   newClickTracker(cfg.DoubleClickInterval, cfg.DoubleClickDistance),
+		repeats: make(map[uint16]*repeatHandle),
+	}
 }
 
 // Move 写 REL_X/REL_Y 并以 SYN 收帧。
 func (in *Injector) Move(dx, dy int16) error {
+	in.click.moved(int32(dx), int32(dy))
+	in.w.SetPointerState(in.click.state()) // 拖拽中位移帧须带按住状态（darwin 选 mouseDragged）
 	if err := in.w.RelEvent(RelX, int32(dx)); err != nil {
 		return fmt.Errorf("REL_X: %w", err)
 	}
@@ -93,10 +109,16 @@ func (in *Injector) Scroll(dyHiRes int32) error {
 }
 
 // Button 注入鼠标按钮事件（btn 1=左 2=中 3=右），非法 btn 丢弃并报错。
+// 按下/抬起前先合成多击序号并交给后端（darwin 写 kCGMouseEventClickState）。
 func (in *Injector) Button(btn uint8, down bool) error {
 	code, ok := buttonCode(btn)
 	if !ok {
 		return fmt.Errorf("inject: 未知按钮号 %d", btn)
+	}
+	if down {
+		in.w.SetPointerState(in.click.press(btn, time.Now()))
+	} else {
+		in.w.SetPointerState(in.click.release(btn))
 	}
 	if err := in.w.KeyEvent(code, boolToInt32(down)); err != nil {
 		return fmt.Errorf("BTN code=%d: %w", code, err)

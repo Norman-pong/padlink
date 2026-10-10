@@ -21,6 +21,7 @@ const storeVersion = 1
 type Client struct {
 	ID       string    `json:"id"`        // 8 位 hex，ctl unpair 定位用
 	Name     string    `json:"name"`      // 手机显示名（配对时上报，可为空）
+	DevID    string    `json:"dev_id"`    // 设备指纹：手机首次运行生成的 16B 随机值 hex（空 = 旧版手机未上报）
 	TokenHex string    `json:"token_hex"` // 32B token 的 hex（文件权限 0600 保护）
 	PairedAt time.Time `json:"paired_at"`
 }
@@ -115,29 +116,53 @@ func (s *Store) Clients() []Client {
 	return out
 }
 
-// Add 签发新客户端：crypto/rand 32B token，绑定名称与当前时间，持久化后返回。
-// 超过上限返回 ErrClientsFull。
-func (s *Store) Add(name string) (Client, error) {
+// Issue 签发客户端凭据（配对成功的唯一写入路径）：
+// devID 命中既有记录 → 复用该记录（id 不变）并轮换 token（同一台手机重新配对，不占新名额）；
+// 未命中或 devID 为空 → 新增（超上限返回 ErrClientsFull）。
+// rotated 报告本次是否为同设备轮换。name 为空时不覆盖既有名称（手机未上报展示名）。
+func (s *Store) Issue(name, devID string) (client Client, rotated bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if devID != "" {
+		for i := range s.clients {
+			if s.clients[i].DevID != devID {
+				continue
+			}
+			prev := s.clients[i]
+			next := prev
+			if name != "" {
+				next.Name = name
+			}
+			if next.TokenHex, err = newTokenHex(); err != nil {
+				return Client{}, false, err
+			}
+			next.PairedAt = time.Now().UTC()
+			s.clients[i] = next
+			if err := s.saveLocked(); err != nil {
+				s.clients[i] = prev
+				return Client{}, false, err
+			}
+			return next, true, nil
+		}
+	}
 	if len(s.clients) >= s.MaxClients {
-		return Client{}, ErrClientsFull
+		return Client{}, false, ErrClientsFull
 	}
 	id, err := randHex(4)
 	if err != nil {
-		return Client{}, fmt.Errorf("pairing: 生成客户端 id: %w", err)
+		return Client{}, false, fmt.Errorf("pairing: 生成客户端 id: %w", err)
 	}
-	token := make([]byte, TokenLen)
-	if _, err := rand.Read(token); err != nil {
-		return Client{}, fmt.Errorf("pairing: 生成 token: %w", err)
+	tokenHex, err := newTokenHex()
+	if err != nil {
+		return Client{}, false, err
 	}
-	c := Client{ID: id, Name: name, TokenHex: hex.EncodeToString(token), PairedAt: time.Now().UTC()}
+	c := Client{ID: id, Name: name, DevID: devID, TokenHex: tokenHex, PairedAt: time.Now().UTC()}
 	s.clients = append(s.clients, c)
 	if err := s.saveLocked(); err != nil {
 		s.clients = s.clients[:len(s.clients)-1]
-		return Client{}, err
+		return Client{}, false, err
 	}
-	return c, nil
+	return c, false, nil
 }
 
 // Remove 删除指定客户端并持久化；id 不存在时 ok=false。
@@ -157,6 +182,22 @@ func (s *Store) Remove(id string) (Client, bool, error) {
 		return c, true, nil
 	}
 	return Client{}, false, nil
+}
+
+// HasDevID 报告是否存在该设备指纹的已配对记录（空指纹恒 false）。
+// 用于满额时仍放行同设备重配（Issue 走轮换路径，不占新名额）。
+func (s *Store) HasDevID(devID string) bool {
+	if devID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.clients {
+		if c.DevID == devID {
+			return true
+		}
+	}
+	return false
 }
 
 // LookupToken 按 token 精确匹配客户端（常数时间比较）。
@@ -210,4 +251,13 @@ func randHex(nBytes int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// newTokenHex 生成 32B 随机 token 的 hex 形态。
+func newTokenHex() (string, error) {
+	token := make([]byte, TokenLen)
+	if _, err := rand.Read(token); err != nil {
+		return "", fmt.Errorf("pairing: 生成 token: %w", err)
+	}
+	return hex.EncodeToString(token), nil
 }

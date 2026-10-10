@@ -63,10 +63,11 @@ type PairingInfo struct {
 	ExpiresInSec int    `json:"expires_in_sec,omitempty"`
 }
 
-// StatsInfo 丢包/认证失败计数。
+// StatsInfo 丢包/认证失败/控制权抢占计数。
 type StatsInfo struct {
-	HMACFail uint64 `json:"hmac_fail"`
-	Dropped  uint64 `json:"dropped"`
+	HMACFail  uint64 `json:"hmac_fail"`
+	Dropped   uint64 `json:"dropped"`
+	Preempted uint64 `json:"preempted"` // 多设备控制权裁决拒绝的控制事件数
 }
 
 // StatusData 是 status 命令的 data。
@@ -84,6 +85,7 @@ type StatusData struct {
 type ClientInfo struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
+	DevID    string    `json:"dev_id,omitempty"` // 设备指纹（空 = 旧版手机未上报）
 	PairedAt time.Time `json:"paired_at"`
 	Online   bool      `json:"online"`
 }

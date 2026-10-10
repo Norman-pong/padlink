@@ -57,6 +57,9 @@ func (w *capWriter) RelEvent(code uint16, value int32) error {
 	return nil
 }
 
+// SetPointerState 指针状态（本 harness 只关心事件序，不消费多击序号）。
+func (w *capWriter) SetPointerState(st inject.PointerState) {}
+
 func (w *capWriter) Sync() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -161,7 +164,7 @@ func newToyServer(t *testing.T) *toyServer {
 
 func addToken(t *testing.T, ts *toyServer) []byte {
 	t.Helper()
-	c, err := ts.store.Add("toy客户端")
+	c, _, err := ts.store.Issue("toy客户端", "")
 	if err != nil {
 		t.Fatalf("store.Add: %v", err)
 	}

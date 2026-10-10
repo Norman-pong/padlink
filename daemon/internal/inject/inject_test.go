@@ -37,6 +37,7 @@ func (e recordedEvent) String() string {
 type fakeDeviceWriter struct {
 	mu      sync.Mutex
 	events  []recordedEvent
+	pointer PointerState // 最近一次 SetPointerState（多击序号/按钮位断言用）
 	fail    bool
 	closed  bool
 	failErr error
@@ -52,6 +53,13 @@ func (f *fakeDeviceWriter) KeyEvent(code uint16, value int32) error {
 	}
 	f.events = append(f.events, recordedEvent{kindKeyEvent, code, value})
 	return nil
+}
+
+// SetPointerState 记录指针状态（darwin 点击序号/drag 语义在 inject 层合成，此处仅留痕）。
+func (f *fakeDeviceWriter) SetPointerState(st PointerState) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pointer = st
 }
 
 func (f *fakeDeviceWriter) RelEvent(code uint16, value int32) error {

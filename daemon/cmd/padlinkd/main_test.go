@@ -44,6 +44,8 @@ func (f *fakeWriter) RelEvent(code uint16, value int32) error {
 	return nil
 }
 
+func (f *fakeWriter) SetPointerState(st inject.PointerState) {}
+
 func (f *fakeWriter) Sync() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

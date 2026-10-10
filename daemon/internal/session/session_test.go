@@ -57,6 +57,8 @@ func (c *capture) RelEvent(code uint16, value int32) error {
 	return nil
 }
 
+func (c *capture) SetPointerState(st inject.PointerState) {}
+
 func (c *capture) Sync() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -297,7 +299,7 @@ func TestFullPairFlow(t *testing.T) {
 
 func TestWrongCodeFiveAttemptsLock(t *testing.T) {
 	ts := newTestServer(t, nil)
-	if _, err := ts.pair.StartPairing("p"); err != nil {
+	if _, err := ts.pair.StartPairing("p", ""); err != nil {
 		t.Fatalf("StartPairing: %v", err)
 	}
 	code, _, _ := ts.pair.ActiveCode()
@@ -644,9 +646,9 @@ func prepair(t *testing.T, ts *testSrv) []byte {
 
 func addClient(t *testing.T, store *pairing.Store, name string) []byte {
 	t.Helper()
-	c, err := store.Add(name)
+	c, _, err := store.Issue(name, "")
 	if err != nil {
-		t.Fatalf("store.Add: %v", err)
+		t.Fatalf("store.Issue: %v", err)
 	}
 	tok, err := c.Token()
 	if err != nil {

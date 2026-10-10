@@ -94,7 +94,9 @@ func run(cfg config) error {
 	if err != nil {
 		return err
 	}
-	inj := inject.NewInjector(dev, inject.Config{})
+	// 多击间隔取平台系统设置（macOS NSEvent.doubleClickInterval；Linux 恒 0 回落默认值）：
+	// darwin 注入必须显式写 CGEvent 点击序号，阈值不一致会导致系统设置下的双击不生效。
+	inj := inject.NewInjector(dev, inject.Config{DoubleClickInterval: uinput.DoubleClickInterval()})
 
 	// ③ token 存储
 	storePath, err := storePath(cfg.stateDir)
@@ -111,6 +113,7 @@ func run(cfg config) error {
 		logf.Printf("警告[token] %s", w)
 	}
 	mgr := pairing.NewManager(store)
+	mgr.Log = logf.Printf // 同设备指纹轮换等关键判定需可诊断
 
 	// ④ 网络（会话/配对/发现）与文本注入
 	// 粘贴组合键按平台选：Linux Ctrl+V，macOS Cmd+V（inject 接口不动）。

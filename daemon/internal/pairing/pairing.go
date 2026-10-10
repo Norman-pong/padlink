@@ -17,6 +17,7 @@ const (
 	CodeLen            = 4
 	TokenLen           = 32
 	MaxNameLen         = 64
+	MaxDevIDLen        = 32 // 设备指纹 hex 长度（16B）
 	DefaultCodeTTL     = 60 * time.Second
 	DefaultMaxAttempts = 5
 	DefaultMaxClients  = 4
@@ -30,12 +31,14 @@ var (
 	ErrWrongCode       = errors.New("确认码错误")
 	ErrClientsFull     = errors.New("已配对客户端已达上限")
 	ErrNameTooLong     = errors.New("客户端名超过 64 字节")
+	ErrBadDevID        = errors.New("设备指纹格式非法（应为 32 个小写 hex 字符或空）")
 )
 
 // attempt 是一轮进行中的配对会话。
 type attempt struct {
 	code    string
 	name    string
+	devID   string
 	expires time.Time
 	fails   int
 }
@@ -47,6 +50,9 @@ type Manager struct {
 	// CodeTTL / MaxAttempts 可在测试中覆盖（0 时取默认值）。
 	CodeTTL     time.Duration
 	MaxAttempts int
+
+	// Log 可选日志回调（nil 静默）；daemon 装配时注入主 logger。
+	Log func(format string, args ...any)
 
 	notify func(code string)
 
@@ -73,12 +79,17 @@ func (m *Manager) SetNotify(f func(code string)) {
 }
 
 // StartPairing 发起一轮配对（无进行中会话时生成新码，否则复用既有码，幂等）。
+// devID 为手机上报的设备指纹（可为空 = 旧版手机未上报；非空时必须是 32 位小写 hex）。
 // 成功后经 notify 展示确认码（notify-send，无桌面环境时静默失败）。
-func (m *Manager) StartPairing(name string) (string, error) {
+func (m *Manager) StartPairing(name, devID string) (string, error) {
 	if len(name) > MaxNameLen {
 		return "", ErrNameTooLong
 	}
-	if m.store.Count() >= m.store.MaxClients {
+	if !ValidDevID(devID) {
+		return "", ErrBadDevID
+	}
+	// 满额仍放行同设备重配（Issue 走轮换路径，不占新名额）
+	if m.store.Count() >= m.store.MaxClients && !m.store.HasDevID(devID) {
 		return "", ErrClientsFull
 	}
 
@@ -94,7 +105,7 @@ func (m *Manager) StartPairing(name string) (string, error) {
 			return "", err
 		}
 		code = c
-		m.active = &attempt{code: code, name: name, expires: time.Now().Add(m.ttl())}
+		m.active = &attempt{code: code, name: name, devID: devID, expires: time.Now().Add(m.ttl())}
 		isNew = true
 	}
 	m.mu.Unlock()
@@ -105,7 +116,25 @@ func (m *Manager) StartPairing(name string) (string, error) {
 	return code, nil
 }
 
-// Verify 校验确认码；成功即签发并持久化 token（绑定客户端名与时间戳）。
+// ValidDevID 校验设备指纹：空串（旧版手机）或 32 位小写 hex。
+func ValidDevID(devID string) bool {
+	if devID == "" {
+		return true
+	}
+	if len(devID) != MaxDevIDLen {
+		return false
+	}
+	for i := 0; i < len(devID); i++ {
+		c := devID[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// Verify 校验确认码；成功即签发并持久化 token（绑定客户端名、设备指纹与时间戳）。
+// 同设备指纹命中既有记录时复用该记录并轮换 token（见 Store.Issue）。
 // 错误码错误次数达上限即作废本轮，需重新发起。
 func (m *Manager) Verify(code string) (Client, error) {
 	m.mu.Lock()
@@ -130,11 +159,33 @@ func (m *Manager) Verify(code string) (Client, error) {
 		m.mu.Unlock()
 		return Client{}, ErrWrongCode
 	}
-	name := m.active.name
+	name, devID := m.active.name, m.active.devID
 	m.active = nil
 	m.mu.Unlock()
 
-	return m.store.Add(name)
+	c, rotated, err := m.store.Issue(name, devID)
+	if err != nil {
+		return Client{}, err
+	}
+	if rotated {
+		m.logf("同设备指纹 %s… 重新配对：复用记录 %s 并轮换 token", devShort(devID), c.ID)
+	}
+	return c, nil
+}
+
+// logf 可选日志（未注入时静默）：同设备轮换是"名额没涨"的唯一解释，需可诊断。
+func (m *Manager) logf(format string, args ...any) {
+	if m.Log != nil {
+		m.Log(format, args...)
+	}
+}
+
+// devShort 指纹前 8 位（日志用，不打印完整指纹）。
+func devShort(devID string) string {
+	if len(devID) > 8 {
+		return devID[:8]
+	}
+	return devID
 }
 
 // ActiveCode 返回进行中配对的确认码与过期时刻（ctl status/pair 用）。

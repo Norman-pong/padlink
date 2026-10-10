@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"padlink/daemon/internal/pairing"
@@ -25,6 +26,13 @@ type tcpSession struct {
 	conn net.Conn
 
 	limiter *rateBucket
+
+	// mu 保护跨 goroutine 访问的会话态：boundID/tokCache/txSeq/keysDown/btnsDown
+	// （Server.OnlineClients、控制权裁决、NOTICE 下发会从其他 goroutine 读取）。
+	// 锁序约束：持 mu 时禁止再取 Server.mu（Server.mu → mu 是允许方向）。
+	mu sync.Mutex
+	// wmu 串行化 conn 写：会话 goroutine 与 NOTICE 下发方都会写同一连接。
+	wmu sync.Mutex
 
 	helloDone bool
 	boundID   string // 认证命中的客户端 id（"" 未绑定）
@@ -193,8 +201,10 @@ func (t *tcpSession) handle(pkt proto.Packet) error {
 		return nil
 	}
 	t.badAuth = 0
-	if t.boundID == "" {
+	if t.bound() == "" {
+		t.mu.Lock()
 		t.boundID, t.tokCache = client.ID, tok
+		t.mu.Unlock()
 		t.srv.logf("客户端 %q（%s）经 %s 认证上线", client.Name, client.ID, t.conn.RemoteAddr())
 	}
 	return t.dispatch(pkt)
@@ -202,13 +212,27 @@ func (t *tcpSession) handle(pkt proto.Packet) error {
 
 // authenticate：已绑定会话只验绑定 token；未绑定时逐个尝试全部已配对 token。
 func (t *tcpSession) authenticate(pkt *proto.Packet) (pairing.Client, []byte, bool) {
-	if t.tokCache != nil {
-		if proto.VerifyHMAC(pkt, t.tokCache) {
-			return pairing.Client{ID: t.boundID}, t.tokCache, true
+	if tok := t.token(); tok != nil {
+		if proto.VerifyHMAC(pkt, tok) {
+			return pairing.Client{ID: t.bound()}, tok, true
 		}
 		return pairing.Client{}, nil, false
 	}
 	return t.srv.matchToken(pkt)
+}
+
+// bound 返回认证命中的客户端 id（"" 未绑定）。
+func (t *tcpSession) bound() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.boundID
+}
+
+// token 返回绑定 token（未绑定为 nil）；仅作只读使用。
+func (t *tcpSession) token() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.tokCache
 }
 
 func (t *tcpSession) handleHello(pkt proto.Packet) error {
@@ -230,22 +254,30 @@ func (t *tcpSession) handleHello(pkt proto.Packet) error {
 }
 
 // handlePairReq 处理配对路径（协议约定见 daemon README）：
-// payload 空(0B)或 JSON={"name"}（≤64B）= 发起配对（成功无响应，确认码在主机侧展示）；
+// payload 空(0B)或 JSON={"name":<设备名>,"dev":<设备指纹>}（≤64B name / ≤32B dev）= 发起配对
+// （成功无响应，确认码在主机侧展示）；
 // payload 4B ASCII 数字 = 确认码尝试 → PAIR_OK(封签新 token) / PAIR_NAK(1B reason)。
 func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 	if len(pkt.Payload) == 0 || pkt.Payload[0] == '{' {
-		name := ""
+		name, devID := "", ""
 		if len(pkt.Payload) > 0 {
 			var meta struct {
 				Name string `json:"name"`
+				Dev  string `json:"dev"`
 			}
 			if err := json.Unmarshal(pkt.Payload, &meta); err != nil || len(meta.Name) > pairing.MaxNameLen {
 				t.sendErr(ErrCodeProto)
 				return errClose
 			}
-			name = meta.Name
+			if !pairing.ValidDevID(meta.Dev) {
+				// 指纹非法属协议违规：与名字超长同口径拒收（手机端不应发出）
+				t.srv.logf("%s PAIR_REQ 设备指纹非法（%dB），拒收", t.conn.RemoteAddr(), len(meta.Dev))
+				t.sendErr(ErrCodeProto)
+				return errClose
+			}
+			name, devID = meta.Name, meta.Dev
 		}
-		if _, err := t.srv.pair.StartPairing(name); err != nil {
+		if _, err := t.srv.pair.StartPairing(name, devID); err != nil {
 			t.sendNak(nakReasonOf(err))
 			return nil
 		}
@@ -279,6 +311,11 @@ func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 }
 
 func (t *tcpSession) dispatch(pkt proto.Packet) error {
+	// 多设备控制权：非持权设备在他人操作期间的控制事件一律丢弃（含 NOTICE 提示），
+	// 冷静止期判定见 controlArbiter；ECHO/BYE 等非控制事件不受门控。
+	if isControlType(pkt.Type) && !t.srv.admitControl(t.bound()) {
+		return nil
+	}
 	switch pkt.Type {
 	case proto.TypeMove:
 		dx, dy := pkt.Move.DX, pkt.Move.DY
@@ -287,19 +324,11 @@ func (t *tcpSession) dispatch(pkt proto.Packet) error {
 		dy := pkt.Scroll.DyHiRes
 		t.enqueue(t.srv.doInj("SCROLL", func() error { return t.srv.inj.Scroll(dy) }))
 	case proto.TypeButton:
-		if pkt.Button.Down {
-			t.btnsDown[pkt.Button.Btn] = struct{}{}
-		} else {
-			delete(t.btnsDown, pkt.Button.Btn)
-		}
+		t.trackButton(pkt.Button.Btn, pkt.Button.Down)
 		btn, down := pkt.Button.Btn, pkt.Button.Down
 		t.enqueue(t.srv.doInj(fmt.Sprintf("BUTTON btn=%d", btn), func() error { return t.srv.inj.Button(btn, down) }))
 	case proto.TypeKey:
-		if pkt.Key.Down {
-			t.keysDown[pkt.Key.HIDUsage] = struct{}{}
-		} else {
-			delete(t.keysDown, pkt.Key.HIDUsage)
-		}
+		t.trackKey(pkt.Key.HIDUsage, pkt.Key.Down)
 		hid, down := pkt.Key.HIDUsage, pkt.Key.Down
 		t.enqueue(t.srv.doInj(fmt.Sprintf("KEY hid=0x%04X", hid), func() error { return t.srv.inj.Key(hid, down) }))
 	case proto.TypeText:
@@ -327,14 +356,7 @@ func (t *tcpSession) dispatch(pkt proto.Packet) error {
 // finish 会话收尾：补发本会话期间按下未释放的按键与按钮 up
 // （PRD §11.2 零残留的服务端兜底），再注销并关连接。
 func (t *tcpSession) finish() {
-	keys := make([]uint16, 0, len(t.keysDown))
-	for hid := range t.keysDown {
-		keys = append(keys, hid)
-	}
-	btns := make([]uint8, 0, len(t.btnsDown))
-	for b := range t.btnsDown {
-		btns = append(btns, b)
-	}
+	keys, btns := t.takeHeld()
 	if len(keys) > 0 || len(btns) > 0 {
 		srv := t.srv
 		srv.enqueueBlocking(func() {
@@ -353,12 +375,83 @@ func (t *tcpSession) finish() {
 	}
 	t.srv.mu.Lock()
 	delete(t.srv.sessions, t)
+	lastOfClient := t.boundID != "" && !t.srv.hasSessionLocked(t.boundID)
 	t.srv.mu.Unlock()
+	if lastOfClient {
+		t.srv.arb.release(t.boundID) // 该客户端已无会话：控制权释放给其他设备
+	}
 	t.conn.Close()
 	t.srv.sessWG.Done()
 }
 
+// trackButton/trackKey 记录按住状态，并在"按住数 0↔非0"翻转时同步给控制权裁决器
+// （按住的按键/按钮同样算"在操作"，见 controlArbiter.primaryActiveLocked）。
+func (t *tcpSession) trackButton(btn uint8, down bool) {
+	t.mu.Lock()
+	before := len(t.keysDown) + len(t.btnsDown)
+	if down {
+		t.btnsDown[btn] = struct{}{}
+	} else {
+		delete(t.btnsDown, btn)
+	}
+	after := len(t.keysDown) + len(t.btnsDown)
+	id := t.boundID
+	t.mu.Unlock()
+	t.syncHeld(id, before, after)
+}
+
+func (t *tcpSession) trackKey(hid uint16, down bool) {
+	t.mu.Lock()
+	before := len(t.keysDown) + len(t.btnsDown)
+	if down {
+		t.keysDown[hid] = struct{}{}
+	} else {
+		delete(t.keysDown, hid)
+	}
+	after := len(t.keysDown) + len(t.btnsDown)
+	id := t.boundID
+	t.mu.Unlock()
+	t.syncHeld(id, before, after)
+}
+
+func (t *tcpSession) syncHeld(id string, before, after int) {
+	if (before == 0) != (after == 0) {
+		t.srv.arb.setHeld(id, after > 0)
+	}
+}
+
+// takeHeld 取出并清空按住集合（会话收尾兜底释放 / 被拒设备残留释放用）。
+func (t *tcpSession) takeHeld() ([]uint16, []uint8) {
+	t.mu.Lock()
+	keys := make([]uint16, 0, len(t.keysDown))
+	for hid := range t.keysDown {
+		keys = append(keys, hid)
+	}
+	btns := make([]uint8, 0, len(t.btnsDown))
+	for b := range t.btnsDown {
+		btns = append(btns, b)
+	}
+	t.keysDown = make(map[uint16]struct{})
+	t.btnsDown = make(map[uint8]struct{})
+	id := t.boundID
+	t.mu.Unlock()
+	t.srv.arb.setHeld(id, false)
+	return keys, btns
+}
+
+// hasSessionLocked 报告是否还有其他会话绑定该客户端（调用方须持 Server.mu）。
+func (s *Server) hasSessionLocked(clientID string) bool {
+	for sess := range s.sessions {
+		if sess.bound() == clientID {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *tcpSession) nextSeq() uint16 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.txSeq++
 	return t.txSeq
 }
@@ -368,6 +461,8 @@ func (t *tcpSession) writePkt(pkt proto.Packet) error {
 	if err != nil {
 		return err
 	}
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
 	t.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err = t.conn.Write(buf)
 	return err

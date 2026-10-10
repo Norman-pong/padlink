@@ -15,13 +15,16 @@ import (
 // Device 是 macOS Quartz CGEvent 注入后端，实现 inject.DeviceWriter。
 // 与 Linux uinput 后端的语义差异（docs/PLAN-MACOS.md §2.2/§2.3）：
 // REL 事件先入缓冲、Sync 时合成一次绝对定位 post（OS 加速曲线不作用于绝对定位）；
-// legacy REL_WHEEL 忽略，像素滚轮只从 REL_WHEEL_HI_RES 单边推导，双发会重复滚动。
+// legacy REL_WHEEL 忽略，像素滚轮只从 REL_WHEEL_HI_RES 单边推导，双发会重复滚动；
+// 按钮与拖拽必须显式携带点击序号与 mouseDragged 类型（见 SetPointerState / Sync）。
 type Device struct {
 	mu    sync.Mutex
 	dx    int32  // 待合成 REL_X 累积
 	dy    int32  // 待合成 REL_Y 累积
 	wheel int32  // 待合成 REL_WHEEL_HI_RES 累积（1/120 格）
 	mods  uint64 // 当前按住的修饰键 quartz Flag* 位（合成事件必须显式携带修饰标志）
+	// click 由 inject 层（多击合成器）写入：点击序号 + 按住的按钮位。
+	click inject.PointerState
 }
 
 // TCC 辅助功能授权等待：弹窗后轮询直到授权；不设超时——launchd 场景下超时会引发
@@ -53,10 +56,26 @@ func Open() (*Device, error) {
 	}
 }
 
+// SetPointerState 记录 inject 层合成的点击序号与按住按钮位。
+// CGEvent 的 kCGMouseEventClickState 不会由 WindowServer 补算：不写该字段时
+// 应用侧 clickCount 恒为 1，双击打开文件/三击选段失效（Apple CGEventField 文档 + 实测）。
+func (d *Device) SetPointerState(st inject.PointerState) {
+	d.mu.Lock()
+	d.click = st
+	d.mu.Unlock()
+}
+
+// DoubleClickInterval 返回系统"双击速度"设置（NSEvent.doubleClickInterval）；
+// 取不到时返回 0，由调用方回落 inject.DefaultDoubleClickInterval。
+func DoubleClickInterval() time.Duration { return quartz.DoubleClickInterval() }
+
 // KeyEvent 投递键盘/鼠标按钮事件；value 非 0 即按下（含连发值 2）。
 func (d *Device) KeyEvent(code uint16, value int32) error {
 	if btn, ok := cgButton(code); ok {
-		return quartz.PostButton(btn, value != 0)
+		d.mu.Lock()
+		clickState := d.click.ClickCount
+		d.mu.Unlock()
+		return quartz.PostButton(btn, value != 0, clickState)
 	}
 	kc, ok := keyToCGKeyCode[code]
 	if !ok {
@@ -104,6 +123,7 @@ func (d *Device) RelEvent(code uint16, value int32) error {
 func (d *Device) Sync() error {
 	d.mu.Lock()
 	dx, dy, wheel := d.dx, d.dy, d.wheel
+	st := d.click
 	d.dx, d.dy, d.wheel = 0, 0, 0
 	d.mu.Unlock()
 
@@ -112,6 +132,7 @@ func (d *Device) Sync() error {
 		err := quartz.PostMouseMove(quartz.MouseMove{
 			X: x + float64(dx), Y: y + float64(dy),
 			DeltaX: dx, DeltaY: dy,
+			ButtonsDown: st.ButtonsDown, ClickState: st.ClickCount,
 		})
 		if err != nil {
 			return fmt.Errorf("uinput(darwin): 位移注入: %w", err)

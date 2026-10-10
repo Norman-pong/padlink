@@ -33,7 +33,7 @@ func TestStartAndVerify(t *testing.T) {
 	store := newTestStore(t)
 	m, notified := newTestManager(t, store)
 
-	code, err := m.StartPairing("测试手机")
+	code, err := m.StartPairing("测试手机", "")
 	if err != nil {
 		t.Fatalf("StartPairing: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestStartAndVerify(t *testing.T) {
 	}
 
 	// 幂等：进行中重复发起返回同一码
-	again, err := m.StartPairing("另一台")
+	again, err := m.StartPairing("另一台", "")
 	if err != nil || again != code {
 		t.Fatalf("进行中重复发起: got (%q,%v), want (%q,nil)", again, err, code)
 	}
@@ -78,7 +78,7 @@ func TestStartAndVerify(t *testing.T) {
 func TestWrongCodeFiveAttemptsLock(t *testing.T) {
 	store := newTestStore(t)
 	m, _ := newTestManager(t, store)
-	if _, err := m.StartPairing("p"); err != nil {
+	if _, err := m.StartPairing("p", ""); err != nil {
 		t.Fatalf("StartPairing: %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestCodeExpiry(t *testing.T) {
 	m, _ := newTestManager(t, store)
 	m.CodeTTL = 30 * time.Millisecond
 
-	code, err := m.StartPairing("p")
+	code, err := m.StartPairing("p", "")
 	if err != nil {
 		t.Fatalf("StartPairing: %v", err)
 	}
@@ -131,21 +131,21 @@ func TestMaxFourClients(t *testing.T) {
 	store := newTestStore(t)
 	m, _ := newTestManager(t, store)
 	for i := 0; i < DefaultMaxClients; i++ {
-		if _, err := store.Add("c"); err != nil {
+		if _, _, err := store.Issue("c", ""); err != nil {
 			t.Fatalf("Add #%d: %v", i+1, err)
 		}
 	}
-	if _, err := store.Add("c5"); !errors.Is(err, ErrClientsFull) {
+	if _, _, err := store.Issue("c5", ""); !errors.Is(err, ErrClientsFull) {
 		t.Errorf("第 5 个 Add: got %v, want ErrClientsFull", err)
 	}
-	if _, err := m.StartPairing("p"); !errors.Is(err, ErrClientsFull) {
+	if _, err := m.StartPairing("p", ""); !errors.Is(err, ErrClientsFull) {
 		t.Errorf("满员后 StartPairing: got %v, want ErrClientsFull", err)
 	}
 }
 
 func TestNameTooLong(t *testing.T) {
 	m, _ := newTestManager(t, newTestStore(t))
-	if _, err := m.StartPairing(strings.Repeat("x", MaxNameLen+1)); !errors.Is(err, ErrNameTooLong) {
+	if _, err := m.StartPairing(strings.Repeat("x", MaxNameLen+1), ""); !errors.Is(err, ErrNameTooLong) {
 		t.Errorf("got %v, want ErrNameTooLong", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestConcurrentPairingMutualExclusion(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			c, err := m.StartPairing("p")
+			c, err := m.StartPairing("p", "")
 			if err != nil {
 				t.Errorf("并发 StartPairing #%d: %v", i, err)
 				return
@@ -205,11 +205,11 @@ func TestStoreRoundTripAndPerm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(新): %v", err)
 	}
-	want, err := s1.Add("手机A")
+	want, _, err := s1.Issue("手机A", "")
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := s1.Add("手机B"); err != nil {
+	if _, _, err := s1.Issue("手机B", ""); err != nil {
 		t.Fatalf("Add B: %v", err)
 	}
 
@@ -261,8 +261,8 @@ func TestLoadWarnsLoosePerm(t *testing.T) {
 
 func TestStoreRemove(t *testing.T) {
 	s := newTestStore(t)
-	c1, _ := s.Add("a")
-	c2, _ := s.Add("b")
+	c1, _, _ := s.Issue("a", "")
+	c2, _, _ := s.Issue("b", "")
 
 	if _, ok, err := s.Remove(c1.ID); err != nil || !ok {
 		t.Fatalf("Remove(%s): ok=%v err=%v", c1.ID, ok, err)
@@ -294,4 +294,183 @@ func mustToken(t *testing.T, c Client) []byte {
 		t.Fatalf("Token(): %v", err)
 	}
 	return tok
+}
+
+// 设备指纹：空串（旧版手机）合法，其余必须恰为 32 位小写 hex。
+func TestValidDevID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"", true},
+		{strings.Repeat("a", 32), true},
+		{"0123456789abcdef0123456789abcdef", true},
+		{strings.Repeat("a", 31), false},
+		{strings.Repeat("a", 33), false},
+		{strings.Repeat("A", 32), false}, // 大写不接受：手机端恒小写，便于日志/展示比对
+		{strings.Repeat("g", 32), false},
+		{"0123456789abcdef0123456789abcde-", false},
+	}
+	for _, tc := range cases {
+		if got := ValidDevID(tc.in); got != tc.want {
+			t.Errorf("ValidDevID(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// 同设备指纹重配：复用既有记录（id 不变）、轮换 token、不新增名额；满额也放行。
+func TestIssueRotatesSameDevice(t *testing.T) {
+	store := newTestStore(t)
+	dev := strings.Repeat("d", 32)
+
+	first, rotated, err := store.Issue("手机A", dev)
+	if err != nil {
+		t.Fatalf("Issue #1: %v", err)
+	}
+	if rotated {
+		t.Fatal("首次签发不应报告轮换")
+	}
+	second, rotated, err := store.Issue("手机A（改名）", dev)
+	if err != nil {
+		t.Fatalf("Issue #2: %v", err)
+	}
+	if !rotated {
+		t.Error("同设备指纹应报告轮换")
+	}
+	if second.ID != first.ID {
+		t.Errorf("ID 变化: %s → %s（同设备必须复用记录）", first.ID, second.ID)
+	}
+	if second.TokenHex == first.TokenHex {
+		t.Error("token 未轮换")
+	}
+	if second.Name != "手机A（改名）" {
+		t.Errorf("Name = %q, want 改名后的值", second.Name)
+	}
+	if store.Count() != 1 {
+		t.Errorf("记录数 = %d, want 1", store.Count())
+	}
+	// 空名不覆盖既有名称
+	third, _, err := store.Issue("", dev)
+	if err != nil {
+		t.Fatalf("Issue #3: %v", err)
+	}
+	if third.Name != second.Name {
+		t.Errorf("空名覆盖了既有名称: %q", third.Name)
+	}
+	// 旧 token 失效、新 token 命中
+	if _, ok := store.LookupToken(mustToken(t, first)); ok {
+		t.Error("轮换后旧 token 仍命中")
+	}
+	if _, ok := store.LookupToken(mustToken(t, third)); !ok {
+		t.Error("轮换后新 token 未命中")
+	}
+}
+
+// 不同指纹新增记录；空指纹（旧版手机）每次都是新记录。
+func TestIssueDistinctDevices(t *testing.T) {
+	store := newTestStore(t)
+	if _, _, err := store.Issue("A", strings.Repeat("1", 32)); err != nil {
+		t.Fatalf("Issue A: %v", err)
+	}
+	if _, _, err := store.Issue("B", strings.Repeat("2", 32)); err != nil {
+		t.Fatalf("Issue B: %v", err)
+	}
+	if store.Count() != 2 {
+		t.Fatalf("记录数 = %d, want 2", store.Count())
+	}
+	// 空指纹两次 = 两条记录（无法识别为同一台，保持旧行为）
+	if _, _, err := store.Issue("C", ""); err != nil {
+		t.Fatalf("Issue C: %v", err)
+	}
+	if _, _, err := store.Issue("C again", ""); err != nil {
+		t.Fatalf("Issue C again: %v", err)
+	}
+	if store.Count() != 4 {
+		t.Fatalf("记录数 = %d, want 4", store.Count())
+	}
+}
+
+// 满额时：新设备拒绝、同设备重配放行（StartPairing 与 Issue 两级都要放行）。
+func TestSameDeviceAllowedWhenFull(t *testing.T) {
+	store := newTestStore(t)
+	m, _ := newTestManager(t, store)
+	dev := strings.Repeat("e", 32)
+
+	// 该手机先配对占一个名额（记录里带上指纹）
+	code, err := m.StartPairing("手机X", dev)
+	if err != nil {
+		t.Fatalf("StartPairing(手机X): %v", err)
+	}
+	if _, err := m.Verify(code); err != nil {
+		t.Fatalf("Verify(手机X): %v", err)
+	}
+	for i := 1; i < DefaultMaxClients; i++ {
+		if _, _, err := store.Issue("c", ""); err != nil {
+			t.Fatalf("Issue #%d: %v", i, err)
+		}
+	}
+	if store.Count() != DefaultMaxClients {
+		t.Fatalf("记录数 = %d, want %d", store.Count(), DefaultMaxClients)
+	}
+	if store.HasDevID("") {
+		t.Error("空指纹不该命中 HasDevID")
+	}
+	if _, err := m.StartPairing("新手机", strings.Repeat("f", 32)); !errors.Is(err, ErrClientsFull) {
+		t.Errorf("满额新设备 StartPairing: got %v, want ErrClientsFull", err)
+	}
+	if !store.HasDevID(dev) {
+		t.Fatal("HasDevID 未命中已配对指纹")
+	}
+	code2, err := m.StartPairing("同设备", dev)
+	if err != nil {
+		t.Fatalf("满额同设备 StartPairing: %v", err)
+	}
+	if _, err := m.Verify(code2); err != nil {
+		t.Fatalf("满额同设备 Verify: %v", err)
+	}
+	if store.Count() != DefaultMaxClients {
+		t.Errorf("记录数 = %d, want %d（同设备不得新增）", store.Count(), DefaultMaxClients)
+	}
+}
+
+// 端到端：同指纹两次配对轮换同一记录的 token（token 变化 + 记录数不变）。
+func TestPairingSameDeviceRotates(t *testing.T) {
+	store := newTestStore(t)
+	m, _ := newTestManager(t, store)
+	dev := strings.Repeat("9", 32)
+
+	code1, err := m.StartPairing("手机", dev)
+	if err != nil {
+		t.Fatalf("StartPairing #1: %v", err)
+	}
+	c1, err := m.Verify(code1)
+	if err != nil {
+		t.Fatalf("Verify #1: %v", err)
+	}
+	code2, err := m.StartPairing("手机", dev)
+	if err != nil {
+		t.Fatalf("StartPairing #2: %v", err)
+	}
+	if code2 == code1 {
+		t.Fatal("上一轮已结束，第二次发起必须生成新码")
+	}
+	c2, err := m.Verify(code2)
+	if err != nil {
+		t.Fatalf("Verify #2: %v", err)
+	}
+	if c1.ID != c2.ID || c1.TokenHex == c2.TokenHex {
+		t.Errorf("同设备重配未复用记录/未轮换 token: %+v → %+v", c1.ID, c2.ID)
+	}
+	if store.Count() != 1 {
+		t.Errorf("记录数 = %d, want 1", store.Count())
+	}
+}
+
+// 非法指纹在发起阶段即拒绝（会话层映射 ERR(2)+关）。
+func TestStartPairingRejectsBadDevID(t *testing.T) {
+	store := newTestStore(t)
+	m, _ := newTestManager(t, store)
+	if _, err := m.StartPairing("p", strings.Repeat("Z", 32)); !errors.Is(err, ErrBadDevID) {
+		t.Fatalf("非法指纹: got %v, want ErrBadDevID", err)
+	}
 }

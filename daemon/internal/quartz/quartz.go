@@ -7,7 +7,7 @@
 package quartz
 
 /*
-#cgo LDFLAGS: -framework ApplicationServices -framework CoreFoundation
+#cgo LDFLAGS: -framework ApplicationServices -framework CoreFoundation -framework AppKit
 #include <ApplicationServices/ApplicationServices.h>
 
 // CGEventCreateScrollWheelEvent 为变参函数，cgo 不能直调；统一以 static 助手收口。
@@ -35,14 +35,31 @@ static CGPoint cursorPos(void) {
 	return p;
 }
 
-static int postMouseMove(double x, double y, long dx, long dy) {
-	CGEventRef ev = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved,
-		CGPointMake(x, y), kCGMouseButtonLeft);
+static int postMouseMove(double x, double y, long dx, long dy, int buttonsDown, long clickState) {
+	// 按住按钮时的位移必须走 mouseDragged：投递 mouseMoved 时应用收不到拖拽
+	// （NSView.mouseDragged: 不触发，拖文件/选词/拖窗口全部失效）。
+	CGEventType type = kCGEventMouseMoved;
+	CGMouseButton b = kCGMouseButtonLeft;
+	if (buttonsDown & 1) {
+		type = kCGEventLeftMouseDragged;
+		b = kCGMouseButtonLeft;
+	} else if (buttonsDown & 4) {
+		type = kCGEventRightMouseDragged;
+		b = kCGMouseButtonRight;
+	} else if (buttonsDown & 2) {
+		type = kCGEventOtherMouseDragged;
+		b = kCGMouseButtonCenter;
+	}
+	CGEventRef ev = CGEventCreateMouseEvent(NULL, type, CGPointMake(x, y), b);
 	if (ev == NULL) {
 		return -1;
 	}
 	CGEventSetIntegerValueField(ev, kCGMouseEventDeltaX, dx);
 	CGEventSetIntegerValueField(ev, kCGMouseEventDeltaY, dy);
+	// 拖拽事件同样携带点击序号，应用才能区分"双击后拖拽"与"普通拖拽"。
+	if (clickState > 0) {
+		CGEventSetIntegerValueField(ev, kCGMouseEventClickState, clickState);
+	}
 	CGEventPost(kCGHIDEventTap, ev);
 	CFRelease(ev);
 	return 0;
@@ -74,7 +91,9 @@ static int postKey(CGKeyCode code, int down, uint64_t flags) {
 }
 
 // button: 0=左 1=右 2=中（与 Go 侧 ButtonLeft/Right/Middle 常量一致）。
-static int postButton(int button, int down) {
+// clickState：kCGMouseEventClickState（1=单击 2=双击 3=三击）；合成事件不写该字段时
+// 应用侧 NSEvent.clickCount 恒为 1，双击打开文件/三击选段全部失效。
+static int postButton(int button, int down, long clickState) {
 	CGPoint p = cursorPos();
 	CGEventType type;
 	CGMouseButton b;
@@ -96,14 +115,24 @@ static int postButton(int button, int down) {
 	if (ev == NULL) {
 		return -1;
 	}
+	if (clickState > 0) {
+		CGEventSetIntegerValueField(ev, kCGMouseEventClickState, clickState);
+	}
 	CGEventPost(kCGHIDEventTap, ev);
 	CFRelease(ev);
 	return 0;
 }
+
+// padlinkDoubleClickInterval 定义在 interval_darwin.m（cgo 的 .c 文件按 C 编译，
+// 调不到 AppKit 的类方法，故单独用 Objective-C 文件承载）。
+extern double padlinkDoubleClickInterval(void);
 */
 import "C"
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // errEventCreate CGEventCreate* 返回 NULL（极端资源情形，正常不发生）。
 var errEventCreate = errors.New("quartz: CGEventCreate 返回 NULL")
@@ -140,18 +169,34 @@ func CursorPos() (x, y float64) {
 
 // MouseMove 一次绝对定位位移。X/Y 为合成后的目标全局坐标；
 // DeltaX/Y 附带写入事件 delta 字段，供消费原始位移的应用读取。
+// ButtonsDown 为按住按钮位掩码（1=左 2=中 4=右），决定投递 mouseMoved 还是 mouseDragged；
+// ClickState 为本次点击序号（0 表示不写该字段）。
 type MouseMove struct {
 	X, Y           float64
 	DeltaX, DeltaY int32
+	ButtonsDown    uint8
+	ClickState     int
 }
 
-// PostMouseMove 投递绝对定位 mouseMoved。OS 指针加速只作用于 HID 相对事件，
-// 绝对定位不经过加速曲线（docs/PLAN-MACOS.md §2.2）。
+// PostMouseMove 投递绝对定位位移。OS 指针加速只作用于 HID 相对事件，
+// 绝对定位不经过加速曲线（docs/PLAN-MACOS.md §2.2）；
+// 有按钮按住时投递 mouseDragged（否则应用收不到拖拽）。
 func PostMouseMove(m MouseMove) error {
-	if C.postMouseMove(C.double(m.X), C.double(m.Y), C.long(m.DeltaX), C.long(m.DeltaY)) != 0 {
+	if C.postMouseMove(C.double(m.X), C.double(m.Y), C.long(m.DeltaX), C.long(m.DeltaY),
+		C.int(m.ButtonsDown), C.long(m.ClickState)) != 0 {
 		return errEventCreate
 	}
 	return nil
+}
+
+// DoubleClickInterval 返回系统设置的双击间隔（NSEvent.doubleClickInterval）。
+// 取不到或明显越界时返回 0，由调用方回落默认值（macOS 默认 0.5s）。
+func DoubleClickInterval() time.Duration {
+	sec := float64(C.padlinkDoubleClickInterval())
+	if sec < 0.1 || sec > 2.0 {
+		return 0
+	}
+	return time.Duration(sec * float64(time.Second))
 }
 
 // PostScrollPixel 投递像素单位滚轮事件；符号约定同 Linux REL_WHEEL（正=内容上滚）。
@@ -177,12 +222,14 @@ func PostKey(code uint16, down bool, flags uint64) error {
 }
 
 // PostButton 在当前光标处投递鼠标按钮事件（ButtonLeft/Right/Middle）。
-func PostButton(button int, down bool) error {
+// clickState 为本次点击序号（1=单击 2=双击 3=三击）：合成的 down/up 都必须携带，
+// 应用侧 NSEvent.clickCount 才会是 2/3；传 0 表示不写该字段（按单击处理）。
+func PostButton(button int, down bool, clickState int) error {
 	d := 0
 	if down {
 		d = 1
 	}
-	if C.postButton(C.int(button), C.int(d)) != 0 {
+	if C.postButton(C.int(button), C.int(d), C.long(clickState)) != 0 {
 		return errEventCreate
 	}
 	return nil

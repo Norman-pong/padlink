@@ -8,7 +8,10 @@ import (
 	"io/fs"
 	"os"
 	"syscall"
+	"time"
 	"unsafe"
+
+	"padlink/daemon/internal/inject"
 )
 
 // input_event / input_id / uinput_setup 按 linux/uinput.h、linux/input.h 内联定义
@@ -123,6 +126,15 @@ func (d *Device) emit(typ, code uint16, value int32) error {
 func (d *Device) KeyEvent(code uint16, value int32) error {
 	return d.emit(EvKey, code, value)
 }
+
+// SetPointerState 空实现：evdev 事件自带内核时间戳，多击与拖拽由工具包
+// （GTK/GDK 依 gtk-double-click-time）与合成器按事件时序自行判定，
+// 注入端无需显式携带点击序号（对比 darwin 必须写 kCGMouseEventClickState）。
+func (d *Device) SetPointerState(st inject.PointerState) {}
+
+// DoubleClickInterval 返回 0：Linux 侧多击判定由对端工具包/合成器负责，
+// 注入端不消费该阈值（由 inject 层回落自身默认值）。
+func DoubleClickInterval() time.Duration { return 0 }
 
 func (d *Device) RelEvent(code uint16, value int32) error {
 	return d.emit(EvRel, code, value)

@@ -38,8 +38,9 @@ func (b *ctlBackend) Status() control.StatusData {
 }
 
 // Pair 发起配对并返回确认码（ctl 终端展示路径）；进行中则复用同码。
+// ctl 路径不带设备指纹（终端配对无手机指纹可用），按新设备处理。
 func (b *ctlBackend) Pair() (string, error) {
-	code, err := b.mgr.StartPairing("")
+	code, err := b.mgr.StartPairing("", "")
 	if err != nil {
 		return "", err
 	}
@@ -54,6 +55,7 @@ func (b *ctlBackend) Clients() []control.ClientInfo {
 		out = append(out, control.ClientInfo{
 			ID:       c.ID,
 			Name:     c.Name,
+			DevID:    c.DevID,
 			PairedAt: c.PairedAt,
 			Online:   online[c.ID],
 		})
