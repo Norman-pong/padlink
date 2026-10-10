@@ -668,3 +668,21 @@ func wrongCode(code string, delta int) string {
 	d %= 10
 	return code[:3] + string(rune('0'+d))
 }
+
+// 配对宽限读超时：宽限截止前取宽限值，过期后回落基准。
+func TestEffectiveReadTimeout(t *testing.T) {
+	base := 10 * time.Second
+	now := time.Now()
+	if got := effectiveReadTimeout(base, now.Add(70*time.Second), now); got != 70*time.Second {
+		t.Errorf("宽限内 = %v, want 70s", got)
+	}
+	if got := effectiveReadTimeout(base, now.Add(5*time.Second), now); got != base {
+		t.Errorf("宽限短于基准 = %v, want %v", got, base)
+	}
+	if got := effectiveReadTimeout(base, time.Time{}, now); got != base {
+		t.Errorf("无宽限 = %v, want %v", got, base)
+	}
+	if got := effectiveReadTimeout(base, now.Add(-time.Second), now); got != base {
+		t.Errorf("宽限已过期 = %v, want %v", got, base)
+	}
+}

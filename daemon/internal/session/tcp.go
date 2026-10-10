@@ -35,6 +35,11 @@ type tcpSession struct {
 	dropWinStart time.Time
 	dropWinCount int
 
+	// pairWaitUntil 配对进行中的读超时宽限截止（零值=无宽限）。
+	// 用户在手机端读码输码合法地超过默认 10s 空闲判失联（macOS E2E 实测踩中），
+	// 宽限覆盖码 TTL + 提交余量，轮次结束（成功/过期/超限）即收起。
+	pairWaitUntil time.Time
+
 	keysDown map[uint16]struct{} // 已按下未释放的 HID usage
 	btnsDown map[uint8]struct{}  // 已按下未释放的按钮号
 }
@@ -106,7 +111,7 @@ func (t *tcpSession) run() {
 
 // readFrame 按头声明的 payload_len 精确读取一帧。
 func (t *tcpSession) readFrame() ([]byte, error) {
-	t.conn.SetReadDeadline(time.Now().Add(t.srv.cfg.ReadTimeout))
+	t.conn.SetReadDeadline(time.Now().Add(effectiveReadTimeout(t.srv.cfg.ReadTimeout, t.pairWaitUntil, time.Now())))
 	var head [proto.HeaderSize]byte
 	if _, err := io.ReadFull(t.conn, head[:]); err != nil {
 		return nil, err
@@ -126,6 +131,17 @@ func (t *tcpSession) readFrame() ([]byte, error) {
 	}
 	return frame, nil
 }
+
+// effectiveReadTimeout 配对宽限期内的读超时取两者较大者。
+func effectiveReadTimeout(base time.Duration, pairWaitUntil time.Time, now time.Time) time.Duration {
+	if d := pairWaitUntil.Sub(now); d > base {
+		return d
+	}
+	return base
+}
+
+// pairReadMargin 配对宽限在码 TTL 外的余量（覆盖最后一次 NAK 往返与用户提交间隔）。
+const pairReadMargin = 10 * time.Second
 
 // rateLimited 令牌桶超限时丢弃并计数；1s 窗口内丢弃数超上限返回 true（调用方 ERR+断连）。
 func (t *tcpSession) rateLimited(now time.Time) bool {
@@ -233,14 +249,20 @@ func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 			t.sendNak(nakReasonOf(err))
 			return nil
 		}
-		return nil // 发起成功不回包；确认码经 notify-send / padlinkctl pair 展示
+		// 读超时宽限：用户读码输码合法地超过 10s 默认空闲判失联
+		t.pairWaitUntil = time.Now().Add(t.srv.pair.ActiveCodeTTL() + pairReadMargin)
+		return nil // 发起成功不回包；确认码经桌面通知 / padlinkctl pair 展示
 	}
 	if len(pkt.Payload) == pairing.CodeLen && isDigits(pkt.Payload) {
 		client, err := t.srv.pair.Verify(string(pkt.Payload))
 		if err != nil {
+			if !errors.Is(err, pairing.ErrWrongCode) {
+				t.pairWaitUntil = time.Time{} // 轮次结束（过期/超限/无会话），收起宽限
+			}
 			t.sendNak(nakReasonOf(err))
 			return nil
 		}
+		t.pairWaitUntil = time.Time{} // 配对成功，恢复正常读超时
 		tok, err := client.Token()
 		if err != nil {
 			t.srv.logf("配对成功但 token 解码失败（%s）: %v", client.ID, err)

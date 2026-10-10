@@ -147,6 +147,11 @@ func (m *Manager) ActiveCode() (code string, expires time.Time, ok bool) {
 	return m.active.code, m.active.expires, true
 }
 
+// ActiveCodeTTL 返回当前生效的确认码 TTL（会话层做配对读超时宽限用）。
+func (m *Manager) ActiveCodeTTL() time.Duration {
+	return m.ttl()
+}
+
 func (m *Manager) ttl() time.Duration {
 	if m.CodeTTL <= 0 {
 		return DefaultCodeTTL
