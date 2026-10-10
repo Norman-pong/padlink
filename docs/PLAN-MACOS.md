@@ -3,6 +3,16 @@
 日期：2026-10-09 ｜ 依据：PRD §4.8 / 附录 B（macOS v2 预留：CGEvent + cgo 或 Swift 辅助进程）
 动机：开发机即 macOS（27.0.1 arm64），鸿蒙模拟器/真机 → 本机 Mac 的链路比 Linux 更易做真机验证。
 
+## 进度（2026-10-09 当日）
+
+- M-macOS-1 ✅ 注入后端（quartz/uinput_darwin/键表/AX 门控），`--test` 真机 PASSED
+- M-macOS-2 ✅ 文本注入 pbcopy/pbpaste 后端 + Cmd+V 平台化
+- M-macOS-3 ✅ 控制 socket `$TMPDIR` 回落、配对通知 osascript、launchd 安装物（install.sh 本机实测通过）
+- M-macOS-4 ½ CI 迁 macos-latest + darwin cgo 构建（快照全产物验证）；端到端联调待做
+
+设计变更记录：AX 授权等待从「2 分钟超时退出」改为「驻留轮询不限时」——
+launchd 场景下超时退出会触发 KeepAlive 重启并反复弹系统授权框；前台场景用户可 Ctrl+C 中断。
+
 ## 0. PoC 结论（本机实测，/tmp/padlink-mac-poc 一次性程序）
 
 | 验证项 | 方法 | 结果 |

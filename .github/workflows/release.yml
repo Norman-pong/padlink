@@ -1,5 +1,7 @@
-# 打 v* tag 触发：goreleaser 出 tar.gz + deb + rpm 并发布到 GitHub Releases。
+# 打 v* tag 触发：goreleaser 出 tar.gz（linux/darwin）+ deb + rpm 并发布到 GitHub Releases。
 # 发版步骤：git tag v1.0.0 && git push origin v1.0.0（tag 打在 main 上）。
+# macos-latest 单 runner 承载全部产物：darwin 注入后端需 cgo 本机构建；
+# linux 纯 Go 交叉编译与 nfpm（纯 Go）在 macOS 上照常工作（docs/PLAN-MACOS.md §2.6）。
 name: release
 
 on:
@@ -12,7 +14,7 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:

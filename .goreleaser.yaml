@@ -1,12 +1,15 @@
-# PadLink daemon 发版单源：打 v* tag → GitHub Actions 跑本配置 →
-# GitHub Releases 出 tar.gz（三二进制+install.sh）与 deb/rpm（padlinkd+padlinkctl+udev 规则+user 单元）。
+# PadLink daemon 发版单源：打 v* tag → GitHub Actions（macos-latest）跑本配置 →
+# GitHub Releases 出 tar.gz（linux 三二进制+udev/systemd 安装物；darwin 双二进制+launchd 安装物）
+# 与 deb/rpm（padlinkd+padlinkctl+udev 规则+user 单元）。
+# darwin 注入后端为 cgo（internal/quartz），必须在 macOS runner 本机构建；
+# linux 全量 CGO_ENABLED=0 交叉编译，nfpm 为纯 Go 不受影响。
 # 本地验证：goreleaser release --snapshot --clean（产物落 dist/，已 gitignore）。
 version: 2
 
 project_name: padlink
 
 builds:
-  - id: padlinkd
+  - id: padlinkd-linux
     dir: daemon
     main: ./cmd/padlinkd
     binary: padlinkd
@@ -15,11 +18,28 @@ builds:
     env: [CGO_ENABLED=0]
     ldflags:
       - -s -w -X main.daemonVersion={{ .Version }}
-  - id: padlinkctl
+  - id: padlinkd-darwin
+    dir: daemon
+    main: ./cmd/padlinkd
+    binary: padlinkd
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=1] # internal/quartz 调 ApplicationServices 框架
+    ldflags:
+      - -s -w -X main.daemonVersion={{ .Version }}
+  - id: padlinkctl-linux
     dir: daemon
     main: ./cmd/padlinkctl
     binary: padlinkctl
     goos: [linux]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags: [-s, -w]
+  - id: padlinkctl-darwin
+    dir: daemon
+    main: ./cmd/padlinkctl
+    binary: padlinkctl
+    goos: [darwin]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
     ldflags: [-s, -w]
@@ -33,8 +53,9 @@ builds:
     ldflags: [-s, -w]
 
 archives:
-  - id: tgz
+  - id: tgz-linux
     formats: [tar.gz]
+    ids: [padlinkd-linux, padlinkctl-linux, padlinktoy]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
@@ -44,11 +65,21 @@ archives:
         dst: packaging/udev/69-padlink-uinput.rules
       - src: daemon/packaging/systemd/padlink-local.service
         dst: packaging/systemd/padlink-local.service
+  - id: tgz-darwin
+    formats: [tar.gz]
+    ids: [padlinkd-darwin, padlinkctl-darwin]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - src: daemon/packaging/macos/install.sh
+        dst: install.sh
+      - src: daemon/packaging/macos/com.zhimingcool.padlink.plist
+        dst: packaging/macos/com.zhimingcool.padlink.plist
 
 nfpms:
   - id: padlink
     package_name: padlink
-    ids: [padlinkd, padlinkctl]
+    ids: [padlinkd-linux, padlinkctl-linux]
     formats: [deb, rpm]
     vendor: padlink
     homepage: https://github.com/Norman-pong/padlink
@@ -56,7 +87,7 @@ nfpms:
     license: Apache-2.0
     description: |-
       Use a HarmonyOS phone as a low-latency wireless touchpad, keyboard and
-      voice-dictation device for this PC (GNOME Wayland).
+      voice-dictation device for this PC (GNOME Wayland / macOS).
       把鸿蒙手机变成电脑的低延迟无线外设（触摸板 + 全键盘 + 语音听写）。
     contents:
       - src: daemon/packaging/udev/69-padlink-uinput.rules
