@@ -73,6 +73,8 @@ archives:
       - README.md
       - src: daemon/packaging/macos/install.sh
         dst: install.sh
+      - src: daemon/packaging/macos/uninstall.sh
+        dst: uninstall.sh
       - src: daemon/packaging/macos/signing-identity.sh
         dst: packaging/macos/signing-identity.sh
       - src: daemon/packaging/macos/PadLink.app.Info.plist

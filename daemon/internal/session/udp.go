@@ -52,7 +52,11 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 			s.logf("DISCOVER_RESP 编码失败: %v", err)
 			return
 		}
-		_, _ = s.udp.WriteToUDP(body, addr)
+		// 写失败必须可见：发现应答发不出去时，手机侧表现为"搜不到这台电脑"，
+		// 而这里若静默吞掉错误，日志里只剩"收到 HELLO"，会把排查方向带偏（实测踩过）。
+		if _, werr := s.udp.WriteToUDP(body, addr); werr != nil {
+			s.logf("DISCOVER_RESP 发送失败（目标 %s）: %v", addr, werr)
+		}
 		return
 	}
 	if pkt.Flags&proto.FlagAuth == 0 {

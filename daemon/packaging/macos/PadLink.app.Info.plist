@@ -28,6 +28,10 @@
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<!-- macOS 15+ 起「本地网络」是独立隐私门控：缺这条用途说明，系统不会弹窗而是直接
+	     拒绝，表现为手机 UDP 广播发现搜不到本机（daemon 收到广播但应答发不出去）。 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于在局域网内被手机发现：手机通过 UDP 广播查找主机，PadLink 回一条发现应答（仅含主机名、系统、版本、端口等非敏感信息），之后手机与本机直连传输触控/键盘/语音数据。</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>PadLink — 用鸿蒙手机当无线触控板/键盘/语音输入</string>
 </dict>

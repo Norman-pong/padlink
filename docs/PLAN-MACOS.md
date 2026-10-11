@@ -130,6 +130,9 @@ identifier "com.zhimingcool.padlink" and certificate leaf = H"<证书 SHA-1>"
 | 签名后二进制能否正常运行 | 能。`install -m 0755` + 就地签名保留权限，launchd 正常拉起 |
 | 身份文件位置与生命周期 | 钥匙串 `~/Library/Keychains/padlink-signing.keychain-db` + 口令 `~/.config/padlink/signing-keychain.pass`（0600）。二者跨更新保留 ⇒ 一次授权长期有效；被删除或换机则需重新授权一次 |
 | 更新后首启必须先登记 bundle | 实测 bundle 内容变化（如加图标）后，若未向 LaunchServices 登记，daemon 首启会停在等待授权；install.sh 因此先 `lsregister -f "$APP"` 再 bootstrap/kickstart，登记后即通过（授权要求本身未变，无需重新授权）。注：手工改 bundle 后遇到"又要授权"，先重启一次 daemon 再看 |
+| **授权后必须重启 daemon** | 进程内的授权状态**不会自动更新**（实测：用户在系统设置里勾选后，正在轮询的 daemon 仍一直判未授权；`launchctl kickstart -k` 后立刻通过）。因此等待授权的提示里直接给出这条命令，避免用户以为"勾了没用" |
+| 本地网络（macOS 15+ 独立门控） | Info.plist 必须有 `NSLocalNetworkUsageDescription`（缺了系统不弹窗而是直接拒绝）。实测 macOS 26 上手机 UDP 广播发现**正常**、未观察到本地网络弹窗；该键作为规范要求保留，若将来系统开始拦截，按同一流程授权后重启即可 |
+| 清环境时要换签名身份 | 只删应用不删证书时，TCC 仍按"同一应用"沿用旧决定；`uninstall.sh --purge` 会一并删除本机签名身份，下次安装生成新证书 ⇒ 系统视为全新应用、权限全部重走（排查"环境不一致"时用这招彻底复位） |
 | 回滚 | `signing-identity.sh remove` 删除本机身份（不影响已安装二进制，只是后续更新会重新要求授权） |
 
 **形态：daemon 装进 `~/Applications/PadLink.app`（app bundle）**。原因是实测发现「裸 CLI 二进制」
@@ -155,10 +158,25 @@ ProgramArguments 指向 `PadLink.app/Contents/MacOS/padlinkd`（保持 launchd �
 | 剪贴板契约 | 文本型粘贴板注入后原样恢复；图片型粘贴板取消注入且类型表前后一致；两处均无失败行（详见 §2.5） |
 | 签名身份不需要信任设置 | 曾把自签证书加进用户信任设置做对照实验：`find-identity -v -p codesigning` 仍报 0 valid，行为无变化；随后已 `security remove-trusted-cert` 撤销，daemon 依然免授权启动 ⇒ 该信任设置不是必要条件，不应留在用户机器上 |
 
-**发版说明**：darwin 归档需带 `packaging/macos/{install.sh,signing-identity.sh,PadLink.app.Info.plist,com.zhimingcool.padlink.plist}`
+**发版说明**：darwin 归档需带 `packaging/macos/{install.sh,uninstall.sh,signing-identity.sh,PadLink.app.Info.plist,PadLink.app.icon.png,make-appicon.m,com.zhimingcool.padlink.plist}`
 （.goreleaser.yaml 已加），安装时在**用户机器上**生成/复用本机身份、组装并签名 PadLink.app ⇒
 终端用户同样是"授权一次，更新免授权"。若将来要连首次授权弹窗都免掉（并让 Gatekeeper/公证通过），
 再换 Apple Developer ID 证书（见 §2.6 v2 项）。
+
+**清环境复位流程（2026-10-11 实测一遍，用于排查"环境不一致"）**：
+
+```sh
+./uninstall.sh --purge     # 停 LaunchAgent + 删 PadLink.app/padlinkctl + 清 token + 删签名身份
+./install.sh               # 全新安装（新证书 → 系统视为新应用）
+# 授权：辅助功能里开启 PadLink → 重启 daemon（launchctl kickstart -k gui/$UID/com.zhimingcool.padlink）
+```
+复位后实测结果：Mac 端全新身份免授权启动、手机端重新发现并配对成功
+（`客户端 "HUAWEI Pura X 典藏版"（037bb1ef）配对成功` → `认证上线`，`padlinkctl clients` 显示在线）。
+
+**排查教训**：验证「手机能否发现本机」必须以**手机**为准。用另一台 Linux 机（Ubuntu）发广播做替身
+时，Mac 收到并回复了 HELLO 却收不到回包，容易误判成"应答被系统门控拦掉"；而同一时刻手机侧
+`UDP ← 192.168.0.4:54417 HELLO` 与列表里出现 `normanpong.local` 都证明发现链路正常。替身探针
+可用于验证**协议与端口**，但不能用来断言客户端的发现体验。
 
 ### 2.5 文本注入：pbcopy/pbpaste
 
