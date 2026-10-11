@@ -14,6 +14,13 @@ import { ResError } from '../ResError';
 const TAG: string = 'PadLink.ConnMgr';
 const DOMAIN: number = 0x5050;
 
+// 错误文案入资源参数前必须落为字符串：socket/网络回调可能不带 message（undefined），
+// 而后端资源框架对非字符串参数抛 9001008，调用点又在 build 内 → 直接杀进程。
+function errText(err: Error): string {
+  const msg: string | undefined = err.message;
+  return msg !== undefined ? msg : '';
+}
+
 // 心跳与重连参数（PRD §4.7：1Hz ECHO、3 次超时判失联、退避 1/2/4/8…上限 15s）。
 export class ConnPolicy {
   public static readonly HEARTBEAT_INTERVAL_MS: number = 1000;
@@ -91,7 +98,7 @@ export class ConnectionManager {
       this.onTcpDown('conn_tcp_closed');
     };
     this.transport.tcp.onError = (err: BusinessError) => {
-      this.onTcpDown('conn_tcp_error_fmt', [String(err.code), err.message]);
+      this.onTcpDown('conn_tcp_error_fmt', [String(err.code), errText(err)]);
     };
   }
 
@@ -163,12 +170,12 @@ export class ConnectionManager {
     } catch (err) {
       const e = err as BusinessError;
       if (autoRetry && this.epoch === myEpoch) {
-        this.enterReconnectingFromInitial('conn_connect_failed_fmt', [String(e.code), e.message]);
+        this.enterReconnectingFromInitial('conn_connect_failed_fmt', [String(e.code), errText(e)]);
         return;
       }
       this.teardown(this.epoch === myEpoch);
       this.snapshot.state = ConnState.IDLE;
-      throw new ResError('conn_connect_failed_fmt', [String(e.code), e.message], `连接失败：${e.code} ${e.message}`);
+      throw new ResError('conn_connect_failed_fmt', [String(e.code), errText(e)], `连接失败：${e.code} ${errText(e)}`);
     }
     if (this.epoch !== myEpoch) {
       return; // 会话已被新的 connect/disconnect 取代
@@ -207,7 +214,7 @@ export class ConnectionManager {
       const e = err as BusinessError;
       this.teardown(this.epoch === myEpoch);
       this.snapshot.state = ConnState.IDLE;
-      throw new ResError('conn_connect_failed_fmt', [String(e.code), e.message], `连接失败：${e.code} ${e.message}`);
+      throw new ResError('conn_connect_failed_fmt', [String(e.code), errText(e)], `连接失败：${e.code} ${errText(e)}`);
     }
     if (this.epoch !== myEpoch) {
       return;

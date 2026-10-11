@@ -638,7 +638,7 @@
     },
     {
       "name": "conn_tcp_error_fmt",
-      "value": "TCP error %1$s: %2$s"
+      "value": "TCP error: %1$s %2$s"
     },
     {
       "name": "conn_connect_failed_fmt",
