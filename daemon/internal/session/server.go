@@ -1,7 +1,6 @@
-// Package session 实现 TCP 会话层与 UDP 数据面（同端口复用）：
-// HELLO 版本协商、PAIR_REQ 配对路径、token 逐包认证、心跳超时、
-// 速率限制与事件分发。所有注入调用经单一 goroutine 串行化，
-// 保证事件序与 DeviceWriter 无并发写。
+// Package session 实现 TCP 会话层与 UDP 数据面（同端口复用）：HELLO 版本协商、
+// PAIR_REQ 配对路径、token 逐包认证、心跳超时、速率限制与事件分发。
+// 所有注入调用经单一 goroutine 串行化（Injector 非并发安全），保证事件序与无并发写。
 package session
 
 import (
@@ -22,20 +21,19 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// 可调参数默认值（PRD §7：心跳/超时/速率）。
 const (
 	DefaultPort        = 53021
 	DefaultReadTimeout = 10 * time.Second
 	DefaultRatePerSec  = 2000
 	DefaultRateBurst   = 4000
 	DefaultRateDropMax = 2000 // 1s 窗口内超限丢弃数上限，超过即断连
-	MaxBadAuthStreak   = 5    // 连续错 HMAC 次数上限
-	MaxInflightInj     = 1024 // 注入队列深度
+	MaxBadAuthStreak   = 5    // 连续错 HMAC 达此值断连
+	MaxInflightInj     = 1024
 	writeTimeout       = 5 * time.Second
 	rateDropWindow     = time.Second
 )
 
-// ERR payload 1B 代码（daemon README 协议约定表）。
+// ERR payload 1B 代码。
 const (
 	ErrCodeAuth  uint8 = 1 // 未认证 / 连续错 HMAC 达上限
 	ErrCodeProto uint8 = 2 // 会话层违规或坏 payload
@@ -51,7 +49,8 @@ const (
 	NakFull      uint8 = 4
 )
 
-// Config 可调参数；零值字段取默认值（Port=0 为系统临时端口，DefaultPort 由调用方显式传入）。
+// Config 可调参数；零值字段取默认值。
+// Port=0 必须兑现系统临时端口语义，DefaultPort 由调用方显式传入（不在此归一）。
 type Config struct {
 	Port          int
 	ReadTimeout   time.Duration // 10s 无包判失联
@@ -63,27 +62,25 @@ type Config struct {
 	Verbose       bool
 	Log           *log.Logger // nil 时用标准 logger
 
-	// PreemptCooldown 非持权设备被拒后的冷静期（默认 15s，PROTOCOL.md §4.9；测试可压小）。
+	// PreemptCooldown 非持权设备被拒后的冷静期（默认 15s；测试可压小）。
 	PreemptCooldown time.Duration
 	// PreemptIdle 持权设备多久无输入算"没有在操作"（默认 1s；测试可压小）。
 	PreemptIdle time.Duration
 }
 
-// Stats 计数器（原子）。
 type Stats struct {
 	HMACFail  atomic.Uint64 // FlagAuth 包无匹配 token 或 HMAC 错
 	Dropped   atomic.Uint64 // 解码失败 / 超速丢弃 / UDP 未认证丢弃等
 	Preempted atomic.Uint64 // 多设备控制权裁决拒绝的控制事件数
 }
 
-// Snapshot 是 Stats 的瞬时快照。
 type Snapshot struct {
 	HMACFail  uint64
 	Dropped   uint64
 	Preempted uint64
 }
 
-// Server 是 TCP+UDP 服务。经 New 创建，Start 启动，Stop 优雅停止。
+// Server 是 TCP+UDP 服务；经 New 创建，Start 启动，Stop 优雅停止。
 type Server struct {
 	cfg    Config
 	store  *pairing.Store
@@ -110,8 +107,8 @@ type Server struct {
 	stopped  bool
 }
 
-// New 构造服务。onText 处理已认证 TEXT 事件（剪贴板注入路径），可为 nil（丢弃计数）；
-// 它在注入 goroutine 内被调用，可安全使用 inj（CtrlV）。
+// New 构造服务。onText 处理已认证 TEXT（剪贴板注入路径），可为 nil（丢弃计数）；
+// 它在注入 goroutine 内被调用，可安全使用 inj。
 func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.Injector, onText func(string) error) *Server {
 	if cfg.ReadTimeout <= 0 {
 		cfg.ReadTimeout = DefaultReadTimeout
@@ -149,7 +146,7 @@ func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.In
 	}
 }
 
-// Start 绑定 UDP 与 TCP（同一端口）。Port=0 时取系统临时端口。
+// Start 绑定 UDP 与 TCP（同一端口）。
 func (s *Server) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -183,7 +180,7 @@ func (s *Server) Port() int {
 	return s.port
 }
 
-// Stop 优雅停止：关监听与全部会话（会话结束兜底补发未释放按键），
+// Stop 优雅停止：关监听与全部会话（各会话退出时兜底补发未释放按键），
 // 排空注入队列后收掉注入 goroutine。
 func (s *Server) Stop() {
 	s.mu.Lock()
@@ -214,7 +211,6 @@ func (s *Server) Stop() {
 	s.internalWG.Wait()
 }
 
-// StatsSnapshot 返回计数快照（ctl status 用）。
 func (s *Server) StatsSnapshot() Snapshot {
 	return Snapshot{
 		HMACFail:  s.stats.HMACFail.Load(),
@@ -223,7 +219,6 @@ func (s *Server) StatsSnapshot() Snapshot {
 	}
 }
 
-// ActiveSessions 返回活跃 TCP 会话数。
 func (s *Server) ActiveSessions() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -260,11 +255,11 @@ func (s *Server) KickClient(id string) int {
 	return len(targets)
 }
 
-// admitControl 裁决一次控制事件（MOVE/SCROLL/BUTTON/KEY/TEXT，TCP 与 UDP 共用）。
-// 被拒时按需下发一次 NOTICE 并兜底释放该设备残留的按键（异常时序防御）。
+// admitControl 裁决一次控制事件（MOVE/SCROLL/BUTTON/KEY/TEXT，TCP 与 UDP 共用）；
+// 被拒时下发一次 NOTICE 并兜底释放该设备残留的按键（异常时序防御）。
 func (s *Server) admitControl(clientID string) bool {
 	if clientID == "" {
-		return true // 未绑定（理论上不会到达注入路径）：不参与多设备裁决
+		return true // 未绑定：不参与多设备裁决
 	}
 	res := s.arb.admit(clientID, time.Now())
 	if res.Allowed {
@@ -282,8 +277,8 @@ func (s *Server) admitControl(clientID string) bool {
 	return false
 }
 
-// notifyControlBusy 向被拒设备下发 NOTICE(控制被占用, 剩余秒数)。
-// 手机端据此 toast；无 TCP 会话（仅 UDP 在发）时静默丢弃——提示不是控制路径的必要条件。
+// notifyControlBusy 向被拒设备下发 NOTICE(控制被占用, 剩余秒数)，手机端据此 toast；
+// 无 TCP 会话（仅 UDP 在发）时静默丢弃——提示不是控制路径的必要条件。
 func (s *Server) notifyControlBusy(clientID string, retryAfter time.Duration) {
 	sess := s.sessionOf(clientID)
 	if sess == nil {
@@ -325,7 +320,7 @@ func (s *Server) sessionOf(clientID string) *tcpSession {
 	return fallback
 }
 
-// dropHeld 释放某设备残留的按键/按钮（被拒时的防御路径，PRD §11.2 零残留红线）。
+// dropHeld 释放某设备残留的按键/按钮（被拒时的防御路径，零残留红线）。
 func (s *Server) dropHeld(clientID string) {
 	s.mu.Lock()
 	targets := make([]*tcpSession, 0, 1)
@@ -399,7 +394,7 @@ func (s *Server) doInj(what string, f func() error) func() {
 	}
 }
 
-// matchToken 对 FlagAuth 包逐个尝试已配对客户端 token（≤4 个）。
+// matchToken 逐个尝试已配对客户端 token（≤4 个）。
 func (s *Server) matchToken(pkt *proto.Packet) (pairing.Client, []byte, bool) {
 	for _, c := range s.store.Clients() {
 		tok, err := hex.DecodeString(c.TokenHex)

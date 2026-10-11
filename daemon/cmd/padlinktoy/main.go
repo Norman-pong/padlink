@@ -1,7 +1,5 @@
-// padlinktoy 是 PadLink 联调工具三件套（PRD §2.2 tools/ 的 daemon 侧承载）：
-// record/replay 合成录制回放、fuzz 协议变异模糊测试、latency ECHO RTT 压测。
-// 与 daemon 同模块、共用 internal/proto 协议实现，零第三方依赖。
-// token 一律经 -token（hex）或环境变量 PADLINK_TOKEN 提供，不写日志、不入录制文件。
+// padlinktoy 是 PadLink 联调工具：record/replay 录制回放、fuzz 协议变异、latency ECHO RTT 压测。
+// 线协议帧一律经 internal/proto（与 daemon 同一实现）；token 经 -token（hex）或 PADLINK_TOKEN 提供，不写日志、不入录制文件。
 package main
 
 import (
@@ -59,8 +57,7 @@ token 一律经 -token（hex）或环境变量 PADLINK_TOKEN 提供；不写日�
 `)
 }
 
-// resolveToken 取 -token 或环境变量 PADLINK_TOKEN（前者优先）；皆空返回 nil，
-// 是否必需由调用方决定。token 只作返回值，不打印。
+// resolveToken 取 -token 或 PADLINK_TOKEN（前者优先），皆空返回 nil；token 只作返回值，不得打印。
 func resolveToken(flagVal string) ([]byte, error) {
 	v := flagVal
 	if v == "" {
@@ -76,7 +73,6 @@ func resolveToken(flagVal string) ([]byte, error) {
 	return tok, nil
 }
 
-// parseTwoInts 解析 "a b" 双整型 flag 值。
 func parseTwoInts(s string) (int, int, error) {
 	parts := strings.Fields(s)
 	if len(parts) != 2 {

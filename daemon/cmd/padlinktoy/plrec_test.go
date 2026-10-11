@@ -117,7 +117,6 @@ func TestReadHeaderOnly(t *testing.T) {
 	}
 }
 
-// rec 组装一条 12B 记录头 + 数据。
 func rec(relMs uint64, chanID, length uint16, data []byte) []byte {
 	b := make([]byte, 12)
 	binary.BigEndian.PutUint64(b[0:8], relMs)

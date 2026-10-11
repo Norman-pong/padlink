@@ -8,8 +8,7 @@ import (
 )
 
 // keyToCGKeyCode：Linux KEY_*（inject.HIDToKey 的值域）→ macOS CGKeyCode（kVK_*，ANSI 布局）。
-// macOS 修饰键对应关系：Ctrl→Control、Alt→Option、Super(Meta)→Command。
-// 覆盖面必须与 inject.HIDToKey 一一对应，由 keymap_darwin_test 在测试期兜底。
+// 修饰键：Ctrl→Control、Alt→Option、Super(Meta)→Command；覆盖面必须与 inject.HIDToKey 一一对应。
 var keyToCGKeyCode = map[uint16]uint16{
 	// 字母 A-Z
 	30: 0x00, 48: 0x0B, 46: 0x08, 32: 0x02, 18: 0x0E, // A B C D E
@@ -49,7 +48,7 @@ var keyToCGKeyCode = map[uint16]uint16{
 	59: 0x7A, 60: 0x78, 61: 0x63, 62: 0x76, 63: 0x60, 64: 0x61,
 	65: 0x62, 66: 0x64, 67: 0x65, 68: 0x6D, 87: 0x67, 88: 0x6F,
 
-	// 锁定/屏幕键：macOS 键盘无对应实体键，按 Barrier/Chrome Remote Desktop 惯例映射 F13-F15
+	// 锁定/屏幕键：macOS 无对应实体键，按常见远程桌面惯例映射 F13-F15
 	99:  0x69, // PrintScreen → F13
 	70:  0x6B, // ScrollLock  → F14
 	119: 0x71, // Pause       → F15
@@ -101,7 +100,6 @@ func cgButton(code uint16) (int, bool) {
 }
 
 // cgModFlag 把修饰键 KEY_* 映射为 quartz Flag* 位；非修饰键返回 ok=false。
-// 键值域与 keyToCGKeyCode 修饰键段一一对应（左右各四枚）。
 func cgModFlag(code uint16) (uint64, bool) {
 	switch code {
 	case 42, 54: // LShift/RShift

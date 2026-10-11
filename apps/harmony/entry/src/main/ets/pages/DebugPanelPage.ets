@@ -1,8 +1,4 @@
-// 调试面板（FR-7 / PRD §4.8）：1Hz 实时数据（手势状态/触摸采样率/发送速率/RTT/收发计数）、
-// echo 自测（10 连发列 RTT）、手动连接区（M1 联调：IP/端口/token(hex) + 连接/断开，
-// 交互四态：空闲/连接中(LoadingProgress)/成功/失败(带原因)+断开提示；成功后写 lastHost 偏好）。
-// HDS（D5/D3）：HdsNavDestination + 滚动模糊标题栏（单源 HdsTitleBar.ets）+ Scroller 绑定；
-// 分隔线 comp_divider 0.5vp，页底色与列表页对齐 ohos_id_color_sub_background。
+// 调试面板：1Hz 实时数据 + echo 10 连发 RTT + 合成轨迹自测 + 手动连接区（空闲/连接中/成功/失败四态）。
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { HdsNavDestination } from '@kit.UIDesignKit';
@@ -22,14 +18,13 @@ import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAv
 const TAG: string = 'PadLink.Debug';
 const DOMAIN: number = 0x5050;
 const ECHO_TEST_COUNT: number = 10;
-const DIVIDER_WIDTH_VP: number = 0.5; // D3：分隔线规格与分组卡规范对齐
+const DIVIDER_WIDTH_VP: number = 0.5; // 与分组卡规范对齐
 
-// 合成轨迹参数（FR-7）：72 点近似圆、半径 120 计数、8ms 步进（约 0.6s 画完）。
 const TRAJ_SEGMENTS: number = 72;
 const TRAJ_RADIUS: number = 120;
 const TRAJ_STEP_MS: number = 8;
 
-// GestureStateName（0..7）→ 文案资源（$r 需字面量，不用拼名）。
+// GestureStateName（0..7）→ 文案资源（$r 需字面量，不能拼名）。
 function gestureRes(state: number): string {
   if (state === GestureStateName.SINGLE_PENDING) {
     return 'gesture_single_pending';
@@ -55,11 +50,8 @@ function gestureRes(state: number): string {
   return 'gesture_idle';
 }
 
-// hex 字符串 → 字节：见 common/net/HexCodec（与 M2 配对/快速连接共用）。
-
-// statRow 入参（@Builder 按引用传递的唯一参数）：label/value 随 @Local/@Trace 变化刷新。
-// 依据 arkts-builder：@Builder 多参/按值传递状态变量时不触发动态渲染（faqs-arkui-1078），
-// 仅「单参数 + 对象字面量」按引用传递才随状态变化刷新。
+// statRow 入参：@Builder 多参或按值传状态变量不触发动态渲染，仅「单参数 + 对象字面量」
+// 按引用传递才随状态刷新（faqs-arkui-1078）。
 class StatRowData {
   public label: ResourceStr = '';
   public value: string = '';
@@ -72,7 +64,6 @@ export struct DebugPanelPage {
   @Require @Param settings: SettingsModel;
   @Require @Param pathStack: NavPathStack;
 
-  // 实时数据（1Hz 刷新）
   @Local gestureState: number = GestureStateName.IDLE;
   @Local sampleRate: number = 0;
   @Local sendRate: number = 0;
@@ -85,27 +76,23 @@ export struct DebugPanelPage {
   @Local recvDecodeFail: number = 0;
   @Local recvHmacFail: number = 0;
 
-  // echo 自测
   @Local echoRunning: boolean = false;
   @Local echoRtts: number[] = [];
 
-  // 合成轨迹自测（FR-7）：发送圆形 MOVE 序列，验证 UDP 数据面到 daemon 注入的端到端链路
   @Local trajRunning: boolean = false;
   private trajIdx: number = 0;
   private trajTimer: number = -1;
 
-  // 手动连接区（四态：空闲/loading/成功/失败；断开提示复用 statusText）
   @Local ip: string = '';
   @Local portText: string = '53021';
   @Local tokenHex: string = '';
   @Local connecting: boolean = false;
   @Local statusText: string = '';
   @Local statusOk: boolean = false;
-  // 页面存活秒数（1Hz 走字）：既是 Realtime 区刷新节拍的可视证据，也用于排查整页渲染冻结
   @Local pageSec: number = 0;
   private refreshTimer: number = -1;
-  private scroller: Scroller = new Scroller(); // 页面滚动器（标题栏滚动模糊联动）
-  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
+  private scroller: Scroller = new Scroller();
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
   private openedAtMs: number = 0;
   private echoPending: number = 0;
   private rttCb: RttListener = (rtt: number) => {
@@ -113,7 +100,7 @@ export struct DebugPanelPage {
   };
 
   aboutToAppear(): void {
-    // 含底部按钮的滚动表单页：RESIZE 压缩视口，键盘弹起时连接按钮可滚达（faqs-arkui-1073）
+    // 含底部按钮的滚动表单页必须 RESIZE，否则键盘弹起后按钮滚不到。
     this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
     this.conn.addRttListener(this.rttCb);
     this.openedAtMs = new Date().getTime();
@@ -190,8 +177,7 @@ export struct DebugPanelPage {
     }
   }
 
-  // 合成轨迹：相邻圆周点差分为相对位移（净位移为零，光标画圆后回原位），
-  // 8ms 间隔逐点发送（约 0.6s 画完，肉眼可辨），替代真机 --test 的链路层验证。
+  // 相邻圆周点差分为相对位移（净位移为零，光标画圆后回原位），8ms 间隔逐点发送。
   private runTrajectoryTest(): void {
     if (this.trajRunning) {
       return;
@@ -241,18 +227,18 @@ export struct DebugPanelPage {
       this.showStatus(this.resStr('debug_token_invalid'), false);
       return;
     }
-    this.connecting = true; // loading 态：按钮禁用 + LoadingProgress
+    this.connecting = true;
     this.showStatus(this.resStr('debug_connecting'), false);
     try {
       await this.conn.connect(ip, port, port, token);
-      this.showStatus(this.resStr('debug_connected'), true); // 成功态
+      this.showStatus(this.resStr('debug_connected'), true);
       const h = new HostInfo();
       h.ip = ip;
       h.port = port;
       h.tokenHex = this.tokenHex.trim();
       h.name = ip;
       this.settings.saveLastHost(h).catch((err: Error) => {
-        // 保存失败不影响本会话，状态行给原因（满 4 台给「先删除」提示，可删除后重试保存）
+        // 保存失败不影响本会话（满 4 台提示先删除）。
         if (err instanceof HostsFullError) {
           this.showStatus(this.resStr('debug_hosts_full'), false);
           return;
@@ -261,7 +247,7 @@ export struct DebugPanelPage {
         hilog.warn(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
       });
     } catch (err) {
-      this.showStatus(pageErrText(this.getUIContext(), err as Error), false); // 失败态：给原因，可重试
+      this.showStatus(pageErrText(this.getUIContext(), err as Error), false);
     } finally {
       this.connecting = false;
     }
@@ -269,7 +255,7 @@ export struct DebugPanelPage {
 
   private onDisconnectClick(): void {
     this.conn.disconnect();
-    this.showStatus(this.resStr('debug_disconnected'), true); // 断开提示
+    this.showStatus(this.resStr('debug_disconnected'), true);
   }
 
   private rttText(): string {
@@ -297,9 +283,7 @@ export struct DebugPanelPage {
   build() {
     HdsNavDestination() {
       Scroll(this.scroller) {
-        // D3 分组列表：实时数据 / 自测 / 手动连接 三组卡（GroupCard 单源），去裸 Divider 分段。
         Column({ space: 16 }) {
-          // ---- 实时数据（1Hz） ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.debug_realtime'))
             GroupCard() {
@@ -329,7 +313,6 @@ export struct DebugPanelPage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // ---- 自测（Echo 10 连发 + 合成轨迹） ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.debug_group_selftest'))
             GroupCard() {
@@ -352,7 +335,6 @@ export struct DebugPanelPage {
                 }, (rtt: number, idx: number) => `echo-${idx}-${rtt}`)
               }
               Divider().strokeWidth(DIVIDER_WIDTH_VP).color($r('sys.color.comp_divider'))
-              // 合成轨迹自测（FR-7：验证 UDP 数据面到 daemon 注入端到端）
               Row() {
                 Text($r('app.string.debug_traj_test'))
                   .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -376,7 +358,6 @@ export struct DebugPanelPage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // ---- 手动连接区（M1 联调） ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.debug_manual_connect'))
             GroupCard() {
@@ -432,14 +413,13 @@ export struct DebugPanelPage {
       .width('100%')
       .height('100%')
       .scrollBar(BarState.Off)
-      // 内容短于视口时顶对齐：Scroll 默认居中会让表单页顶部悬空一段空白
+      // 顶对齐：Scroll 默认居中会让短内容顶部悬空。
       .align(Alignment.Top)
-      // 穿透到标题栏下方显影滚动模糊（ui-design-navigation-dynamic-blur 官方模式）
+      // 穿透到标题栏下方显影滚动模糊。
       .clip(false)
     }
     .titleBar({
-      // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
-      // 与内容避让标题栏，缺一不可（MateX7 实测）。
+      // 仅 avoidLayoutSafeArea 内容会钻栏下、仅 enableComponentSafeArea 栏高塌陷，双开缺一不可。
       style: scrollBlurTitleBarStyle(),
       content: {
         title: { mainTitle: $r('app.string.page_debug') }

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// quantileSorted 返回升序样本的线性插值分位数（q∈[0,1]）；空样本返回 0。
+// quantileSorted 对升序样本做线性插值分位数（q∈[0,1]）；空样本返回 0。
 func quantileSorted(sorted []float64, q float64) float64 {
 	n := len(sorted)
 	if n == 0 {
@@ -25,7 +25,6 @@ func quantileSorted(sorted []float64, q float64) float64 {
 	return sorted[lo]*(1-frac) + sorted[hi]*frac
 }
 
-// rttStats 是一组 RTT 样本的汇总（毫秒）。
 type rttStats struct {
 	Count int
 	Min   float64
@@ -36,7 +35,6 @@ type rttStats struct {
 	Max   float64
 }
 
-// summarizeLatencies 汇总 RTT 样本；空样本返回 ok=false。
 func summarizeLatencies(ds []time.Duration) (rttStats, bool) {
 	if len(ds) == 0 {
 		return rttStats{}, false

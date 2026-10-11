@@ -1,12 +1,7 @@
-// 触摸板 ViewModel（FR-1）：UI 触摸事件 → TouchSample 流 → GestureEngine → Transport。
-// 触摸数据消费规则（PRD §4.2，铁律）：
-// - 一律消费 event.touches（按器件报点率上报）而非 changedTouches（按屏幕刷新率重采样）；
-// - 用 event.getHistoricalPoints() 取回帧内被合并报点，逐点 feed（否则快速滑动丢位移、双指滚动起始抖动）；
-//   文档查证（ts-universal-events-touch）：TouchEvent.getHistoricalPoints(): Array<HistoricalPoint>，
-//   HistoricalPoint.touchObject: TouchObject（id/x/y，vp）；API 不提供逐点时间戳，
-//   故帧内历史点时间在上一事件与当前事件时间戳间线性内插。
-// - tMs 取 BaseEvent.timestamp（系统启动起 ns，单调），/1e6 转毫秒喂引擎。
-// Up/Cancel 时被抬手指只存在于 changedTouches（touches 已不含该指），位置取 changed 值。
+// 触摸板 ViewModel：UI 触摸事件 → TouchSample 流 → GestureEngine → Transport。
+// 触摸数据消费必须用 event.touches + getHistoricalPoints()：changedTouches 按屏幕刷新率重采样，会丢
+// 帧内合并报点；历史点无时间戳，按上一事件与当前事件间隔线性内插。Up/Cancel 的被抬指只在
+// changedTouches（touches 已不含该指）。tMs 取 BaseEvent.timestamp（ns，单调）/1e6。
 import { GestureEngine, GestureCommandType } from '../gesture/GestureEngine';
 import type { GestureCommand } from '../gesture/GestureEngine';
 import { TouchKind } from '../gesture/TouchSample';
@@ -16,22 +11,21 @@ import type { GestureConfig } from '../gesture/GestureConfig';
 import { newButton } from '../proto/Packet';
 import type { Transport } from '../net/Transport';
 
-// 惯性滑行驱动频率（≈60Hz：与屏幕刷新同量级，滚动步进才跟得上衰减曲线）。
+// ≈60Hz：与屏幕刷新同量级，滚动步进才跟得上衰减曲线。
 const FLING_TICK_MS: number = 16;
 
 export class TouchpadModel {
   private cfg: GestureConfig = defaultGestureConfig();
   private engine: GestureEngine = new GestureEngine(this.cfg);
   private transport: Transport | null = null;
-  // 活跃指集合（DOWN 登记 / UP 注销 / CANCEL 清空），供 touches 流的指位升格判定。
+  // 活跃指集合（DOWN 登记 / UP 注销 / CANCEL 清空），供指位升格判定。
   private activeIds: Set<number> = new Set<number>();
   private lastEventTms: number = 0;
-  // 惯性滑行驱动：引擎只认"距上次 tick 的增量"，时钟留在本层（触摸样本用系统启动时间，
-  // 定时器用 Date.now()，两者不同基，故只传增量，避免混用时间基）。
+  // 时钟留在本层：触摸样本用系统启动时间、定时器用 Date.now()，两者不同基，
+  // 故引擎只认「距上次 tick 的增量」。
   private flingTimer: number = -1;
   private flingWallMs: number = 0;
 
-  // 调试统计：触摸采样率 / 发送速率（每秒滚动窗口）。
   private sampleSecStart: number = 0;
   private samplesInSec: number = 0;
   private sampleRate: number = 0;
@@ -43,7 +37,7 @@ export class TouchpadModel {
     this.transport = t;
   }
 
-  // 设置页实时生效：直接改引擎持有的同一配置对象（引擎每拍读 this.cfg，见 GestureEngine）。
+  // 设置页实时生效：直接改引擎持有的同一配置对象（引擎每拍读 this.cfg）。
   public applySettings(sensitivity: number, naturalScroll: boolean): void {
     this.cfg.sensitivity = sensitivity;
     this.cfg.naturalScroll = naturalScroll;
@@ -61,7 +55,6 @@ export class TouchpadModel {
     return this.sendRate;
   }
 
-  // 主控页 onTouch 入口。
   public onTouch(ev: TouchEvent): void {
     const tms: number = ev.timestamp / 1000000; // ns → ms（单调时钟）
     const span: number = tms - this.lastEventTms;
@@ -88,13 +81,13 @@ export class TouchpadModel {
         this.feedSample(t.id, t.x, t.y, TouchKind.UP, tms);
       }
     } else if (ev.type === TouchType.Cancel) {
-      // TouchType.Cancel（Home 返回、折叠切换等）：引擎任意 CANCEL 即全局复位
+      // TouchType.Cancel（Home 返回、折叠切换等）：任意 CANCEL 即全局复位
       this.feedSample(0, 0, 0, TouchKind.CANCEL, tms);
     }
     this.lastEventTms = tms;
   }
 
-  // 切页/退出主控页时调用：CANCEL 复位引擎（释放按住的左键、冲账滚动余量、终止惯性），不残留。
+  // 切页/退出主控页时调用：CANCEL 复位引擎（释放按键、冲账滚动、终止惯性），不残留。
   public cancelGesture(): void {
     this.feedSample(0, 0, 0, TouchKind.CANCEL, new Date().getTime());
     this.stopFlingTimer();
@@ -114,7 +107,6 @@ export class TouchpadModel {
     this.dispatch(cmds);
   }
 
-  // 惯性滑行：末指抬起后引擎进入可 tick 态，此处按 ~60Hz 驱动，衰减到头自停。
   private syncFlingTimer(): void {
     if (!this.engine.hasFling()) {
       this.stopFlingTimer();
@@ -143,7 +135,7 @@ export class TouchpadModel {
     }
   }
 
-  // 命令分发：MOVE/SCROLL→UDP（自然滚动已在引擎内换算，此处不二次取反）；BUTTON→TCP。
+  // 命令分发：MOVE/SCROLL→UDP（自然滚动已在引擎内换算，不二次取反）；BUTTON→TCP。
   private dispatch(cmds: GestureCommand[]): void {
     if (cmds.length === 0) {
       this.syncFlingTimer();

@@ -49,7 +49,7 @@ func noticeOf(plan Plan, substr string) (NoticeKind, string, bool) {
 	return NoticeInfo, "", false
 }
 
-// dumpPlan 把计划逐条写进测试日志（go test -v 时可见，便于核对命令序列与文件清单）。
+// dumpPlan 把计划逐条写进测试日志。
 func dumpPlan(t *testing.T, plan Plan) {
 	t.Helper()
 	for i, st := range plan.Steps {
@@ -430,7 +430,6 @@ func TestBuildUninstallGuardRejectsBadPaths(t *testing.T) {
 	}
 	mustContain(t, "错误消息", err.Error(), "绝对路径")
 
-	// 不支持的平台
 	if _, err := BuildUninstall(BuildInstallProbe("windows", "C:/Users/u", "", 1, setExists()), false); err == nil {
 		t.Fatal("期望不支持的平台报错")
 	}

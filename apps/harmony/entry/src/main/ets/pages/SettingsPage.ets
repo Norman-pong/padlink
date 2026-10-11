@@ -1,17 +1,6 @@
-// 设置页（FR-5 / FR-7）：灵敏度 Slider（0.5–2.0 步进 0.1，实时生效+持久化）、
-// 自然滚动开关、已配对主机管理（列表四态：加载/空态/列表/轻提示反馈；点行进半模态操作单——
-// 重命名/设默认/删除，bindSheet FIT_CONTENT；删除仍走 AlertDialog 二次确认）、
-// 调试面板开关（控制版本号连点入口显隐）、关于区（应用版本+协议版本）。
-// 隐藏入口（FR-7）：调试开关开启时，版本号连点 5 次跳调试页。
-// 应用版本经 bundleManager.getBundleInfoForSelfSync 读取（js-apis-bundlemanager，API10+）。
-// 弹窗/反馈 API（文档现查）：删除二次确认走 UIContext.showAlertDialog（AlertDialog.show 自
-// API18 废弃，ts-methods-alert-dialog-box / arkts-fixes-style-dialog）；操作反馈走
-// UIContext.getPromptAction().showToast（arkts-apis-uicontext-promptaction）；重命名因需
-// TextInput 输入用页内蒙层弹层实现（CustomDialogController 依赖 V1 状态装饰器，V2 页面从简），
-// 蒙层打开时 onBackPressed 拦截系统返回先关弹层。
-// HDS（D5/D3）：HdsNavDestination + 滚动模糊标题栏（单源 HdsTitleBar.ets）+ Scroller 绑定；
-// 页底色 ohos_id_color_sub_background、卡面 comp_background_primary、分隔线 comp_divider
-// 0.5vp；蒙层用系统 token ohos_id_color_mask_regular（原 rgba 硬编码清零）。
+// 设置页：灵敏度/自然滚动/已配对主机管理（四态 + 半模态操作单）/调试开关/关于（版本+协议版本+隐私）。
+// 删除确认走 UIContext.showAlertDialog（AlertDialog.show 自 API18 废弃）；重命名需 TextInput 故用
+// 页内蒙层（CustomDialogController 依赖 V1 装饰器，V2 页从简），蒙层打开时系统返回必须先关弹层。
 import { bundleManager } from '@kit.AbilityKit';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
@@ -35,8 +24,8 @@ const DOMAIN: number = 0x5050;
 const VERSION_TAP_WINDOW_MS: number = 1500;
 const VERSION_TAP_COUNT: number = 5;
 const TOAST_MS: number = 2000;
-const DIVIDER_WIDTH_VP: number = 0.5; // D3：分隔线规格与分组卡规范对齐
-// 隐私政策回落链接：AGC 托管链接不可得时（模拟器/未托管），打开仓库内同源底稿
+const DIVIDER_WIDTH_VP: number = 0.5;
+// AGC 托管链接不可得时（模拟器/未托管）回落仓库底稿。
 const PRIVACY_FALLBACK_URL: string = 'https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md';
 
 @ComponentV2
@@ -51,24 +40,21 @@ export struct SettingsPage {
   @Local debugOn: boolean = false;
   @Local appVersion: string = '';
   private tapTimes: number[] = [];
-  private scroller: Scroller = new Scroller(); // 页面滚动器（标题栏滚动模糊联动）
-  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
+  private scroller: Scroller = new Scroller();
+  private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
 
-  // 已配对主机（四态：加载中/加载失败/空态/列表；操作反馈用 toast）
   @Local hosts: HostInfo[] = [];
   @Local defaultIp: string = '';
   @Local hostsLoading: boolean = true;
   @Local hostsError: string = '';
-  // 重命名弹层（''=关闭）
   @Local renameIp: string = '';
   @Local renamePort: number = 53021;
   @Local renameText: string = '';
   @Local renameError: string = '';
-  // 主机操作半模态（null=关闭）：点行拉起，动作单承载重命名/设默认/删除
   @Local actionHost: HostInfo | null = null;
 
   aboutToAppear(): void {
-    // 重命名弹层 TextInput + 保存/取消按钮：RESIZE 键盘避让（faqs-arkui-1073）
+    // 重命名弹层含底部按钮，必须 RESIZE，否则键盘弹起后按钮滚不到。
     this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
     this.sensValue = this.settings.sensitivity;
     this.naturalOn = this.settings.naturalScroll;
@@ -92,8 +78,6 @@ export struct SettingsPage {
       return '';
     }
   }
-
-  // ---- 已配对主机 ----
 
   private refreshHosts(): void {
     this.hostsLoading = true;
@@ -140,7 +124,7 @@ export struct SettingsPage {
     this.renameError = '';
   }
 
-  // 重命名提交：非空且 ≤64B（daemon MaxNameLen）校验失败给行内原因，成功轻提示并刷新。
+  // 名称上限 64B 对齐 daemon MaxNameLen。
   private saveRename(): void {
     const name = validateHostName(this.renameText);
     if (name.length === 0) {
@@ -158,8 +142,7 @@ export struct SettingsPage {
     });
   }
 
-  // 删除二次确认（AlertDialog）：只删本机档案，不触碰连接——若删除的是当前连接主机，
-  // 连接保持不断开，仅该主机不再被 AutoConnect 自动重连（AutoConnect 只按列表默认主机发起）。
+  // 只删本机档案不断连接：删除当前主机仅使其不再被 AutoConnect 重连。
   private confirmRemove(h: HostInfo): void {
     this.getUIContext().showAlertDialog({
       title: this.resStr('settings_host_delete_title'),
@@ -188,8 +171,7 @@ export struct SettingsPage {
     });
   }
 
-  // 连接此主机（一对多切换）：token 直连，成功后 PairingModel 把该主机记为默认主机
-  //（AutoConnect 与快速连接随之跟随），轻提示并回主控页让用户直接开始操作。
+  // 成功后 PairingModel 把该主机记为默认主机，AutoConnect 与快速连接随之跟随。
   private connectHost(h: HostInfo): void {
     this.pairing.connectKnown(h).then((ok: boolean) => {
       if (ok) {
@@ -197,15 +179,12 @@ export struct SettingsPage {
         this.pathStack.pop();
         return;
       }
-      // 失败原因由 PairingModel 写入快照（凭据失效时会自动回落配对流程）
       this.toast(this.resStr('settings_host_connect_fail'));
       this.refreshHosts();
     });
   }
 
-  // ---- 既有设置项 ----
-
-  // 灵敏度：拖动实时生效；End/Click 落盘（避免滑动过程高频 flush）。
+  // 灵敏度：End/Click 才落盘，避免滑动过程高频 flush。
   private onSensChange(value: number, mode: SliderChangeMode): void {
     this.sensValue = value;
     this.touchpad.applySettings(value, this.naturalOn);
@@ -231,7 +210,6 @@ export struct SettingsPage {
     });
   }
 
-  // 版本号连点 5 次（VERSION_TAP_WINDOW_MS 窗口内累计）→ 调试页（FR-7 隐藏入口；调试开关关闭时入口整体隐藏）。
   private onVersionClick(): void {
     const now: number = new Date().getTime();
     this.tapTimes = this.tapTimes.filter((t: number): boolean => now - t <= VERSION_TAP_WINDOW_MS);
@@ -246,9 +224,7 @@ export struct SettingsPage {
     HdsNavDestination() {
       Stack() {
         Scroll(this.scroller) {
-          // D3 分组列表：组头（caption）+ 分组卡（GroupCard 单源），四组——触控/主机/调试/关于。
           Column({ space: 16 }) {
-            // ---- 触控 ----
             Column({ space: 8 }) {
               GroupHeader($r('app.string.settings_group_touchpad'))
               GroupCard() {
@@ -270,8 +246,7 @@ export struct SettingsPage {
                 Divider()
                   .strokeWidth(DIVIDER_WIDTH_VP)
                   .color($r('sys.color.comp_divider'))
-                // 自然滚动（开关行：读屏由 Toggle 单点播报「自然滚动，开关，已开启」，
-                // 行标题标 'no' 防同文双读）
+                // 行标题标 'no'：Toggle 已单点播报，否则同文双读。
                 Row() {
                   Text($r('app.string.settings_natural_scroll'))
                     .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -290,7 +265,6 @@ export struct SettingsPage {
             .alignItems(HorizontalAlign.Start)
             .width('100%')
 
-            // ---- 已配对主机（FR-5 主机管理） ----
             Column({ space: 8 }) {
               GroupHeader($r('app.string.settings_hosts_section'))
               this.hostsSection()
@@ -298,7 +272,6 @@ export struct SettingsPage {
             .alignItems(HorizontalAlign.Start)
             .width('100%')
 
-            // ---- 调试 ----
             Column({ space: 8 }) {
               GroupHeader($r('app.string.settings_group_debug'))
               GroupCard() {
@@ -328,18 +301,16 @@ export struct SettingsPage {
             .alignItems(HorizontalAlign.Start)
             .width('100%')
 
-            // ---- 关于（FR-7 隐藏入口挂在版本行） ----
             Column({ space: 8 }) {
               GroupHeader($r('app.string.settings_about'))
               GroupCard() {
-                // 品牌 logo：装饰性展示（应用身份已由版本行播报，读屏跳过）
                 Image($r('app.media.app_logo'))
                   .width(64)
                   .height(64)
-                  .borderRadius(14) // 系统图标圆角观感（≈22%）
+                  .borderRadius(14)
                   .alignSelf(ItemAlign.Center)
                   .margin({ bottom: 4 })
-                  .accessibilityLevel('no')
+                  .accessibilityLevel('no') // 装饰性展示，读屏跳过
                 if (this.debugOn) {
                   Text(`${this.resStr('settings_version')}: ${this.appVersion}`)
                     .fontSize($r('sys.float.ohos_id_text_size_body2'))
@@ -363,7 +334,6 @@ export struct SettingsPage {
                     this.openPrivacyPolicy();
                   })
               }
-              // 服务端安装向导常驻入口（手机装了 APP 但电脑没装服务端时的自助指引）
               PressedRow({
                 a11yText: this.resStr('settings_guide'),
                 onActivated: (): void => {
@@ -395,19 +365,18 @@ export struct SettingsPage {
         .width('100%')
         .height('100%')
         .scrollBar(BarState.Off)
-        // 内容短于视口时顶对齐：Scroll 默认居中会让表单页顶部悬空一段空白
+        // 顶对齐：Scroll 默认居中会让短内容顶部悬空。
         .align(Alignment.Top)
-        // 穿透到标题栏下方显影滚动模糊（ui-design-navigation-dynamic-blur 官方模式）
+        // 穿透到标题栏下方显影滚动模糊。
         .clip(false)
 
-        // 重命名弹层（页内蒙层实现，置于滚动层之上）
         if (this.renameIp.length > 0) {
           this.renameOverlay()
         }
       }
       .width('100%')
       .height('100%')
-      // 主机操作半模态（bindSheet builder 直调 @Builder，官方形态；手势关闭经 onDisappear 复位）
+      // bindSheet builder 直调 @Builder（官方形态）；手势关闭经 onDisappear 复位。
       .bindSheet(this.actionHost !== null, this.hostActionSheet(), {
         detents: [SheetSize.FIT_CONTENT],
         title: { title: this.actionHost !== null ? this.hostName(this.actionHost) : '' },
@@ -417,8 +386,7 @@ export struct SettingsPage {
       })
     }
     .titleBar({
-      // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
-      // 与内容避让标题栏，缺一不可（MateX7 实测）。
+      // 仅 avoidLayoutSafeArea 内容会钻栏下、仅 enableComponentSafeArea 栏高塌陷，双开缺一不可。
       style: scrollBlurTitleBarStyle(),
       content: {
         title: { mainTitle: $r('app.string.page_settings') }
@@ -427,13 +395,12 @@ export struct SettingsPage {
       enableComponentSafeArea: true
     })
     .bindToScrollable([this.scroller])
-    .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // D3 分组列表页底色（覆盖标题栏区域，防上下拼色）
-    // 重新可见即刷新主机列表：从发现页配对/切换回来时页面并未重建，
-    // 只靠 aboutToAppear 会一直显示旧快照（实测：配对成功却在列表里看不到新主机）。
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // 覆盖标题栏区域，防上下拼色
+    // 从子页返回不重建页面，主机列表必须在 onShown 重新加载。
     .onShown(() => {
       this.refreshHosts();
     })
-    // 重命名弹层打开时系统返回先关弹层（自绘蒙层不自带返回行为），否则直接退出整页丢输入
+    // 自绘蒙层不自带返回行为，返回键必须先关弹层，否则直接退页丢输入。
     .onBackPressed((): boolean => {
       if (this.renameIp.length > 0) {
         this.closeRename();
@@ -445,7 +412,6 @@ export struct SettingsPage {
 
   @Builder
   hostsSection() {
-    // 四态内容与发现页共用 PairedHostsSection（第二处重复即抽组件）；行内容仍是本页的操作单行。
     PairedHostsSection({
       hosts: this.hosts,
       loading: this.hostsLoading,
@@ -459,7 +425,7 @@ export struct SettingsPage {
       }
     })
     Column({ space: 8 }) {
-      // 发现页入口行：连接态下配对第二台主机的唯一可达路径（发现页 menu 槽只通向设置）。
+      // 连接态下配对第二台主机的唯一入口（发现页 menu 槽只通向设置）。
       PressedRow({
         a11yText: this.resStr('page_discover'),
         onActivated: (): void => {
@@ -488,8 +454,7 @@ export struct SettingsPage {
 
   @Builder
   hostItem(h: HostInfo) {
-    // 整行可点（PressedRow 单源按压态），点行拉起半模态动作单——低频/破坏性操作收进动作单，
-    // 不在行内排小按钮（命中区下限 40vp）；chevron 此处为钻取语义（进入该主机的操作上下文）
+    // 整行可点；低频/破坏性操作收进动作单（行内小按钮达不到 40vp 命中区），chevron 为钻取语义。
     PressedRow({
       a11yText: `${this.hostName(h)}，${h.ip}`,
       onActivated: (): void => {
@@ -528,8 +493,7 @@ export struct SettingsPage {
     }
   }
 
-  // 主机操作单（半模态）：重命名 / 设为默认（非默认才出）/ 删除（破坏性，警示色 + 二次确认）。
-  // 动作先关面板再执行，删除确认走 AlertDialog。
+  // 动作先关面板再执行（删除确认走 AlertDialog 二次确认）。
   @Builder
   hostActionSheet() {
     Column({ space: 8 }) {
@@ -585,11 +549,11 @@ export struct SettingsPage {
   @Builder
   renameOverlay() {
     Column() {
-      // 蒙层：点击不关闭（防误触丢输入），仅按钮退出
+      // 蒙层点击不关闭（防误触丢输入），仅按钮退出。
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor($r('sys.color.ohos_id_color_mask_regular')) // 弹层蒙层：系统 token，深浅色自适应
+        .backgroundColor($r('sys.color.ohos_id_color_mask_regular'))
       Column({ space: 12 }) {
         Text($r('app.string.settings_host_rename'))
           .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -599,7 +563,7 @@ export struct SettingsPage {
           .height(40)
           .maxLength(64)
           .defaultFocus(true)
-          // 输入框底色区别于弹层卡面（同色会隐形）；tertiary 为输入件底色非列表卡面，不属 D3 范围
+          // 输入框必须用 tertiary：与弹层卡面同色会隐形。
           .backgroundColor($r('sys.color.comp_background_tertiary'))
           .onChange((v: string) => {
             this.renameText = v;
@@ -641,12 +605,11 @@ export struct SettingsPage {
     if (ctx === undefined) {
       return '';
     }
-    // getStringSync(Resource) 自 API20 废弃（js-apis-resource-manager），改用 getStringByNameSync
+    // getStringSync(Resource) 自 API20 废弃，改用 getStringByNameSync。
     return ctx.resourceManager.getStringByNameSync(name);
   }
 
-  // 隐私政策入口：AGC 标准化隐私托管链接优先（store-privacy「查询隐私链接」），
-  // 服务不可达（模拟器/侧载未托管）回落仓库底稿；openLink 拉起系统默认浏览器。
+  // AGC 托管隐私链接优先，服务不可达（模拟器/侧载未托管）回落仓库底稿。
   private openPrivacyPolicy(): void {
     let url: string = PRIVACY_FALLBACK_URL;
     try {

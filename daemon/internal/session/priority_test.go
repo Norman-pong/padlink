@@ -7,8 +7,6 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// ---- 纯逻辑：裁决表 ----
-
 func TestArbiterSingleDevice(t *testing.T) {
 	a := newControlArbiter(time.Second, time.Second)
 	now := time.Unix(1000, 0)
@@ -133,8 +131,6 @@ func TestArbiterReleaseOnDisconnect(t *testing.T) {
 	}
 }
 
-// ---- 端到端：两会话 + 注入捕获 + NOTICE ----
-
 // authedClient 完成 HELLO 握手并持有 token 的测试客户端。
 type authedClient struct {
 	*tcpClient
@@ -165,8 +161,7 @@ func (c *authedClient) nextSeq() uint16 {
 	return c.seq
 }
 
-// 多设备控制权端到端：A 控制中 B 的输入被丢弃并收到 NOTICE；
-// 冷静期满且 A 空闲后 B 的输入放行（接管）。
+// 多设备控制权端到端：A 控制中 B 的输入被丢弃并收到 NOTICE；冷静期满且 A 空闲后 B 接管。
 func TestMultiDevicePriorityEndToEnd(t *testing.T) {
 	cooldown, idle := 150*time.Millisecond, 40*time.Millisecond
 	ts := newTestServer(t, func(c *Config) {

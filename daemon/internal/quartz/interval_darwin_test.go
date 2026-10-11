@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// 双击间隔必须落在合理区间，或返回 0 表示不可用（调用方回落 inject 默认 500ms）。
-// 断言不绑定具体系统设置值（用户可改"双击速度"），只防单位换算错误。
+// 双击间隔必须落在合理区间，或返回 0 表示不可用；断言不绑定具体系统设置值，只防单位换算错误。
 func TestDoubleClickIntervalContract(t *testing.T) {
 	d := DoubleClickInterval()
 	if d != 0 && (d < 100*time.Millisecond || d > 2*time.Second) {

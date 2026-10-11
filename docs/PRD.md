@@ -1,7 +1,7 @@
 # PRD：口袋键鼠（代号 padlink）— 鸿蒙手机作为电脑的触摸板 / 键盘 / 语音输入设备
 
-> 状态：技术方案已验证，待开发
-> 仓库形态：**Monorepo**（鸿蒙 APP + Linux 守护进程同仓开发，协议规范为单源）；本仓库当前仅含文档与协议规范，代码全部从零实现
+> 状态：技术方案已验证；v1 与 macOS 扩展均已落地，真机验收口径见 §11
+> 仓库形态：**Monorepo**（鸿蒙 APP + Linux/macOS 守护进程同仓开发，协议规范为单源）；daemon 与鸿蒙工程均已落地
 > 鸿蒙 API 查证索引：`docs/HARMONY-DOCIDS.md`；Linux 集成事实：`docs/RESEARCH-WAYLAND.md`
 > 全文标注〔溯源：…〕处为硬约束，执行时不得凭记忆改写
 
@@ -49,7 +49,7 @@
 | 手机 | HarmonyOS NEXT，targetAPIVersion ≥ 26（沉浸材质体系要求），真机为主（触摸真实度） |
 | 电脑 | Ubuntu 26.04 LTS（Resolute Raccoon，GNOME 50，kernel 7.0；桌面会话仅 Wayland 后端），**仅 GNOME Wayland**（受支持且受测的唯一环境）；**明确不做 X11 适配**——daemon 启动时校验 WAYLAND_DISPLAY，缺失打印不支持警告〔溯源：RESEARCH-WAYLAND.md §5〕 |
 | 其他 Linux 发行版 | **可用不承诺**：uinput 为内核级能力，指针/键盘注入天然跨发行版与桌面；但语音文本注入依赖 wl-clipboard（Wayland 合成器），X11 会话下不可用。社区自用可以，不进 v1 测试与验收 |
-| macOS（v2 规划） | macOS 13+：CGEvent 注入后端（需辅助功能权限授权引导），文本注入 pbcopy + Cmd+V（比 Wayland 更简单，无 wl-clipboard 类陷阱）；估算 1~1.5 周，详见附录 B |
+| macOS（v2 扩展，已实现） | macOS 13+：CGEvent 注入后端（需辅助功能权限授权引导），文本注入 pbcopy + Cmd+V（比 Wayland 更简单，无 wl-clipboard 类陷阱）；方案与实测见 `docs/PLAN-MACOS.md` |
 
 ### 1.4 v1 范围外（Non-goals）
 
@@ -59,7 +59,7 @@
 - Android / iOS 端
 - 媒体遥控器皮肤、PPT 翻页专用模式
 - 其他 Linux 发行版/合成器的适配与测试（架构天然兼容，但"能用"≠"支持"，不进 v1 验收）
-- macOS 支持（v2 规划，见附录 B，不属 v1 范围）
+- macOS 支持不属 v1 验收范围（v2 扩展已实现，见附录 B）
 
 ---
 
@@ -85,7 +85,7 @@
 - **双通道传输**：高频可丢的指针移动走 UDP（丢包由新值自然覆盖）；不可丢的按键/文本/配对/心跳走 TCP。
 - 手机端触摸板使用时必然前台 + 亮屏，v1 **不需要**长时任务与 RunningLock（v2 空中鼠标息屏场景再引入）。
 
-### 2.2 Monorepo 目录结构（目标结构，代码从零创建）
+### 2.2 Monorepo 目录结构
 
 ```
 padlink/
@@ -96,13 +96,14 @@ padlink/
 ├── apps/
 │   └── harmony/             # 鸿蒙 APP（devecocli create --api-level 26 生成）
 │       └── …                # ArkTS/ArkUI，见 §6
-├── daemon/                  # Linux 守护进程（Go，无 cgo，单二进制）
+├── daemon/                  # 守护进程（Linux 无 cgo 单二进制；darwin 经 cgo 调 Quartz）
 │   ├── cmd/padlinkd/        # 守护进程入口
 │   ├── cmd/padlinkctl/      # CLI：status / pair / clients / unpair
-│   ├── internal/…           # discovery / pairing / uinput / inject / clip
+│   ├── internal/…           # discovery / pairing / uinput / inject / textinject / quartz
 │   ├── packaging/systemd/   # user 级 service（打包/手工安装两变体）
-│   └── packaging/udev/      # uinput uaccess 规则
-├── tools/                   # 联调工具：录回放器、协议 fuzz、延迟压测
+│   ├── packaging/udev/      # uinput uaccess 规则
+│   └── packaging/macos/     # launchd LaunchAgent、app bundle 组装与签名身份脚本
+├── tools/                   # 联调与验证 harness：协议对拍、ArkTS 纯逻辑单测
 └── README.md
 ```
 
@@ -182,7 +183,7 @@ padlink/
 ### 4.5 FR-4 语音听写区
 
 - **端侧识别**：Core Speech Kit `speechRecognizer`（中文 zh-CN 为当前唯一语种，含中文语境英文；离线端侧执行；公开 API `hms-ai-speechrecognizer`，API 11+）。**参数必须显式全量传递**（三处默认值陷阱）：`recognitionMode: 0`（实时录音识别，默认 1 是写音频流模式，传错功能直接不可用）、`maxAudioDuration: 60000`（默认仅 20000）、`vadEnd` 按需调大（默认 800ms 静音即判停）；"按住说话"松手时主动 `finish()`。中间/最终结果靠同一 onResult 回调的 `isFinal` 字段区分（蹦字模式默认开启）〔溯源：hms-ai-speechrecognizer（CreateEngineParams/StartParams/SpeechRecognitionResult 表）、speechrecognizer-guide 步骤10、faqs-core-speech-12〕。
-- **文本注入（daemon 侧）**：中文无法逐字符打 HID 键码，采用**剪贴板 + Ctrl+V**（GNOME 下无更优替代：ydotool type 硬编码 ASCII 表、wtype 依赖 mutter 未实现的协议）：`wl-paste --no-newline` 备份（**必须 --no-newline，否则恢复后多出换行**）→ `wl-copy --type 'text/plain;charset=utf-8'` 写入 → 注入 Ctrl+V → 300–500ms（可配）后用 `wl-copy --type <原MIME>` 恢复；所有 wl-* 子进程加 2–3s 超时降级。恢复时序竞态为已知接受边界：慢应用可能粘贴到旧内容；验收口径为剪贴板**内容**不变（owner 可能由 mutter 内置剪贴板管理器接管，属正常行为）〔溯源：RESEARCH-WAYLAND.md §3/§6〕。
+- **文本注入（daemon 侧）**：中文无法逐字符打 HID 键码，采用**剪贴板 + Ctrl+V**（GNOME 下无更优替代：ydotool type 硬编码 ASCII 表、wtype 依赖 mutter 未实现的协议）：`wl-paste --no-newline` 备份（**必须 --no-newline，否则恢复后多出换行**）→ `wl-copy --type 'text/plain;charset=utf-8'` 写入 → 注入 Ctrl+V → 平台默认延迟（Linux 300ms、macOS 800ms，可配）后用 `wl-copy --type <原MIME>` 恢复；所有 wl-* 子进程加 2–3s 超时降级。恢复时序竞态为已知接受边界：慢应用可能粘贴到旧内容；验收口径为剪贴板**内容**不变（owner 可能由 mutter 内置剪贴板管理器接管，属正常行为）〔溯源：RESEARCH-WAYLAND.md §3/§6〕。
 - daemon 启动时检测 `wl-clipboard`：缺失则该功能降级，APP 端收到明确错误提示（附安装命令 `sudo apt install wl-clipboard`）。
 - 权限：`ohos.permission.MICROPHONE`；首次拒绝后的引导文案进设置页。
 
@@ -262,9 +263,9 @@ reserved(2B) | hmac_trunc(8B, 配对后启用) | payload(≤1400B, UDP 分片上
 
 ### 7.1 运行形态
 
-- 语言：**Go（无 cgo 单二进制，交叉编译 amd64/arm64）**。
-- **注入层平台化**：注入实现为可替换后端 `DeviceWriter` 接口——Linux 用 uinput（无 cgo）；v2 macOS 用 CGEvent（cgo 或 Swift 辅助进程 + 辅助功能权限引导）；协议与会话层跨平台复用，换平台只换注入后端，手机端零改动。
-- systemd **user service**（无 root）：unit 挂 `PartOf=graphical-session.target` + `WantedBy=graphical-session.target`（default.target 下 uaccess ACL 与 WAYLAND_DISPLAY 均未就绪）；udev 规则 `SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess", OPTIONS+="static_node=uinput"`（uinput 默认 root:root 0600 且上游无默认授权）；`Restart=on-failure`；启动时校验 WAYLAND_DISPLAY，缺失即明确报错〔溯源：RESEARCH-WAYLAND.md §2/§3〕。
+- 语言：**Go（Linux 无 cgo 单二进制，交叉编译 amd64/arm64；darwin 经 cgo 调 Quartz）**。
+- **注入层平台化（已实现）**：注入实现为可替换后端 `DeviceWriter` 接口——Linux 用 uinput（无 cgo）；macOS 用 CGEvent（cgo，`internal/quartz`）+ 辅助功能权限授权引导；协议与会话层跨平台复用，换平台只换注入后端，手机端零改动。
+- Linux 以 systemd **user service**（无 root）常驻：unit 挂 `PartOf=graphical-session.target` + `WantedBy=graphical-session.target`（default.target 下 uaccess ACL 与 WAYLAND_DISPLAY 均未就绪）；udev 规则 `SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess", OPTIONS+="static_node=uinput"`（uinput 默认 root:root 0600 且上游无默认授权）；`Restart=on-failure`；启动时校验 WAYLAND_DISPLAY，缺失即明确报错〔溯源：RESEARCH-WAYLAND.md §2/§3〕。macOS 常驻形态见 `docs/PLAN-MACOS.md` §2.4/§2.6。
 - 日志进 journald；`-v` 前台 verbose 模式（开发期主力调试形态）。
 
 ### 7.2 模块与职责
@@ -275,7 +276,7 @@ reserved(2B) | hmac_trunc(8B, 配对后启用) | payload(≤1400B, UDP 分片上
 | pairing | 4 位确认码生命周期（60s/5 次）、token 签发与校验、多客户端上限 4 |
 | uinput | 创建虚拟设备：REL_X/Y、**REL_WHEEL_HI_RES（注册即必发——mutter 仅消费 HI_RES 路径，只注册不发会被 libinput 告警回退）**、BTN_LEFT/RIGHT/MIDDLE、全键盘 KEY_*；legacy REL_WHEEL 累积补发仅作非 GNOME 环境防御〔溯源：RESEARCH-WAYLAND.md §1〕 |
 | inject | MOVE/SCROLL/BUTTON/KEY → uinput 事件序列（含修饰键组合展开、key repeat） |
-| text | TEXT → 备份剪贴板 → wl-copy → 注入 Ctrl+V → 恢复（wl-clipboard 缺失时优雅降级） |
+| text | TEXT → 备份剪贴板 → 写入 → 注入粘贴组合键 → 恢复（Linux：wl-clipboard；macOS：pbcopy/pbpaste + Cmd+V；缺失时优雅降级） |
 | session | TCP 会话、心跳、鉴权、速率限制 |
 
 ### 7.3 CLI 与自测
@@ -351,7 +352,7 @@ reserved(2B) | hmac_trunc(8B, 配对后启用) | payload(≤1400B, UDP 分片上
 | UDP 被劣质路由丢弃 | 低 | 心跳检测 + TCP 兜底提示切网络 |
 | 触摸 Move 按 vsync 帧合并、双指插入短暂丢 move | 中 | 消费 touches + getHistoricalPoints 补点〔溯源：faqs-arkui-907〕 |
 | ASR 默认参数陷阱（20s 上限/写流模式/800ms 判停） | 中 | 参数显式全量传递 + ASR 会话单例封装 |
-| 剪贴板恢复时序竞态（慢应用粘到旧内容） | 低 | 恢复延迟可配 300–500ms；验收口径定为"内容不变" |
+| 剪贴板恢复时序竞态（慢应用粘到旧内容） | 低 | 恢复延迟可配（Linux 默认 300ms、macOS 800ms，改小前须真机复测）；验收口径定为"内容不变" |
 
 ## 14. 待决决策
 
@@ -371,11 +372,11 @@ reserved(2B) | hmac_trunc(8B, 配对后启用) | payload(≤1400B, UDP 分片上
 
 - 协议事件源扩展位：`SENSOR_MOVE`（空中鼠标，`@ohos.sensor`）。
 - 息屏常采场景引入长时任务（DATA_TRANSFER）+ RunningLock。
-- 多主机切换 UI、媒体遥控模式。
-- **macOS 后端（v2 平台扩展）**：
+- 媒体遥控模式。
+- **macOS 后端（v2 平台扩展，已落地）**：
   - 注入：CGEvent API（`CGEventPost` 注入鼠标移动/按键/平滑滚动），对应 uinput 后端实现同一 `DeviceWriter` 接口；
   - 权限：辅助功能授权（`AXIsProcessTrusted` 检测 + 系统设置跳转引导），首次运行向导必备；
   - 键映射：HID usage code → macOS virtual keycode（kVK_*）映射表；修饰键语义映射 Ctrl↔Cmd 可配置；
   - 文本注入：`pbcopy` 写剪贴板 + 注入 Cmd+V，系统自带命令、无第三方依赖，比 Wayland 路径更简单；
-  - 工程注意：Go 走 cgo 或 Swift 辅助进程（不影响 Linux 侧无 cgo 属性，两平台构建互不影响）；
-  - 估算：1~1.5 周（含键映射表与权限引导流程）。
+  - 工程注意：darwin 侧 Go 走 cgo 调 Quartz（不影响 Linux 侧无 cgo 属性，两平台构建互不影响）；
+  - 实测与运维细节（签名身份、授权一次长期有效、剪贴板契约与状态表、清环境复位）见 `docs/PLAN-MACOS.md`。

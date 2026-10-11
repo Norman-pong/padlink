@@ -13,7 +13,6 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// loadRate 是 --load 的 MOVE 背景负载速率（PRD §8 退化测量口径：1000/s）。
 const loadRate = 1000
 
 type latencyOptions struct {
@@ -25,7 +24,6 @@ type latencyOptions struct {
 	Load     bool
 }
 
-// rttSummary 是一次压测的机器可读汇总（毫秒）。
 type rttSummary struct {
 	HZ        int     `json:"hz"`
 	DurationS float64 `json:"duration_s"`
@@ -41,8 +39,7 @@ type rttSummary struct {
 	MaxMs     float64 `json:"max_ms"`
 }
 
-// runLatency 以 --hz 频率经 TCP 发送封签 ECHO 并按回包计算 RTT；
-// --load 叠加 1000/s UDP MOVE 背景负载测 RTT 退化。
+// runLatency 以 --hz 频率经 TCP 发封签 ECHO 计算 RTT；--load 叠加 UDP MOVE 背景负载测退化。
 func runLatency(o latencyOptions) (rttSummary, error) {
 	var sum rttSummary
 	if o.Host == "" {
@@ -89,7 +86,7 @@ func runLatency(o latencyOptions) (rttSummary, error) {
 			}
 			now := time.Now()
 			mu.Lock()
-			if len(outstanding) > 0 { // TCP 有序，回包与发送 FIFO 一一对应
+			if len(outstanding) > 0 { // TCP 有序：回包与发送 FIFO 一一对应
 				samples = append(samples, now.Sub(outstanding[0]))
 				outstanding = outstanding[1:]
 			}
@@ -142,7 +139,6 @@ measure:
 		<-loadDone
 	}
 
-	// 收尾：等待未决回包（≤500ms）
 	drainDeadline := time.Now().Add(500 * time.Millisecond)
 	for {
 		mu.Lock()
@@ -153,7 +149,7 @@ measure:
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	conn.Close() // 读 goroutine 随 readFrame 错误退出（rxErr 带缓冲，不阻塞）
+	conn.Close() // 读 goroutine 随 readFrame 出错退出（rxErr 带缓冲，不阻塞）
 
 	mu.Lock()
 	lost := len(outstanding)
@@ -173,8 +169,7 @@ measure:
 	}, nil
 }
 
-// bindSession 发送一个封签 ECHO 并等待回包，完成会话↔token 绑定（不计时，
-// 避免把首包认证开销计入 RTT 样本）。
+// bindSession 先用一个封签 ECHO 完成会话↔token 绑定；不计时，避免首包认证开销污染 RTT。
 func bindSession(br *bufio.Reader, conn net.Conn, tok []byte, timeout time.Duration) error {
 	pkt := proto.NewEcho(1, time.Now().UnixMilli())
 	proto.Seal(&pkt, tok)
@@ -200,7 +195,7 @@ func bindSession(br *bufio.Reader, conn net.Conn, tok []byte, timeout time.Durat
 	return nil
 }
 
-// runLoad 以 loadRate/s 经 UDP 发送封签 MOVE（±1 交替，净位移为零）。
+// runLoad 以 loadRate/s 经 UDP 发封签 MOVE；±1 交替保证净位移为零。
 func runLoad(host string, port int, tok []byte, stop chan struct{}, sent *atomic.Int64) {
 	uc, err := dialUDP(host, port)
 	if err != nil {

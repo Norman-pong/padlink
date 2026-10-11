@@ -20,18 +20,16 @@ var (
 	errGraceful = errors.New("session: 对端 BYE")
 )
 
-// tcpSession 是一条已通过 HELLO 的 TCP 会话。
 type tcpSession struct {
 	srv  *Server
 	conn net.Conn
 
 	limiter *rateBucket
 
-	// mu 保护跨 goroutine 访问的会话态：boundID/tokCache/txSeq/keysDown/btnsDown
-	// （Server.OnlineClients、控制权裁决、NOTICE 下发会从其他 goroutine 读取）。
+	// mu 保护会话态（OnlineClients / 控制权裁决 / NOTICE 下发会跨 goroutine 读取）；
 	// 锁序约束：持 mu 时禁止再取 Server.mu（Server.mu → mu 是允许方向）。
 	mu sync.Mutex
-	// wmu 串行化 conn 写：会话 goroutine 与 NOTICE 下发方都会写同一连接。
+	// wmu 串行化 conn 写（会话 goroutine 与 NOTICE 下发方并发写同一连接）。
 	wmu sync.Mutex
 
 	helloDone bool
@@ -44,8 +42,7 @@ type tcpSession struct {
 	dropWinCount int
 
 	// pairWaitUntil 配对进行中的读超时宽限截止（零值=无宽限）。
-	// 用户在手机端读码输码合法地超过默认 10s 空闲判失联（macOS E2E 实测踩中），
-	// 宽限覆盖码 TTL + 提交余量，轮次结束（成功/过期/超限）即收起。
+	// PENDING_CODE 阶段客户端静默，宽限须覆盖码 TTL + 提交余量，否则超时断连即否决用户合法输码窗口。
 	pairWaitUntil time.Time
 
 	keysDown map[uint16]struct{} // 已按下未释放的 HID usage
@@ -140,7 +137,7 @@ func (t *tcpSession) readFrame() ([]byte, error) {
 	return frame, nil
 }
 
-// effectiveReadTimeout 配对宽限期内的读超时取两者较大者。
+// effectiveReadTimeout 取基准与配对宽限中的较大者。
 func effectiveReadTimeout(base time.Duration, pairWaitUntil time.Time, now time.Time) time.Duration {
 	if d := pairWaitUntil.Sub(now); d > base {
 		return d
@@ -148,7 +145,7 @@ func effectiveReadTimeout(base time.Duration, pairWaitUntil time.Time, now time.
 	return base
 }
 
-// pairReadMargin 配对宽限在码 TTL 外的余量（覆盖最后一次 NAK 往返与用户提交间隔）。
+// pairReadMargin 配对宽限在码 TTL 外的余量（覆盖最后一次 NAK 往返与提交间隔）。
 const pairReadMargin = 10 * time.Second
 
 // rateLimited 令牌桶超限时丢弃并计数；1s 窗口内丢弃数超上限返回 true（调用方 ERR+断连）。
@@ -175,7 +172,7 @@ func (t *tcpSession) handle(pkt proto.Packet) error {
 	}
 	switch pkt.Type {
 	case proto.TypeHello, proto.TypeDiscoverResp:
-		// 会话层报文不允许出现在握手之后的 TCP 流（协议约定其走 UDP）
+		// 会话层报文不得出现在握手后的 TCP 流（协议约定其走 UDP）
 		t.srv.logf("%s TCP 入站出现会话层报文 %v，拒绝", t.conn.RemoteAddr(), pkt.Type)
 		t.sendErr(ErrCodeProto)
 		return errClose
@@ -210,7 +207,7 @@ func (t *tcpSession) handle(pkt proto.Packet) error {
 	return t.dispatch(pkt)
 }
 
-// authenticate：已绑定会话只验绑定 token；未绑定时逐个尝试全部已配对 token。
+// authenticate：已绑定会话只验绑定 token（防客户端间连接复用）；未绑定时尝试全部已配对 token。
 func (t *tcpSession) authenticate(pkt *proto.Packet) (pairing.Client, []byte, bool) {
 	if tok := t.token(); tok != nil {
 		if proto.VerifyHMAC(pkt, tok) {
@@ -253,10 +250,8 @@ func (t *tcpSession) handleHello(pkt proto.Packet) error {
 	return t.writePkt(reply)
 }
 
-// handlePairReq 处理配对路径（协议约定见 daemon README）：
-// payload 空(0B)或 JSON={"name":<设备名>,"dev":<设备指纹>}（≤64B name / ≤32B dev）= 发起配对
-// （成功无响应，确认码在主机侧展示）；
-// payload 4B ASCII 数字 = 确认码尝试 → PAIR_OK(封签新 token) / PAIR_NAK(1B reason)。
+// handlePairReq 处理配对路径：payload 空(0B)或 JSON{"name","dev"} = 发起配对（成功无响应，
+// 确认码仅在主机侧展示）；4B ASCII 数字 = 确认码尝试 → PAIR_OK(封签新 token) / PAIR_NAK(1B reason)。
 func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 	if len(pkt.Payload) == 0 || pkt.Payload[0] == '{' {
 		name, devID := "", ""
@@ -281,9 +276,9 @@ func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 			t.sendNak(nakReasonOf(err))
 			return nil
 		}
-		// 读超时宽限：用户读码输码合法地超过 10s 默认空闲判失联
+		// 读超时宽限：覆盖用户读码输码窗口
 		t.pairWaitUntil = time.Now().Add(t.srv.pair.ActiveCodeTTL() + pairReadMargin)
-		return nil // 发起成功不回包；确认码经桌面通知 / padlinkctl pair 展示
+		return nil // 发起成功不回包；确认码仅在主机侧展示
 	}
 	if len(pkt.Payload) == pairing.CodeLen && isDigits(pkt.Payload) {
 		client, err := t.srv.pair.Verify(string(pkt.Payload))
@@ -303,7 +298,7 @@ func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 		}
 		t.srv.logf("客户端 %q（%s）配对成功", client.Name, client.ID)
 		reply := proto.NewRaw(proto.TypePairOK, t.nextSeq(), tok)
-		proto.Seal(&reply, tok) // 用刚签发的 token 封签，便于手机端到端自证
+		proto.Seal(&reply, tok) // PAIR_OK 必须用刚签发的 token 封签；PAIR_NAK 不封签
 		return t.writePkt(reply)
 	}
 	t.sendErr(ErrCodeProto)
@@ -311,8 +306,7 @@ func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 }
 
 func (t *tcpSession) dispatch(pkt proto.Packet) error {
-	// 多设备控制权：非持权设备在他人操作期间的控制事件一律丢弃（含 NOTICE 提示），
-	// 冷静止期判定见 controlArbiter；ECHO/BYE 等非控制事件不受门控。
+	// 多设备控制权：非持权设备的控制事件一律丢弃（TCP/UDP 同闸）；ECHO/BYE 不受门控。
 	if isControlType(pkt.Type) && !t.srv.admitControl(t.bound()) {
 		return nil
 	}
@@ -353,8 +347,8 @@ func (t *tcpSession) dispatch(pkt proto.Packet) error {
 	return nil
 }
 
-// finish 会话收尾：补发本会话期间按下未释放的按键与按钮 up
-// （PRD §11.2 零残留的服务端兜底），再注销并关连接。
+// finish 会话收尾：补发本会话期间按下未释放的按键与按钮 up（零残留的服务端兜底），
+// 再注销并关连接。
 func (t *tcpSession) finish() {
 	keys, btns := t.takeHeld()
 	if len(keys) > 0 || len(btns) > 0 {
@@ -384,8 +378,7 @@ func (t *tcpSession) finish() {
 	t.srv.sessWG.Done()
 }
 
-// trackButton/trackKey 记录按住状态，并在"按住数 0↔非0"翻转时同步给控制权裁决器
-// （按住的按键/按钮同样算"在操作"，见 controlArbiter.primaryActiveLocked）。
+// trackButton/trackKey 记录按住状态，"按住数 0↔非0"翻转时同步给控制权裁决器（按住的按键/按钮也算"在操作"）。
 func (t *tcpSession) trackButton(btn uint8, down bool) {
 	t.mu.Lock()
 	before := len(t.keysDown) + len(t.btnsDown)
@@ -420,7 +413,7 @@ func (t *tcpSession) syncHeld(id string, before, after int) {
 	}
 }
 
-// takeHeld 取出并清空按住集合（会话收尾兜底释放 / 被拒设备残留释放用）。
+// takeHeld 取出并清空按住集合（收尾兜底释放 / 被拒设备残留释放用）。
 func (t *tcpSession) takeHeld() ([]uint16, []uint8) {
 	t.mu.Lock()
 	keys := make([]uint16, 0, len(t.keysDown))

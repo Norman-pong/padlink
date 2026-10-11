@@ -1,8 +1,8 @@
 // HID usage 常量与符号层映射（USB HID 键盘页 0x07）。
-// 值与 daemon/internal/inject/hid_map.go 全集（103 项）严格一致：daemon 负责 usage → Linux KEY_* 映射，
-// APP 侧只引用 usage 常量，禁止自造映射。纯逻辑层：禁止 @ohos 依赖、禁止装饰器、不用 TS enum。
+// 值与 daemon/internal/inject/hid_map.go 全集严格一致，APP 侧禁止自造映射。
+// 纯逻辑层：禁止 @ohos 依赖、禁止装饰器、不用 TS enum。
 
-// usage 常量类（只读；注释保留 daemon 侧对应 Linux KEY_* 便于对照）。
+// 行尾注释为 daemon 侧对应 Linux KEY_*，便于对照。
 export class HidUsage {
   // 修饰键（0xE0-0xE7）
   public static readonly LEFT_CTRL: number = 0xE0; // KEY_LEFTCTRL(29)
@@ -54,14 +54,13 @@ export class HidUsage {
   public static readonly NUM_9: number = 0x26;
   public static readonly NUM_0: number = 0x27;
 
-  // 控制键
   public static readonly ENTER: number = 0x28; // KEY_ENTER(28)
   public static readonly ESC: number = 0x29; // KEY_ESC(1)
   public static readonly BACKSPACE: number = 0x2A; // KEY_BACKSPACE(14)
   public static readonly TAB: number = 0x2B; // KEY_TAB(15)
   public static readonly SPACE: number = 0x2C; // KEY_SPACE(57)
 
-  // 符号区（0x32 为非美式键盘专用键，hid_map.go 未收录，这里同步不定义）
+  // 0x32 非美式键盘专用键，hid_map.go 未收录，同步不定义
   public static readonly MINUS: number = 0x2D; // KEY_MINUS(12) '-'
   public static readonly EQUAL: number = 0x2E; // KEY_EQUAL(13) '='
   public static readonly LEFT_BRACKET: number = 0x2F; // KEY_LEFTBRACE(26) '['
@@ -90,12 +89,10 @@ export class HidUsage {
   public static readonly F11: number = 0x44;
   public static readonly F12: number = 0x45;
 
-  // 锁定/屏幕键
   public static readonly PRINT_SCREEN: number = 0x46; // KEY_SYSRQ(99)
   public static readonly SCROLL_LOCK: number = 0x47; // KEY_SCROLLLOCK(70)
   public static readonly PAUSE: number = 0x48; // KEY_PAUSE(119)
 
-  // 导航区
   public static readonly INSERT: number = 0x49; // KEY_INSERT(110)
   public static readonly HOME: number = 0x4A; // KEY_HOME(102)
   public static readonly PAGE_UP: number = 0x4B; // KEY_PAGEUP(104)
@@ -103,13 +100,11 @@ export class HidUsage {
   public static readonly END: number = 0x4D; // KEY_END(107)
   public static readonly PAGE_DOWN: number = 0x4E; // KEY_PAGEDOWN(109)
 
-  // 方向键
   public static readonly RIGHT: number = 0x4F; // KEY_RIGHT(106)
   public static readonly LEFT: number = 0x50; // KEY_LEFT(105)
   public static readonly DOWN: number = 0x51; // KEY_DOWN(108)
   public static readonly UP: number = 0x52; // KEY_UP(103)
 
-  // 小键盘：NumLock 与运算符
   public static readonly NUM_LOCK: number = 0x53; // KEY_NUMLOCK(69)
   public static readonly KP_SLASH: number = 0x54; // KEY_KPSLASH(98)
   public static readonly KP_ASTERISK: number = 0x55; // KEY_KPASTERISK(55)
@@ -117,7 +112,6 @@ export class HidUsage {
   public static readonly KP_PLUS: number = 0x57; // KEY_KPPLUS(78)
   public static readonly KP_ENTER: number = 0x58; // KEY_KPENTER(96)
 
-  // 小键盘数字 KP1-KP9,KP0 与 KP.
   public static readonly KP_1: number = 0x59;
   public static readonly KP_2: number = 0x5A;
   public static readonly KP_3: number = 0x5B;
@@ -131,15 +125,14 @@ export class HidUsage {
   public static readonly KP_DOT: number = 0x63;
 }
 
-// 符号层映射条目：一个物理键位的主层字符与 shift 变体（PRD §4.4 符号层）。
-// [主 usage, 需 Shift]：符号层键按下时先组合 Shift 再发主 usage（StickyModifiers.takeSequence 的 extraShift）。
+// 符号层条目：一个物理键位的主层字符与 Shift 变体（按下时先组合 Shift 再发主 usage）。
 export interface ShiftSym {
   base: string; // 主层字符
   shifted: string; // Shift 变体字符
   usage: number; // 承载该字符对的物理键 usage（未按 Shift 的键位）
 }
 
-// 主层符号 → Shift 变体全集（数字行变体 !@#… + 常用标点；前 10 项即数字行）。
+// 主层符号 → Shift 变体全集；前 10 项即数字行。
 export const SHIFT_SYMS: ShiftSym[] = [
   { base: '1', shifted: '!', usage: HidUsage.NUM_1 },
   { base: '2', shifted: '@', usage: HidUsage.NUM_2 },
@@ -159,8 +152,7 @@ export const SHIFT_SYMS: ShiftSym[] = [
   { base: '/', shifted: '?', usage: HidUsage.SLASH },
 ];
 
-// 主层字符 → 同一物理键位的符号层变体；无变体（字母/其它）返回 null。
-// 数字行变体即本表前 10 项（'1'..'0' → '!'..')'）。
+// 主层字符 → 同一物理键位的符号层变体；无变体返回 null。
 export function symVariantOf(baseCh: string): ShiftSym | null {
   for (const s of SHIFT_SYMS) {
     if (s.base === baseCh) {
@@ -170,7 +162,7 @@ export function symVariantOf(baseCh: string): ShiftSym | null {
   return null;
 }
 
-// 小写字母 → HID usage（A-Z 连续 0x04-0x1D）；非法入参返回 0（不映射）。
+// 小写字母 → HID usage（A-Z 连续 0x04-0x1D）；非法入参返回 0。
 export function letterUsage(lowerCh: string): number {
   const idx: number = lowerCh.charCodeAt(0) - 97; // 'a' = 0x61
   if (idx < 0 || idx > 25) {

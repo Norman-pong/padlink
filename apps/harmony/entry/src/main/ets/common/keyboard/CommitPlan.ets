@@ -10,7 +10,7 @@ export interface HidChar {
   withShift: boolean;
 }
 
-// 提交增量：删除码点数（先发）与插入文本（后发）。
+// 删除码点数（先发）与插入文本（后发）。
 export interface CommitDiff {
   deletes: number;
   inserts: string;
@@ -57,7 +57,6 @@ function ch2hc(ch: string, usage: number): HidChar {
 const CHAR_MAP: Map<string, HidChar> = buildMap();
 
 export class CommitPlan {
-  // 公共前后缀截断：旧中段=删除码点数，新中段=插入文本。
   public static diff(oldText: string, newText: string): CommitDiff {
     const oldChars: string[] = Array.from(oldText);
     const newChars: string[] = Array.from(newText);
@@ -76,7 +75,6 @@ export class CommitPlan {
     };
   }
 
-  // 不可映射（CJK/emoji 等）返回 null，走 TEXT。
   public static charToHid(ch: string): HidChar | null {
     const h: HidChar | undefined = CHAR_MAP.get(ch);
     return h !== undefined ? h : null;

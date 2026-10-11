@@ -33,7 +33,7 @@ type fuzzStats struct {
 	Elapsed  time.Duration
 }
 
-// fuzzTCP 维护一条 fuzz 用 TCP 会话：服务端断开（EOF/ERR）或写失败后自动重连。
+// fuzzTCP 维护一条 fuzz 用 TCP 会话：服务端断开或写失败后自动重连。
 type fuzzTCP struct {
 	host string
 	port int
@@ -80,7 +80,6 @@ func (f *fuzzTCP) ensure() error {
 	return nil
 }
 
-// dropConn 丢弃当前连接（服务端已断或写失败），计入被断次数。
 func (f *fuzzTCP) dropConn() {
 	if f.conn != nil {
 		f.cuts.Add(1)
@@ -96,7 +95,7 @@ func (f *fuzzTCP) finalClose() {
 	}
 }
 
-// waitReaders 等读 goroutine 退出（≤1s），测试退出不留后台驻留。
+// waitReaders 等读 goroutine 退出（≤1s），不留后台驻留。
 func (f *fuzzTCP) waitReaders() {
 	ch := make(chan struct{})
 	go func() {
@@ -120,7 +119,6 @@ func (f *fuzzTCP) send(data []byte) bool {
 	return true
 }
 
-// sendFragmented 分片写入（粘包/半包路径），片间 1–2ms。
 func (f *fuzzTCP) sendFragmented(rng *rand.Rand, data []byte) bool {
 	if err := f.ensure(); err != nil {
 		return false
@@ -140,7 +138,6 @@ func (f *fuzzTCP) sendFragmented(rng *rand.Rand, data []byte) bool {
 	return true
 }
 
-// legalFramePool 构造各事件类型的合法基底帧（有 token 则封签），供变异取材。
 func legalFramePool(tok []byte) [][]byte {
 	mk := []func(seq uint16) proto.Packet{
 		func(seq uint16) proto.Packet { return proto.NewMove(seq, 3, -2) },
@@ -158,15 +155,14 @@ func legalFramePool(tok []byte) [][]byte {
 		}
 		b, err := proto.Encode(&pkt)
 		if err != nil {
-			continue // 定长合法帧不可能超限，防御分支
+			continue
 		}
 		pool = append(pool, b)
 	}
 	return pool
 }
 
-// enableBroadcast 尽力开启 SO_BROADCAST（广播 HELLO 用）；失败仅影响广播路径，
-// 不视为 fuzz 错误。
+// enableBroadcast 尽力开启 SO_BROADCAST；失败只影响广播路径，不算 fuzz 失败。
 func enableBroadcast(uc *net.UDPConn) {
 	rc, err := uc.SyscallConn()
 	if err != nil {
@@ -177,8 +173,7 @@ func enableBroadcast(uc *net.UDPConn) {
 	})
 }
 
-// sendBroadcastHello 尽力向广播地址发送 HELLO（失败静默忽略；单播 HELLO 已覆盖
-// daemon 同一处理路径，回环目标用 127.255.255.255 定向广播）。
+// sendBroadcastHello 尽力向广播地址发 HELLO，失败静默忽略；回环目标须用定向广播 127.255.255.255。
 func sendBroadcastHello(uc *net.UDPConn, raddr *net.UDPAddr, hello []byte) {
 	ip4 := raddr.IP.To4()
 	if ip4 == nil {
@@ -191,9 +186,8 @@ func sendBroadcastHello(uc *net.UDPConn, raddr *net.UDPAddr, hello []byte) {
 	_, _ = uc.WriteToUDP(hello, bc)
 }
 
-// runFuzz 以 --rate 上限对目标持续变异注入 --seconds 秒，结束后做活性判定。
-// 断言口径：fuzz 不得使 daemon panic/挂死（活性判定覆盖）；daemon 侧丢弃
-// 计数无法从外部读取，以活性 + 响应行为为准。
+// runFuzz 以 --rate 上限变异注入 --seconds 秒后判定活性。断言口径：fuzz 不得使
+// daemon panic/挂死；daemon 侧丢弃计数无法从外部读取，以活性与响应行为为准。
 func runFuzz(o fuzzOptions) (fuzzStats, error) {
 	var st fuzzStats
 	if o.Host == "" {
@@ -233,7 +227,7 @@ func runFuzz(o fuzzOptions) (fuzzStats, error) {
 		return st, err
 	}
 	burst := make([][]byte, 0, 24)
-	for i := 0; i < 24; i++ { // 超量注入段：合法 MOVE 连发
+	for i := 0; i < 24; i++ {
 		pkt := proto.NewMove(uint16(i+1), 1, -1)
 		if len(o.Token) > 0 {
 			proto.Seal(&pkt, o.Token)
@@ -249,7 +243,6 @@ func runFuzz(o fuzzOptions) (fuzzStats, error) {
 	for time.Now().Before(deadline) {
 		pace.wait()
 		if rng.Intn(2) == 0 {
-			// UDP 侧：变异帧 + 混入 HELLO（发现路径）与偶发广播 HELLO
 			data := helloBytes
 			if rng.Intn(5) != 0 {
 				data = mutate(rng, pool[rng.Intn(len(pool))], mutateKind(rng.Intn(int(mKindCount))))
@@ -261,7 +254,6 @@ func runFuzz(o fuzzOptions) (fuzzStats, error) {
 				sendBroadcastHello(uc, raddr, helloBytes)
 			}
 		} else {
-			// TCP 侧：常规变异 + 分片写（粘包/半包）+ 超量注入
 			switch {
 			case rng.Intn(50) == 0:
 				for _, b := range burst {
@@ -281,7 +273,7 @@ func runFuzz(o fuzzOptions) (fuzzStats, error) {
 				}
 			}
 			if tc.conn == nil {
-				time.Sleep(20 * time.Millisecond) // 建连失败退避
+				time.Sleep(20 * time.Millisecond)
 			}
 		}
 	}
@@ -296,8 +288,7 @@ func runFuzz(o fuzzOptions) (fuzzStats, error) {
 	return st, nil
 }
 
-// probeLiveness 连发 3 个 ECHO（有 token 则封签）等待回包，判定 daemon 活性。
-// ECHO 回包 = 完整认证路径存活；ERR 回包（无 token 时）= 协议处理路径存活。
+// probeLiveness 连发 3 个 ECHO（有 token 则封签）判活性：ECHO 回包 = 认证路径存活，ERR 回包 = 协议处理路径存活。
 func probeLiveness(host string, port int, tok []byte, timeout time.Duration) (bool, string) {
 	for i := 0; i < 3; i++ {
 		alive, how := probeOnce(host, port, tok, timeout)

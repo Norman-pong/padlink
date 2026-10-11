@@ -1,27 +1,27 @@
 # padlink daemon（padlinkd）
 
-> 使用者向的「装服务端 → 手机配对连接 → 排查」完整指南见 [docs/SETUP.md](../docs/SETUP.md)；本文档为开发/运维向。
+PadLink 的桌面守护进程：Go 单二进制，零第三方依赖（macOS 经薄 cgo 封装调 Quartz CGEvent）。
 
-PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 cgo，macOS 经薄 cgo 封装调 Quartz CGEvent，见 docs/PLAN-MACOS.md）。交付：协议编解码（黄金向量对拍）、注入编排、Linux uinput / macOS CGEvent 双注入后端与 `--test` 注入自测、网络层（发现应答 / 配对 / token 认证 / TCP 会话 / UDP 数据面）、wl-clipboard 文本注入、`padlinkctl` 控制通道与安装物。
+> 使用者向的「装服务端 → 手机配对 → 排查」见 [docs/SETUP.md](../docs/SETUP.md)；协议字节语义见 [protocol/PROTOCOL.md](../protocol/PROTOCOL.md)。
 
 ## 模块划分
 
 | 路径 | 职责 |
 | --- | --- |
 | `internal/proto` | 线协议 v1 编解码（19B 头 + payload，大端）、HMAC-SHA256 截断认证；以 `protocol/testvectors.json` 为对拍单源 |
-| `internal/inject` | 平台无关注入编排：MOVE/SCROLL/BUTTON/KEY → 事件序列、修饰键组合（CtrlV）、daemon 侧 key repeat（250ms + 33ms）、HID usage → Linux KEY_* 映射、多击点击序号合成（`click.go`：同键限时限距连续按下 → clickCount 1/2/3，仅 darwin 消费）、**CapsLock 补偿**（主机大写锁生效时按 XOR 改写字母键的 Shift 语义，见下） |
-| `internal/uinput` | 注入后端（`DeviceWriter` 实现）：Linux uinput + macOS CGEvent（darwin）；`caps.go` 为跨平台可测的能力位/ABI 纯逻辑，其余平台由 stub 保证可编译 |
-| `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin 构建）：绝对定位位移（按住按钮时投 `mouseDragged`）/像素滚轮/键鼠 post（按钮写 `kCGMouseEventClickState`，否则应用侧 clickCount 恒为 1、双击失效）与 TCC 辅助功能权限检测；`interval_darwin.m` 取系统双击间隔 |
-| `internal/pairing` | 4 位确认码生命周期（60s/最多 5 次/常数时间比较/同时最多一轮）、token 签发与 `clients.json`（0600）持久化、客户端上限 4、同设备指纹复用记录并轮换 token、`notify-send` 展示 |
-| `internal/session` | TCP 会话（HELLO 协商、配对路径、逐包 token 认证、心跳超时、速率限制、会话结束按键兜底）、UDP 数据面（发现应答、MOVE/SCROLL/ECHO）与多设备控制权裁决（`priority.go`：15s 冷静期 + 无操作接管 + NOTICE 下发）；所有注入经单一 goroutine 串行化 |
-| `internal/service` | `padlinkctl` 的启停与卸载编排：安装形态探测（Linux tar.gz / deb-rpm / macOS LaunchAgent）→ 有序 Plan（命令/删除/提示）→ 执行层（路径守卫 + 逐个 `os.Remove`） |
-| `internal/textinject` | TEXT → 剪贴板备份/写入/粘贴组合键/延迟恢复：Linux 走 wl-clipboard（`--no-newline`、显式 `--type`、300ms 恢复），macOS 走 pbcopy/pbpaste（Cmd+V、800ms 恢复、启动时兜底 UTF-8 locale，见下）；缺失/超时结构化降级 |
-| `internal/hostinfo` | Linux 启动自检：WAYLAND_DISPLAY 缺失、gsettings accel-profile 非 flat（双重加速警告）；macOS 由调用方跳过（绝对定位注入不经过加速曲线） |
-| `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON；Linux 取 `$XDG_RUNTIME_DIR`，macOS 回落 `$TMPDIR`） |
-| `cmd/padlinkd` | 守护进程入口（`--test` 自测 + 常驻模式） |
-| `cmd/padlinkctl` | CLI：status / pair / clients / unpair（控制通道）+ start / stop / restart / uninstall（服务管理与卸载，不经控制通道） |
-| `cmd/padlinktoy` | 联调工具三件套：record/replay 合成录制回放、fuzz 协议变异模糊测试、latency ECHO RTT 压测（PRD §2.2 `tools/` 的 daemon 侧承载） |
-| `packaging/` | 安装物与发版脚本（Linux：udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子；macOS：launchd LaunchAgent plist 模板与 install.sh） |
+| `internal/uinput` | 注入后端：Linux uinput / macOS CGEvent；`caps.go` 为跨平台可测的能力位与 ABI 纯逻辑 |
+| `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin）：绝对定位位移、像素滚轮、键鼠 post、TCC 权限检测 |
+| `internal/inject` | 平台无关注入编排：事件序列、修饰键组合、key repeat、HID usage → KEY_* 映射、多击点击序号合成、CapsLock 补偿 |
+| `internal/textinject` | TEXT → 剪贴板备份/写入/粘贴/延迟恢复（Linux wl-clipboard、macOS pbcopy/pbpaste）；缺失或超时结构化降级 |
+| `internal/session` | TCP 会话（协商/认证/心跳/限速）、UDP 数据面、多设备控制权裁决；所有注入经单一 goroutine 串行化 |
+| `internal/pairing` | 确认码生命周期、token 签发与 `clients.json`（0600）持久化、客户端上限、同设备指纹复用 |
+| `internal/service` | `padlinkctl` 的启停与卸载编排：安装形态探测 → 有序 Plan → 执行层（路径守卫） |
+| `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON） |
+| `internal/hostinfo` | 启动自检：WAYLAND_DISPLAY 缺失、GNOME 指针加速非 flat |
+| `cmd/padlinkd` | 守护进程入口（常驻模式 / `--test` 自测） |
+| `cmd/padlinkctl` | CLI：status / pair / clients / unpair + start / stop / restart / uninstall |
+| `cmd/padlinktoy` | 联调工具：record / replay / fuzz / latency |
+| `packaging/` | 安装物与发版脚本（Linux：udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子；macOS：launchd plist 与 install.sh） |
 
 ## 构建与测试
 
@@ -29,135 +29,50 @@ PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 
 cd daemon
 go vet ./...          # 零告警
 go test ./... -race   # 含黄金向量对拍（直读仓库根 protocol/testvectors.json）与回环网络单测
-# 交叉编译两架构
+
+# 交叉编译（产物落 dist/bin/）
 GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinkd-linux-amd64 ./cmd/padlinkd
-GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinkd-linux-arm64 ./cmd/padlinkd
-GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinkctl-linux-amd64 ./cmd/padlinkctl
-GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinkctl-linux-arm64 ./cmd/padlinkctl
-GOOS=linux GOARCH=amd64 go build -o dist/bin/padlinktoy-linux-amd64 ./cmd/padlinktoy
-GOOS=linux GOARCH=arm64 go build -o dist/bin/padlinktoy-linux-arm64 ./cmd/padlinktoy
 ```
 
-## 安装（macOS，Apple Silicon / Intel）
+## 安装
 
-**一行命令（推荐）**：
+一行命令（Ubuntu / macOS，推荐）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 ```
 
-（自动识别架构、下载最新 Release、SHA-256 校验后执行包内 install.sh。）
-
-手动方式：GitHub Releases 下载 `padlink_<版本>_darwin_<arch>.tar.gz`，解压后在包根目录执行 `./install.sh`
-（二进制装 `~/.local/bin`，LaunchAgent 装 `~/Library/LaunchAgents/`，全程无需 sudo）。
-首次运行需两项系统授权（各弹一次窗）：**辅助功能**（注入前提，不授权则事件被静默丢弃）与
-**接受传入连接**（局域网端口 53021）。日志在 `~/Library/Logs/padlinkd.log`。
-
-## 安装（Ubuntu 26.04 / GNOME Wayland）
-
-### 方式零：一行命令（推荐）
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
-```
-
-### 方式一：从 GitHub Releases 安装
-
-- **deb（Debian/Ubuntu）**：`sudo apt install ./padlink_<版本>_linux_amd64.deb`
-  ——udev 规则与 user 单元随包安装，postinst 自动重载 udev。
-- **rpm（Fedora/openSUSE）**：`sudo dnf install ./padlink_<版本>_linux_x86_64.rpm`。
-- **tar.gz（其他发行版）**：解压后在包根目录执行 `./install.sh`
-  （二进制装 `~/.local/bin`，单元装 `~/.config/systemd/user/`，仅 udev 规则一步要 sudo）。
-
-包装好后**首次安装须注销并重新登录**（uaccess ACL 在图形会话建立时附加），然后：
-
-```sh
-systemctl --user enable --now padlink
-journalctl --user -u padlink -f
-```
-
-### 方式二：源码构建手工安装
-
-0. **构建**：见上节交叉编译命令（产物落 `dist/bin/`，本目录已被 gitignore）。
-
-1. **uinput uaccess 规则**（无 root 运行的前提）：
-
-   ```sh
-   sudo cp daemon/packaging/udev/69-padlink-uinput.rules /etc/udev/rules.d/
-   sudo udevadm control --reload && sudo udevadm trigger /dev/uinput
-   # 注销并重新登录（uaccess ACL 在图形会话建立时附加）
-   getfacl /dev/uinput | grep "$(id -un)"   # 期望 user:<你>:rw-
-   ```
-
-2. **指针加速基线**（GNOME 默认 adaptive 会与手机端曲线双重叠加）：
-
-   ```sh
-   gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'
-   ```
-
-   daemon 启动时自动检测并在非 flat 时警告；只提示、不代改。
-
-3. **文本注入依赖**（语音听写用，缺失则该功能降级）：
-
-   ```sh
-   sudo apt install wl-clipboard
-   ```
-
-4. **放置二进制 + user service**：
-
-   ```sh
-   mkdir -p ~/.local/bin && cp dist/bin/padlinkd-linux-$(dpkg --print-architecture) ~/.local/bin/padlinkd
-   cp dist/bin/padlinkctl-linux-$(dpkg --print-architecture) ~/.local/bin/padlinkctl
-   mkdir -p ~/.config/systemd/user && cp packaging/systemd/padlink-local.service ~/.config/systemd/user/padlink.service
-   systemctl --user daemon-reload && systemctl --user enable --now padlink
-   journalctl --user -u padlink -f
-   ```
+其余安装方式（deb/rpm、tar.gz、源码构建）与各平台收尾步骤见 [docs/SETUP.md](../docs/SETUP.md)。
 
 ## 运行与调试
 
 ```sh
-padlinkd --test -v        # 无手机注入自测（调试分层第一层）
+padlinkd --test -v        # 无手机注入自测
 padlinkd -v               # 前台 verbose（逐包调试行）
 ```
 
-flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 token 存储目录）、`--restore-delay-ms`（恢复剪贴板延迟，默认 Linux 300 / macOS 800，见下）。日志走 stdout（systemd 接管进 journald）。SIGINT/SIGTERM 优雅退出：关全部会话（补发未释放按键）、控制 socket、uinput 设备。
+flags：`--port`（默认 53021）、`-v`、`--state-dir`（覆盖 token 存储目录）、`--restore-delay-ms`、`--version`。
+日志走 stdout（systemd 接管进 journald）。SIGINT/SIGTERM 优雅退出：关全部会话（补发未释放按键）、控制 socket、uinput 设备。
 
-## 协议 v1 约定（daemon 侧文档化；`protocol/` 为字节级单源，不改）
+### 注入自测序列
 
-报文格式、类型枚举、HMAC 认证见 `protocol/PROTOCOL.md`。以下是 daemon 侧的 payload 约定：
+画 2 个 r=200px 圆（各 120 段精确闭合）→ 左键点击 → 敲出 `pl`（走 HID→KEY 映射）→ hi-res 滚动 +2 格 / -1 格；
+成功打印 `padlinkd --test PASSED`（退出码 0）。
 
-| 报文 | 方向 | payload | 约定 |
-| --- | --- | --- | --- |
-| HELLO | C→S / S→C | 2B BE 版本号 | TCP **首包必须**未认证 HELLO；回应 `min(双方)`（当前 v1，降级仅告警） |
-| HELLO | C→S | 同上 | UDP 收到任意 HELLO（含广播）即回 DISCOVER_RESP 单播 |
-| DISCOVER_RESP | S→C（UDP 单播） | JSON | `{"name":<主机名>,"os":<runtime.GOOS>,"daemon":<版本>,"ver":1,"paired":<已配对数>,"port":53021}`；不认证、不含敏感信息 |
-| PAIR_REQ（发起） | C→S | 0B 或 JSON `{"name":"<设备名>","dev":"<设备指纹>"}`（name ≤64B，dev 32 位小写 hex 或省略） | 发起配对；**成功不回包**（确认码在主机侧展示：notify-send + `padlinkctl pair`）；失败回 PAIR_NAK；JSON 非法/名字超长/指纹非法 → ERR(2)+关 |
-| PAIR_REQ（尝试） | C→S | 4B ASCII 数字 | 校验确认码；其余 payload 形态 → ERR(2)+关 |
-| PAIR_OK | S→C | 32B token | 封 FlagAuth（用刚签发 token，手机可端到端自证）；同时持久化 `clients.json` |
-| PAIR_NAK | S→C | 1B reason | 0=码错 1=过期 2=超次作废 3=无进行中配对 4=客户端已满；不封签（此时无 token） |
-| ERR | S→C | 1B code | 1=auth（未认证/连续 5 次错 HMAC）2=proto（会话层违规或坏 payload）3=rate（速率持续超限） |
-| NOTICE | S→C（TCP） | 2B `code \| arg` | 唯一的 daemon→手机事件（随该客户端 token 封签）：code 0=控制被其他设备占用（arg=冷静期剩余秒数，手机端据此常驻倒计时）；未定义 code 手机端忽略 |
-| BYE | C→S | 空 | 优雅断开；daemon 补发本会话未释放的按键/按钮 up |
+滚动语义：`REL_WHEEL_HI_RES` 必发（单位 1/120 格），同帧按内核惯例补发 legacy `REL_WHEEL = dy/120`（向零取整、不跨帧累积）。
 
-会话层规则：
+### 两条不可回退的平台约束
 
-- 握手后未认证包仅允许 PAIR_REQ，其余 → ERR(1)+关；FlagAuth 包逐个尝试已配对 token（≤4 个），命中即绑定会话↔客户端。
-- FlagAuth 无匹配 token 或 HMAC 错：丢弃+计数，**连续 5 次** → ERR(1)+关。
-- 认证后 TCP 入站出现 HELLO / DISCOVER_RESP → ERR(2)+关（它们属 UDP/握手语义）。
-- 心跳：读 deadline **10s** 无任何包判失联断开（手机侧 1Hz ECHO 维持）；ECHO 原样回传（封同 token，回包 seq 自增）。
-- 速率限制：每 TCP 会话令牌桶 **2000 包/s、桶 4000**；超限丢弃+计数，1s 窗口内超限丢弃 >2000 → ERR(3)+关。UDP 用同参数全局桶，超限静默丢弃。
-- 注入串行化：TCP 多会话 + UDP 并发源收敛到单一注入 goroutine（channel），保证事件序与 DeviceWriter 无并发写。
-- 会话结束（BYE/断开/超时/unpair）兜底补发本会话按下未释放的 KEY/BUTTON up（PRD §11.2 零残留的服务端兜底）。
-- 同设备识别：`dev` 指纹命中既有客户端 → **复用该记录并只轮换 32B token**（`id` 不变、不占新名额，满 4 台也能重配）；
-  未命中/未上报才新增记录；`dev` 非法 → ERR(2)+关。`clients` 输出指纹前缀便于人工比对。
-- 多设备控制权（PROTOCOL.md §4.9）：同一时刻只有一台设备（"第一设备"）的控制事件被注入，
-  MOVE/SCROLL（UDP 与 TCP）与 BUTTON/KEY/TEXT 同闸；非持权设备被拒后进入 **15s 冷静期**（`Config.PreemptCooldown`）
-  并收到一次 NOTICE(0, 剩余秒数)（手机端常驻倒计时提示），冷静期满且持权设备当前无操作（默认 1s 内无事件且无按住的按键/按钮，
-  `Config.PreemptIdle`）才放行接管；ECHO 等非控制事件不受门控。`stats.preempted` 计数被拒事件。
+- **CapsLock 补偿**：主机大写锁会对注入的字母键再反转一次，`internal/inject` 按「手机意图 XOR 主机大写锁」改写 Shift 语义，
+  判定走 `Config.CapsLockActive`（Linux 读 `/sys/class/leds/input*::capslock/brightness`，读不到按未生效处理）。
+  补偿失败只退化成主机侧反转，且不得残留按住的修饰键；macOS 恒 false（合成 CGEvent 带显式 flags，不经系统大写锁改写）。
+- **文本注入恢复延迟**：必须够目标应用读完粘贴板——macOS 默认 800ms、Linux 300ms，**改小前必须真机复测**。
+  macOS 还须兜底 UTF-8 locale（launchd 环境无 locale 时写 CJK 得到空内容，备份非 ASCII 剪贴板会读成空），
+  由 `cmd/padlinkd` 的 `ensureUTF8Locale()` 处理，已有 UTF-8 的 `LC_ALL/LC_CTYPE/LANG` 不动。
 
 ## 控制通道（padlinkctl）
 
-Unix socket：`$XDG_RUNTIME_DIR/padlinkd/control.sock`（`XDG_RUNTIME_DIR` 未设置时禁用并告警）。行分隔 JSON：
+Unix socket：Linux `$XDG_RUNTIME_DIR/padlinkd/control.sock`，macOS 回落 `$TMPDIR`；运行目录不可用时禁用并告警。行分隔 JSON：
 
 ```jsonc
 // 请求
@@ -166,132 +81,62 @@ Unix socket：`$XDG_RUNTIME_DIR/padlinkd/control.sock`（`XDG_RUNTIME_DIR` 未�
 {"ok":true,"data":{...}} / {"ok":false,"error":"..."}
 ```
 
-- status data：`version`、`uptime_sec`、`paired_clients`、`active_sessions`、`pairing{active,code,expires_in_sec}`、`stats{hmac_fail,dropped,preempted}`、`accel_profile`。
-- pair：无进行中配对则生成新码（60s），返回 `{"code":"1234"}`；进行中复用同码（幂等）。
-- clients data：`[{id,name,dev_id,paired_at,online}]`（`dev_id` 为设备指纹，空 = 旧版手机未上报）。
-- unpair：删 token 并踢下线（会话兜底补发按键）。
-
 ```sh
-padlinkctl status
-padlinkctl pair           # 终端显示确认码（与桌面通知同码）
-padlinkctl clients         # 设备指纹列可看出"同一台手机重配"（同指纹、同 id）
-padlinkctl unpair 1a2b3c4d
+padlinkctl status           # 版本 / 运行时长 / 会话数 / stats / 配对状态 / 加速档
+padlinkctl pair             # 生成并显示确认码（与桌面通知同码；进行中幂等）
+padlinkctl clients          # [{id,name,dev_id,paired_at,online}]，指纹列可看出「同一台手机重配」
+padlinkctl unpair 1a2b3c4d  # 删 token 并踢下线（会话兜底补发按键）
 ```
 
-### 服务启停与卸载（不经控制 socket，padlinkd 未运行时也可用）
+服务启停与卸载不经控制 socket，padlinkd 未运行时也可用：
 
 ```sh
-padlinkctl start / stop / restart        # Linux: systemctl --user；macOS: launchctl
-padlinkctl uninstall                     # 停服 + 移除服务定义与用户级二进制（保留配置与 token）
+padlinkctl start / stop / restart
+padlinkctl uninstall                     # 停服 + 移除服务定义与用户级二进制（保留 token）
 padlinkctl uninstall --purge --yes       # 连配置/token/日志一起删（--purge 需二次确认，--yes 跳过）
 padlinkctl uninstall --dry-run           # 只打印将执行的命令与将删除的路径
 ```
 
-- 安装形态探测：Linux tar.gz（`~/.local/bin` + `~/.config/systemd/user/padlink.service`）、
-  Linux deb/rpm（`/usr/bin` + `/usr/lib/systemd/user/padlink.service`）、macOS LaunchAgent（`~/Library/LaunchAgents/com.zhimingcool.padlink.plist`）。
-- deb/rpm 形态**不删** `/usr` 下文件，只提示 `sudo apt remove padlink` / `sudo dnf remove padlink`。
-- Linux udev 规则需 root，只打印可直接复制的 `sudo rm -f /etc/udev/rules.d/69-padlink-uinput.rules …`。
-- macOS `stop` 用 `launchctl bootout`（plist 的 `KeepAlive=true` 下 `kill` 会被 launchd 立刻拉起）；
-  `start` = `bootstrap`（已注册时该步无害失败）+ `kickstart`，`restart` 用 `kickstart -k`。
-- 删除前双重校验路径（构建期 + 执行期：绝对路径、Clean 后不变、含 `padlink`、落在期望前缀下），只 `os.Remove` 单个已知路径，不用 `RemoveAll`。
+- 安装形态探测：Linux tar.gz（`~/.local/bin` + `~/.config/systemd/user/`）、Linux deb/rpm（`/usr/bin` + `/usr/lib/systemd/user/`）、macOS LaunchAgent。
+- deb/rpm 形态不删 `/usr` 下文件，只提示 `sudo apt remove padlink` / `sudo dnf remove padlink`；
+  udev 规则需 root，只打印可直接复制的 `sudo rm -f …`。
+- 删除前双重校验路径（构建期 + 执行期），只 `os.Remove` 单个已知路径，不用 `RemoveAll`。
 
-## 注入自测（无手机，调试分层第一层）
+### 会话层规则（`PROTOCOL.md` 之外的 daemon 行为）
 
-```sh
-# Linux 主机上（需 udev uaccess 已授权 /dev/uinput）
-./dist/bin/padlinkd-linux-$(dpkg --print-architecture) --test -v
-```
-
-### CapsLock 补偿（两端）
-
-手机端的 Shift 表达的是"这个字母要大写"，而**主机的 CapsLock 会在注入侧再反转一次**：
-实测 Linux 上开着大写锁时，手机打小写、主机出大写（用户报障原话"英文大小写锁定是相反的"）。
-因此 `internal/inject` 对字母键按 **XOR** 改写 Shift 语义：需要大写而手机没按 Shift 就临时补 Shift，
-需要小写而手机按着 Shift 就临时松开（字母抬起后恢复手机原状态）。判定用 `Config.CapsLockActive`
-钩子：Linux 读 `/sys/class/leds/input*::capslock/brightness`（输入子系统在锁状态变化时统一同步各键盘 LED），
-读不到时按"未生效"处理——补偿失败只会退化成主机侧反转，不丢按键；macOS 恒 false，因为合成 CGEvent
-携带显式 flags、不经系统大写锁改写（实测：注入 CapsLock 开锁后注入 a/b/c 仍得 `abc`）。
-
-大写字义的最终裁决在 `Config.CapsLockActive` 为真的平台，`keyWithCaps` 用 `shiftHeld`（手机 Shift 状态）
-与本层临时状态区分"补 Shift"和"屏蔽 Shift"两条路径，处理手机中途松开 Shift 的情况（不得残留按住不放的修饰键）。
-
-### 文本注入的两个平台差异（macOS 实测）
-
-- **必须兜底 UTF-8 locale**：`pbcopy/pbpaste` 按 locale 解释输入输出，launchd 启动的 daemon 环境里
-  没有任何 locale，此时写 CJK 会得到**空内容**——表现为手机注入中文/语音"发送成功但不上屏"，
-  更糟的是备份非 ASCII 剪贴板会读成空、还原时写回空（等于清空用户剪贴板）。`cmd/padlinkd` 启动时调
-  `ensureUTF8Locale()`（已有 UTF-8 的 `LC_ALL/LC_CTYPE/LANG` 则不动）。
-- **恢复延迟要够长**：实测 300ms 时目标应用还没读完粘贴板就被还原，中文同样不上屏；400–500ms 起可用，
-  macOS 默认取 800ms 给非原生应用留余量（Linux 300ms 实测够用，保持不变）。
-
-序列对齐 `docs/PROBE-LINUX.md` §4：光标画 2 个 r=200px 圆（各 120 段精确闭合）→ 左键点击 → 敲出 `pl`（走 HID→KEY 映射）→ hi-res 滚动 +2 格 / -1 格；成功打印 `padlinkd --test PASSED`（退出码 0），任何错误非零退出并输出原因。
-
-滚动语义：`REL_WHEEL_HI_RES` 必发（单位 1/120 格），同帧按内核惯例补发 legacy `REL_WHEEL = dy/120`（向零取整、不跨帧累积）；GNOME/mutter 只消费 HI_RES 路径。详见 `docs/RESEARCH-WAYLAND.md` §1。
+- 未认证包仅允许 PAIR_REQ，其余 → ERR(1)+关；FlagAuth 包逐个尝试已配对 token（≤4），命中即绑定会话。
+- HMAC 连续 5 次失败 → ERR(1)+关；TCP 读 deadline 10s 无任何包判失联（手机侧 1Hz ECHO 维持）。
+- 速率限制：每 TCP 会话令牌桶 2000 包/s、桶 4000，超限丢弃计数，1s 内丢弃 >2000 → ERR(3)+关；UDP 同参数全局桶，超限静默丢弃。
+- 会话结束（BYE/断开/超时/unpair）兜底补发本会话按下未释放的 KEY/BUTTON up。
+- 同设备识别：`dev` 指纹命中既有客户端 → 复用该记录并只轮换 token（不占客户端名额）。
 
 ## 联调工具（padlinktoy）
 
-PRD §2.2 的 `tools/`（录回放器、协议 fuzz、延迟压测）由 daemon 模块承载为单一二进制 `cmd/padlinktoy`：与 daemon 共用 `internal/proto` 协议实现（字节级单源不旁路）、零第三方依赖，Linux/macOS 均可构建运行，作为 PRD §7.3 联调分层（`--test` → echo/合成流量 → 真触摸）的中间层验证工具。
+与 daemon 共用 `internal/proto`（字节级单源不旁路）。token 经 `-token`（hex）或 `PADLINK_TOKEN` 提供；不写日志、不入录制文件。
 
 ```sh
-go -C daemon build -o dist/bin/padlinktoy ./cmd/padlinktoy   # 或 go -C daemon run ./cmd/padlinktoy <子命令> -h
+go -C daemon run ./cmd/padlinktoy <子命令> -h
 ```
 
-token 一律经 `-token`（hex）或环境变量 `PADLINK_TOKEN` 提供；不写日志、不入录制文件。
+| 子命令 | 用途 |
+| --- | --- |
+| `record` | 合成事件序列 → `.plrec`（`--circle` / `--scroll` / `--buttons` / `--type`；带 token 则帧就地封签） |
+| `replay` | 按时间戳回放 `.plrec` 到目标 daemon，打印各类型帧数 / 失败数 / ERR / 耗时 |
+| `fuzz` | 协议变异模糊测试（位翻转、截断、长度篡改、未知 type、粘包半包），结束后连发 ECHO 做活性判定 |
+| `latency` | 封签 ECHO 压测 RTT（min/P50/P90/P95/P99/max 与丢包）；`--load` 叠加 UDP MOVE 负载，`--json` 机器可读 |
 
-### record — 合成录制 → .plrec
-
-```sh
-padlinktoy record -o demo.plrec                       # 默认序列：画圆 r=200/120 段 + 滚动 3 格 + 左右键单击 + 文本
-padlinktoy record --circle 120 90 --scroll 2 --buttons --type "你好" --gap-ms 8 -o demo.plrec
-padlinktoy record --circle 200 120 -token $PADLINK_TOKEN -o sealed.plrec   # 带 token：帧就地封签（sealed）
-```
-
-生成 seal 后的事件帧序列，按 daemon 约定分通道：MOVE/SCROLL → UDP 帧，BUTTON/KEY/TEXT → TCP 帧。圆周 MOVE 为相邻点差分（净位移恒为零，可作回放闭环断言）。
-
-### replay — 回放 .plrec 到目标 daemon
-
-```sh
-padlinktoy replay -f demo.plrec -host 192.168.1.10 -token $PADLINK_TOKEN
-padlinktoy replay -f sealed.plrec -host 192.168.1.10 --speed 2.0
-```
-
-流程：TCP 建连 → 未认证 HELLO → 按时间戳节奏发送（UDP 帧走 UDP 单播，TCP 帧走已 seal 的 TCP）→ 封签 BYE 优雅退出；打印各类型帧数 / 发送失败数 / ERR 收到数 / 耗时。raw 录制回放必须提供 token（发送前现场封签）；sealed 录制原样发送（token 仅用于封签 BYE，须与录制时相同）。
-
-### fuzz — 协议变异模糊测试
-
-```sh
-padlinktoy fuzz -host 192.168.1.10 --seconds 10 --rate 500
-padlinktoy fuzz -host 192.168.1.10 -token $PADLINK_TOKEN --seconds 30   # 叠加认证路径变异
-```
-
-变异策略：合法帧随机 1/2/4/8 位翻转、19B 头内任意截断、payload_len 放大/缩小、magic/ver/flags 篡改、未知 type、超长 payload、非法 UTF-8 TEXT、FlagAuth 随机置位 + 随机 HMAC；TCP 侧叠加粘包/半包（分片写）与超量注入，UDP 侧混入 HELLO（非回环目标附加广播 HELLO）。结束后连发 3 个 ECHO（有 token 则 seal）做活性判定：ECHO 回包 / ERR 响应 / 无响应分别报告，无响应以非零退出码区分。
-
-断言口径：fuzz 不得使 daemon panic/挂死（活性判定覆盖）；daemon 侧丢弃计数无法从外部读取，以活性 + 响应行为为准。
-
-### latency — ECHO RTT 压测
-
-```sh
-padlinktoy latency -host 192.168.1.10 -token $PADLINK_TOKEN --hz 50 --duration 10s
-padlinktoy latency -host 192.168.1.10 -token $PADLINK_TOKEN --load --json
-```
-
-TCP 封签 ECHO 按 `--hz` 发送并等回包算 RTT，输出 min/P50/P90/P95/P99/max 与丢包数；`--load` 叠加 1000/s UDP MOVE 背景负载测 RTT 退化；`--json` 输出机器可读结果。**口径**：此为**传输层 RTT** 分量；触摸→光标端到端延迟按 PRD §8 需真机录屏逐帧口径测量。
-
-### .plrec 文件格式
-
-自描述、不含 token（帧内容为 `protocol/` 线协议帧）：
+`.plrec` 格式（自描述、不含 token）：
 
 ```text
-行 1（ASCII）: PLREC <版本> <raw|sealed>\n   # raw=帧未封签（回放需 token 现场封签）；sealed=帧已封签（原样发送）
+行 1（ASCII）: PLREC <版本> <raw|sealed>   # raw 回放需 token 现场封签；sealed 原样发送
 每帧: rel_ms:8B BE | chan:2B BE（0=UDP, 1=TCP） | len:2B BE | frame:len B   # len ≤ 19+1400
 ```
 
+**latency 口径**：输出的是传输层 RTT 分量；触摸→光标端到端延迟需真机录屏逐帧测量。
+
 ## 安全约定
 
-- token 存 `clients.json`，写入时 O_CREATE|O_TRUNC|O_WRONLY 后显式 Chmod **0600**（防宽松 umask）；加载时权限宽于 0600 打警告。结构带版本号字段便于迁移。
-- 确认码常数时间比较；token 查找同样常数时间。
-- token 与剪贴板内容（备份/注入文本）一律不进日志；日志只记长度与计数。
-- DISCOVER_RESP 不含敏感信息；配对发起成功不回包，确认码只出现在主机侧。
-- 文本注入备份仅驻内存（不落盘）。
-
-真机验证步骤（udev 规则、evtest 取证、libinput 确认）见 `docs/PROBE-LINUX.md`。
+- token 存 `clients.json`，写入后显式 Chmod **0600**（防宽松 umask）；加载时权限宽于 0600 打警告。
+- 确认码与 token 查找均用常数时间比较。
+- token 与剪贴板内容（备份/注入文本）一律不进日志，日志只记长度与计数。
+- DISCOVER_RESP 不含敏感信息；配对发起成功不回包，确认码只出现在主机侧；文本注入备份仅驻内存。

@@ -24,7 +24,7 @@ function finish() {
   console.log(`\n本文件 ${caseNo} 例全过`);
 }
 
-// ---- 三陷阱常量精确值（PRD §4.5 口径） ----
+// ---- 三陷阱常量精确值 ----
 
 test('三陷阱常量精确值', () => {
   assert.equal(AsrDefaults.RECOGNITION_MODE_REALTIME, 0);
@@ -43,7 +43,6 @@ test('范围边界常量与语言/音频规格', () => {
   assert.equal(AsrDefaults.SAMPLE_BIT, 16);
 });
 
-// ---- clampVadEnd ----
 
 test('vadEnd 范围内原值返回', () => {
   assert.equal(clampVadEnd(3000), 3000);
@@ -69,7 +68,7 @@ test('vadEnd 非法值（NaN/Infinity/非数字）回退默认 3000', () => {
   assert.equal(clampVadEnd('3000'), 3000);
 });
 
-// ---- asrErrorKey（errorcode-corespeech 全集映射） ----
+// ---- asrErrorKey（错误码全集映射） ----
 
 test('错误码映射：1002200012 → 权限拒绝键', () => {
   assert.equal(asrErrorKey(1002200012), 'voice_err_mic_permission');

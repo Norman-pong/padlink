@@ -35,9 +35,9 @@
 2. SCROLL 事件**只发 HI_RES**：协议字段 `SCROLL(dy_hi_res)`（PRD §5.2）语义直接映射为"v120 单位"（120 = 1 格）；手机端双指滑动累积映射到 HI_RES 值（如每像素 8–15 单位），由 libinput/mutter 合成平滑滚动与自然滚动设置。
 3. 禁止"注册 HI_RES 却发 REL_WHEEL"的组合（触发 libinput 警告回退路径）。
 
-### 给 PRD 的修正建议
+### 对 PRD 的约束（已落为规范条款）
 
-- §7.2 uinput 模块职责中"REL_WHEEL + REL_WHEEL_HI_RES"建议改为"REL_WHEEL_HI_RES（唯一发出的事件流；可选注册 REL_WHEEL 以最大兼容，但事件只发 HI_RES）"，并在 §4.2 表格注明"120 units = 1 detent"换算关系。
+- §7.2 uinput 模块职责中"REL_WHEEL + REL_WHEEL_HI_RES"应为"REL_WHEEL_HI_RES（唯一发出的事件流；可选注册 REL_WHEEL 以最大兼容，但事件只发 HI_RES）"，并在 §4.2 表格注明"120 units = 1 detent"换算关系。
 
 ---
 
@@ -63,7 +63,7 @@
 
 ### 对 daemon 实现的约束建议
 
-1. 规则文件 `dist/udev/60-padlink.rules` 内容：
+1. 规则文件 `daemon/packaging/udev/69-padlink-uinput.rules` 内容：
    ```
    SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess", OPTIONS+="static_node=uinput"
    ```
@@ -72,15 +72,15 @@
 3. daemon 启动时若 `/dev/uinput` 打开失败（EACCES），报错文案指向"udev 规则未安装/未生效 + getfacl 自查"，不要静默重试。
 4. 遥控/SSH 场景明确不支持：无活跃本地座位会话则 uaccess 不授权（与 PRD 仅桌面使用场景一致）。
 
-### 给 PRD 的修正建议
+### 对 PRD 的约束（已落为规范条款）
 
-- §7.1 建议把"udev 规则授予 uaccess"细化为上述 canonical 规则 + reload/trigger 步骤；§10 提交门增加一条联调前置检查（getfacl 验证）。
+- §7.1 udev 规则按上述 canonical 规则 + reload/trigger 步骤落地（实际安装物参 `daemon/packaging/udev/`）；§10 提交门含一条联调前置检查（getfacl 验证）。
 
 ---
 
 ## 3. wl-clipboard 在 systemd user service 中运行
 
-### 结论：**可行，有 6 个可规避的坑**（环境变量时序、wl-copy 后台驻留进程生命周期、wl-paste 默认追加换行、恢复时机竞态、空剪贴板被判成工具故障、驻留子进程继承 stderr 导致 Go `os/exec` 的 Wait 永久阻塞）；GNOME 内置剪贴板管理器提供了系统性兜底
+### 结论：**可行，有 6 个可规避的坑**（详见下文六条）
 
 ### 依据
 
@@ -109,20 +109,20 @@
    **规避**：备份一律 `wl-paste --no-newline`（并建议先 `wl-paste --list-types` 记录原 MIME）；恢复 `wl-copy --type <原MIME>` 原样写回（不要用 `wl-copy -n`，它会裁掉合法的尾部换行）。注入文本用 `wl-copy --type 'text/plain;charset=utf-8'`（规避 man BUGS 所述文本类型推断失灵问题）。
 4. **恢复时机竞态**：Ctrl+V 后应用异步向合成器请求数据；若 300ms 内恢复已替换数据源，慢应用可能粘到旧内容。另注意：mutter 在每次 owner 变化时立即自读一份（缓存），因此 `wl-copy -o/--paste-once` 的"服务一次即退出"在 GNOME 上不等价于"应用已粘贴"（第一次请求往往是 mutter 自己）。
    **规避**：维持固定延迟但做成可配置（默认 300ms、可调 500ms+）；不要依赖 `--paste-once` 作为粘贴完成信号；不要在恢复前提前退出注入用 wl-copy。
-5. **空剪贴板被判成工具故障**（真机实测，中文/语音注入全废的直接原因之一）：剪贴板为空时 `wl-paste --list-types` 退出码 1，若按普通失败走"工具不可用"降级，则每次 TEXT 注入都失败——用户表现就是"手机能连上但打不进中文/语音"，日志里是一句误导性的 `记录原 MIME 失败（处置：sudo apt install wl-clipboard）`，而工具其实装得好好的。
-   **规避**：把"无选择内容"与"工具故障/超时"分开判定——空剪贴板**不是错误**：跳过备份、注入照常进行、收尾改用 `wl-copy --clear` 清空选择（注入文本不得留在剪贴板）。判定不能靠 `*exec.ExitError`（超时同样是 ExitError），只能用 `Nothing is copied` 这一定文案（见上表；wl-clipboard 无本地化，2.2.1 实测存在）。备份步骤同样要按此判定兜底：`--list-types` 与备份之间选择可能消失。
-6. **驻留子进程继承 stderr ⇒ Go `os/exec` 的 `Wait` 永久阻塞**（真机实测，整机输入失效的直接原因）：`wl-copy` fork 出驻留子进程后直接子进程立即退出；若 Go 侧把 `cmd.Stdout/Stderr` 设成 `*bytes.Buffer`（或任何非 `*os.File`），`os/exec` 会建管道并起复制 goroutine，`Wait` 必须等管道 **EOF**——而 EOF 要等持有 fd 2 的孙进程退出，永远不会来。`context.WithTimeout(3s)` 救不了：它只杀早已退出的直接子进程。
+5. **空剪贴板被判成工具故障**（中文/语音注入全废的直接原因之一）：剪贴板为空时 `wl-paste --list-types` 退出码 1，若按普通失败走"工具不可用"降级，则每次 TEXT 注入都失败——用户表现就是"手机能连上但打不进中文/语音"，日志里是一句误导性的 `记录原 MIME 失败（处置：sudo apt install wl-clipboard）`，而工具其实装得好好的。
+   **规避**：把"无选择内容"与"工具故障/超时"分开判定——空剪贴板**不是错误**：跳过备份、注入照常进行、收尾改用 `wl-copy --clear` 清空选择（注入文本不得留在剪贴板）。判定不能靠 `*exec.ExitError`（超时同样是 ExitError），只能用 `Nothing is copied` 这一定文案（见上表；wl-clipboard 无本地化，2.2.1 存在）。备份步骤同样要按此判定兜底：`--list-types` 与备份之间选择可能消失。
+6. **驻留子进程继承 stderr ⇒ Go `os/exec` 的 `Wait` 永久阻塞**（整机输入失效的直接原因）：`wl-copy` fork 出驻留子进程后直接子进程立即退出；若 Go 侧把 `cmd.Stdout/Stderr` 设成 `*bytes.Buffer`（或任何非 `*os.File`），`os/exec` 会建管道并起复制 goroutine，`Wait` 必须等管道 **EOF**——而 EOF 要等持有 fd 2 的孙进程退出，永远不会来。`context.WithTimeout(3s)` 救不了：它只杀早已退出的直接子进程。
    **后果链**：单条注入 worker 卡死 → TCP 仍连着但所有输入失效（用户看到"连接态却操作不了电脑"）→ SIGTERM 关闭也卡住 → systemd `stop-sigterm timed out` → SIGKILL。
    **规避**：`Stdout/Stderr` 落**临时文件**（无复制 goroutine，直接子进程退出即返回），并设 `cmd.WaitDelay` 兜底 stdin 管道的极端情况。注意探测陷阱：孙进程 `fd 0/1 → /dev/null`，只有 `fd 2` 是管道——用 bash `$(...)` 计时（等的是 stdout）会看到"一切正常"，从而误判。
 
-补充：GNOME 无 wlr-data-control ⇒ 每次 wl-paste 理论上都有一次隐形弹窗往返，实测通常无感；建议 daemon 对 wl-paste/wl-copy 均设 2–3s 超时，超时按"剪贴板功能降级"处理（与缺 wl-clipboard 同一降级路径）。
+补充：GNOME 无 wlr-data-control ⇒ 每次 wl-paste 理论上都有一次隐形弹窗往返，通常无感；建议 daemon 对 wl-paste/wl-copy 均设 2–3s 超时，超时按"剪贴板功能降级"处理（与缺 wl-clipboard 同一降级路径）。
 
-### 给 PRD 的修正建议
+### 对 PRD 的约束（已落为规范条款）
 
-- §4.5 注入流程细化为：`wl-paste --list-types`（记 MIME）→ `wl-paste --no-newline`（备份，仅驻内存）→ `wl-copy --type text/plain;charset=utf-8` → 注入 Ctrl+V → 可配延迟（默认 300ms）→ `wl-copy --type <原MIME>` 恢复；**空剪贴板分支**：记 MIME 若为"无选择内容"（`Nothing is copied`）则跳过备份、注入照常，收尾改 `wl-copy --clear`；**非文本分支**：记到的 MIME 非 `text/*`（图片/文件等）时 `wl-paste` 通常仍能按字节读到原数据，恢复按原 MIME 写回即完整还原（注入照常，实测 image/png 往返无损）；只有读取确实失败（`inferred output type` 报错）才按能力边界处理：**取消本次注入**并报可见错误，绝不写回空备份覆盖原内容（与 macOS 端同一契约，见 docs/PLAN-MACOS.md §2.5）。
+- §4.5 注入流程细化为：`wl-paste --list-types`（记 MIME）→ `wl-paste --no-newline`（备份，仅驻内存）→ `wl-copy --type text/plain;charset=utf-8` → 注入 Ctrl+V → 可配延迟（Linux 默认 300ms）→ `wl-copy --type <原MIME>` 恢复；**空剪贴板分支**：记 MIME 若为"无选择内容"（`Nothing is copied`）则跳过备份、注入照常，收尾改 `wl-copy --clear`；**非文本分支**：记到的 MIME 非 `text/*`（图片/文件等）时 `wl-paste` 通常仍能按字节读到原数据，恢复按原 MIME 写回即完整还原（注入照常，image/png 往返无损）；只有读取确实失败（`inferred output type` 报错）才按能力边界处理：**取消本次注入**并报可见错误，绝不写回空备份覆盖原内容（与 macOS 端同一契约，见 docs/PLAN-MACOS.md §2.5）。
 - §7.1 unit 挂载目标从 user service 泛述改为明确 `graphical-session.target` 模式。
 - §11.4 验收口径补充："剪贴板内容不变"指**内容字节**不变；owner 在 daemon 停止后可能变为 mutter 内置管理器（内存源），属正常；空剪贴板注入后应回到"无内容"而非残留注入文本。
-- §13 风险表增加四行：wl-copy 驻留进程随服务重启被杀（缓解：mutter 内存接管 / systemd-run scope）；wl-paste 弹窗 hack 个别情况挂起（缓解：超时+降级）；空剪贴板被误判为工具故障致中文/语音注入全废（缓解：按 `Nothing is copied` 分流为"无内容"）；驻留子进程持有继承 stderr 致注入 worker 永久阻塞、服务无法优雅停止（缓解：子进程输出落临时文件 + `WaitDelay`）。
+- §13 风险表含四行：wl-copy 驻留进程随服务重启被杀（缓解：mutter 内存接管 / systemd-run scope）；wl-paste 弹窗 hack 个别情况挂起（缓解：超时+降级）；空剪贴板被误判为工具故障致中文/语音注入全废（缓解：按 `Nothing is copied` 分流为"无内容"）；驻留子进程继承 stderr 致注入 worker 永久阻塞、服务无法优雅停止（缓解：子进程输出落临时文件 + `WaitDelay`）。
 
 ---
 
@@ -146,7 +146,7 @@
 3. **不要**尝试自动改用户的 accel-profile（影响其物理鼠标），只提示。
 4. 调试面板显示当前检测到的 host accel-profile，便于 §8 延迟/手感验收时归因。
 
-### 给 PRD 的修正建议
+### 对 PRD 的约束（已落为规范条款）
 
 - §4.2 增加"主机指针加速假设"一段：GNOME 默认 adaptive 会与手机曲线叠加；产品以 flat 为推荐配置并在 daemon 检测提示；曲线默认值按 flat 标定。
 - §8 验收指标的手感部分注明前提"主机 accel-profile=flat"。
@@ -167,7 +167,7 @@
 | wl-clipboard | resolute/universe 有 **wl-clipboard 2.2.1-2build1**，`sudo apt install wl-clipboard` 直装（需启用 universe，Ubuntu Desktop 默认启用） | https://packages.ubuntu.com/resolute/wl-clipboard | ★★★★★ |
 | evtest | resolute/universe 有 **evtest 1:1.36-1**，直装 | https://packages.ubuntu.com/resolute/evtest | ★★★★★ |
 
-### 给 PRD 的修正建议
+### 对 PRD 的约束（已落为规范条款）
 
 - §1.1/§1.3 可补充一句："26.04 的 GNOME 桌面仅提供 Wayland 会话，X11 检测分支仅作为防御性警告存在"——把"明确不做 X11"从产品决策升级为客观约束，验收口径更硬。
 - §4.5 的安装提示命令 `sudo apt install wl-clipboard` 确认可用。
@@ -189,9 +189,9 @@
 1. daemon 直接 `exec` wl-clipboard 二进制（Go 无 cgo 约束不受影响，wl-clipboard 是独立程序）——无需引入 Wayland 客户端库。
 2. v2 若要摆脱对 wl-clipboard 二进制的依赖，正确方向是实现 wl_seat data-device 客户端（即 wl-copy 做的事），而不是换注入通道；收益仅是少一个外部依赖，优先级低。
 
-### 给 PRD 的修正建议
+### 对 PRD 的约束（已落为规范条款）
 
-- 无架构改动；可在 §2.1 要点里补一句"已核查 ydotool（仅 ASCII）与 wtype（GNOME 无 virtual-keyboard 协议）均不可用，剪贴板路线是 GNOME 上唯一工程可行解"，避免后续被反复质疑。
+- 无架构改动；PRD §4.5 已注明 ydotool（仅 ASCII）与 wtype（GNOME 无 virtual-keyboard 协议）均不可用，剪贴板路线是 GNOME 上唯一工程可行解。
 
 ---
 

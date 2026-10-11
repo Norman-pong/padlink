@@ -10,7 +10,7 @@ import (
 )
 
 // 键表覆盖：inject.HIDToKey 值域内每个 Linux KEY_* 都必须有 CGKeyCode 映射，
-// 否则该键在 macOS 上按下时才以运行时错误暴露——提前到测试期拦截。
+// 否则该键在 macOS 上按下时才以运行时错误暴露。
 func TestKeyMapCoversHIDToKey(t *testing.T) {
 	for hid, code := range inject.HIDToKey {
 		if _, ok := keyToCGKeyCode[code]; !ok {
@@ -45,8 +45,7 @@ func TestHiResToPixels(t *testing.T) {
 	}
 }
 
-// 修饰键映射：键表修饰键段 8 枚（左右 Shift/Ctrl/Alt/Super）必须有 Flag 位，
-// 非修饰键不得混入。
+// 修饰键映射：键表修饰键段 8 枚（左右 Shift/Ctrl/Alt/Super）必须有 Flag 位，非修饰键不得混入。
 func TestCGModFlagCoversModifiers(t *testing.T) {
 	mods := []uint16{42, 54, 29, 97, 56, 100, 125, 126}
 	for _, code := range mods {
@@ -69,8 +68,7 @@ func TestCGModFlagCoversModifiers(t *testing.T) {
 	}
 }
 
-// 修饰状态机：按住累积、抬起清位；修饰键自身按下含自身位、抬起不含；
-// 非修饰键事件携带当前掩码且不改变掩码。
+// 修饰状态机：按住累积、抬起清位；修饰键自身按下含自身位、抬起不含；非修饰键携带当前掩码。
 func TestTrackMod(t *testing.T) {
 	d := &Device{}
 	if f := d.trackMod(42, true); f != quartz.FlagShift { // LShift down

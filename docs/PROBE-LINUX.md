@@ -35,7 +35,7 @@ getfacl /dev/uinput | grep "$(id -un)"
 mkdir -p ~/.local/bin && cp daemon/dist/bin/padlinkd-linux-$(dpkg --print-architecture) ~/.local/bin/padlinkd
 mkdir -p ~/.config/systemd/user && cp daemon/packaging/systemd/padlink-local.service ~/.config/systemd/user/padlink.service
 systemctl --user daemon-reload && systemctl --user enable --now padlink
-journalctl --user -u padlink -f   # 期望：服务常驻不崩溃（M0 版无网络循环，静默即正常；网络循环 M2 引入）
+journalctl --user -u padlink -f   # 期望：服务常驻不崩溃（静默即正常）
 ```
 
 ## 4. 注入自测（PRD §10 调试第一层：无手机）

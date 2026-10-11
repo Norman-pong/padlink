@@ -1,9 +1,8 @@
 //go:build darwin
 
-// Package quartz 是 macOS Quartz CGEvent 注入原语的薄 cgo 封装（PRD 附录 B v2 路线）。
-// 只暴露函数级原语；累积、键码映射、权限门控等业务语义全部留在 Go 侧调用方。
-// 未获 TCC 辅助功能权限时 Post* 的事件被系统静默丢弃（docs/PLAN-MACOS.md §0 实测），
-// 调用方必须先过 Trusted 门控再注入。
+// Package quartz 是 macOS Quartz CGEvent 注入原语的薄 cgo 封装：只暴露函数级原语，
+// 累积、键码映射、权限门控等业务语义留在 Go 侧调用方。
+// 未获 TCC 辅助功能权限时 Post* 的事件被系统静默丢弃，调用方必须先过 Trusted 门控再注入。
 package quartz
 
 /*
@@ -36,8 +35,8 @@ static CGPoint cursorPos(void) {
 }
 
 static int postMouseMove(double x, double y, long dx, long dy, int buttonsDown, long clickState) {
-	// 按住按钮时的位移必须走 mouseDragged：投递 mouseMoved 时应用收不到拖拽
-	// （NSView.mouseDragged: 不触发，拖文件/选词/拖窗口全部失效）。
+	// 按住按钮时的位移必须走 mouseDragged：投 mouseMoved 时应用侧 NSView.mouseDragged:
+	// 不触发，拖文件/选词/拖窗口全部失效。
 	CGEventType type = kCGEventMouseMoved;
 	CGMouseButton b = kCGMouseButtonLeft;
 	if (buttonsDown & 1) {
@@ -77,8 +76,8 @@ static int postScrollPixel(long dy) {
 	return 0;
 }
 
-// flags 必须显式设置：CGEvent 投递的合成修饰键 keyDown 不会进入系统修饰状态，
-// 后续合成按键事件的 flags 恒 0（实测 Cmd 按下后 V 事件被当裸键，目标 App 收到 v 而非粘贴）。
+// flags 必须显式设置：合成修饰键的 keyDown 不会进入系统修饰状态，后续合成按键事件的
+// flags 恒 0（Cmd 按下后 V 事件会被当裸键）。
 static int postKey(CGKeyCode code, int down, uint64_t flags) {
 	CGEventRef ev = CGEventCreateKeyboardEvent(NULL, code, down ? true : false);
 	if (ev == NULL) {
@@ -91,8 +90,8 @@ static int postKey(CGKeyCode code, int down, uint64_t flags) {
 }
 
 // button: 0=左 1=右 2=中（与 Go 侧 ButtonLeft/Right/Middle 常量一致）。
-// clickState：kCGMouseEventClickState（1=单击 2=双击 3=三击）；合成事件不写该字段时
-// 应用侧 NSEvent.clickCount 恒为 1，双击打开文件/三击选段全部失效。
+// clickState: kCGMouseEventClickState（1=单击 2=双击 3=三击）；不写该字段时应用侧
+// NSEvent.clickCount 恒为 1，双击打开文件/三击选段失效。
 static int postButton(int button, int down, long clickState) {
 	CGPoint p = cursorPos();
 	CGEventType type;
@@ -123,8 +122,7 @@ static int postButton(int button, int down, long clickState) {
 	return 0;
 }
 
-// padlinkDoubleClickInterval 定义在 interval_darwin.m（cgo 的 .c 文件按 C 编译，
-// 调不到 AppKit 的类方法，故单独用 Objective-C 文件承载）。
+// padlinkDoubleClickInterval 定义在 interval_darwin.m：cgo 的 .c 文件按 C 编译，调不到 AppKit 类方法。
 extern double padlinkDoubleClickInterval(void);
 */
 import "C"
@@ -144,8 +142,7 @@ const (
 	ButtonMiddle = 2
 )
 
-// 修饰键标志位（CGEventTypes.h kCGEventFlagMask*，ABI 稳定常量）。
-// 由 Go 侧按当前按住的修饰键合成，随 PostKey 显式写入事件。
+// 修饰键标志位（CGEventTypes.h kCGEventFlagMask*）；由 Go 侧合成后随 PostKey 显式写入事件。
 const (
 	FlagShift   uint64 = 1 << 17 // kCGEventFlagMaskShift
 	FlagControl uint64 = 1 << 18 // kCGEventFlagMaskControl
@@ -167,8 +164,7 @@ func CursorPos() (x, y float64) {
 	return float64(p.x), float64(p.y)
 }
 
-// MouseMove 一次绝对定位位移。X/Y 为合成后的目标全局坐标；
-// DeltaX/Y 附带写入事件 delta 字段，供消费原始位移的应用读取。
+// MouseMove 一次绝对定位位移：X/Y 为合成后的目标全局坐标，DeltaX/Y 附带写入事件 delta 字段；
 // ButtonsDown 为按住按钮位掩码（1=左 2=中 4=右），决定投递 mouseMoved 还是 mouseDragged；
 // ClickState 为本次点击序号（0 表示不写该字段）。
 type MouseMove struct {
@@ -178,8 +174,7 @@ type MouseMove struct {
 	ClickState     int
 }
 
-// PostMouseMove 投递绝对定位位移。OS 指针加速只作用于 HID 相对事件，
-// 绝对定位不经过加速曲线（docs/PLAN-MACOS.md §2.2）；
+// PostMouseMove 投递绝对定位位移：OS 指针加速只作用于 HID 相对事件，绝对定位不经过加速曲线；
 // 有按钮按住时投递 mouseDragged（否则应用收不到拖拽）。
 func PostMouseMove(m MouseMove) error {
 	if C.postMouseMove(C.double(m.X), C.double(m.Y), C.long(m.DeltaX), C.long(m.DeltaY),
@@ -189,8 +184,7 @@ func PostMouseMove(m MouseMove) error {
 	return nil
 }
 
-// DoubleClickInterval 返回系统设置的双击间隔（NSEvent.doubleClickInterval）。
-// 取不到或明显越界时返回 0，由调用方回落默认值（macOS 默认 0.5s）。
+// DoubleClickInterval 返回系统设置的双击间隔；取不到或明显越界时返回 0，由调用方回落默认值。
 func DoubleClickInterval() time.Duration {
 	sec := float64(C.padlinkDoubleClickInterval())
 	if sec < 0.1 || sec > 2.0 {
@@ -207,9 +201,8 @@ func PostScrollPixel(dy int32) error {
 	return nil
 }
 
-// PostKey 投递键盘事件（CGKeyCode 虚拟键码，按下/抬起）。
-// flags 为调用方合成的修饰键标志（Flag* 位或）；修饰键自身事件的
-// 标志约定同物理键盘：keyDown 含自身位，keyUp 不含。
+// PostKey 投递键盘事件（CGKeyCode 虚拟键码）。flags 为调用方合成的修饰键标志（Flag* 位或）；
+// 修饰键自身事件的标志约定同物理键盘：keyDown 含自身位，keyUp 不含。
 func PostKey(code uint16, down bool, flags uint64) error {
 	d := 0
 	if down {
@@ -221,9 +214,8 @@ func PostKey(code uint16, down bool, flags uint64) error {
 	return nil
 }
 
-// PostButton 在当前光标处投递鼠标按钮事件（ButtonLeft/Right/Middle）。
-// clickState 为本次点击序号（1=单击 2=双击 3=三击）：合成的 down/up 都必须携带，
-// 应用侧 NSEvent.clickCount 才会是 2/3；传 0 表示不写该字段（按单击处理）。
+// PostButton 在当前光标处投递鼠标按钮事件（ButtonLeft/Right/Middle）。clickState 为本次点击
+// 序号（1=单击 2=双击 3=三击），合成的 down/up 都必须携带，应用侧 clickCount 才会是 2/3。
 func PostButton(button int, down bool, clickState int) error {
 	d := 0
 	if down {

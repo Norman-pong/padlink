@@ -1,4 +1,4 @@
-// 静态分组卡容器：设置页与调试面板共用；触发动作的列表行用 PressedRow。
+// 静态分组卡容器：卡面样式单源，可点击行改用 PressedRow。
 @ComponentV2
 export struct GroupCard {
   @BuilderParam content: () => void = this.empty;

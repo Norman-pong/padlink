@@ -1,13 +1,6 @@
 // 网络传输层：UDP 单播/广播通道 + TCP 可靠通道（@kit.NetworkKit）。
-// API 依据（现查文档）：
-// - js-apis-socket：constructUDPSocketInstance/bind/send/close/setExtraOptions/on('message')/
-//   constructTCPSocketInstance/connect/send/on('message')/on('close')/on('error')；
-//   NetAddress/UDPSendOptions/UDPExtraOptions(broadcast)/TCPConnectOptions/TCPSendOptions。
-// - faqs-network-96：广播姿势 bind 0.0.0.0 →（bind 成功后）setExtraOptions({broadcast:true})
-//   → getAllNets 筛 BEARER_WIFI → netHandle.bindSocket 锁 WiFi 出口。
-// - faqs-network-86：socket 仅可发 string|ArrayBuffer；Uint8Array.buffer 即 ArrayBuffer。
-// - faqs-network-115：bind 失败常见错误码（排障日志用）。
-// TCP 粘包按 19B 头 payload_len（偏移 7，大端）分帧后交 decode；seal 同步（CryptoHmacProvider）。
+// UDP 广播顺序固定：bind 0.0.0.0 → bind 成功后 setExtraOptions({broadcast:true}) → netHandle.bindSocket 锁 WiFi 出口。
+// socket 仅可发 string|ArrayBuffer；TCP 粘包按 19B 头 payload_len（偏移 7，大端）分帧后交 decode。
 import { socket, connection } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -25,7 +18,6 @@ const DOMAIN: number = 0x5050;
 // TCP 建连/握手超时（指数退避重连期间同样使用）。
 export const TCP_CONNECT_TIMEOUT_MS: number = 3000;
 
-// 发送/接收计数（调试面板展示）。
 export class TransportStats {
   public udpSendOk: number = 0;
   public udpSendFail: number = 0;
@@ -36,12 +28,9 @@ export class TransportStats {
   public recvHmacFail: number = 0;
 }
 
-// 解码+验签后的业务包回调（ECHO/HELLO/PAIR_*/ERR 由上层分发）。
 export type PacketHandler = (pkt: Packet) => void;
-// UDP 原始报文回调（M2 发现/配对流预留）。
 export type RawUdpHandler = (data: ArrayBuffer, fromAddr: string, fromPort: number) => void;
 
-// UDP 通道：bind 0.0.0.0 端口 0（系统随机）→ setExtraOptions 广播 → 锁 WiFi 出口。
 export class UdpChannel {
   private sock: socket.UDPSocket = socket.constructUDPSocketInstance();
   private opened: boolean = false;
@@ -55,7 +44,7 @@ export class UdpChannel {
     const bindAddr: socket.NetAddress = { address: '0.0.0.0', port: 0, family: 1 };
     const extra: socket.UDPExtraOptions = { broadcast: true };
     return this.sock.bind(bindAddr)
-      .then(() => this.sock.setExtraOptions(extra)) // 必须在 bind 成功之后（faqs-network-96）
+      .then(() => this.sock.setExtraOptions(extra)) // 必须在 bind 成功之后
       .then(() => this.bindToWifi())
       .then(() => {
         this.sock.on('message', (info: socket.SocketMessageInfo) => {
@@ -67,7 +56,6 @@ export class UdpChannel {
       });
   }
 
-  // getAllNets → getNetCapabilitiesSync 筛 BEARER_WIFI → netHandle.bindSocket（faqs-network-96）。
   private bindToWifi(): Promise<void> {
     return connection.getAllNets().then((nets: connection.NetHandle[]) => {
       for (const net of nets) {
@@ -108,8 +96,7 @@ export class UdpChannel {
     });
   }
 
-  // 重连/复用前重建底层 socket：close 后的 UDPSocket 实例不可再 bind（同 TcpChannel.reset 理由）；
-  // onMessage 挂在通道字段上，重建后由 open() 重新挂接。
+  // close 过的 UDPSocket 实例必须重建后方可复用；重建后由 open() 重挂 onMessage。
   public reset(): void {
     this.close();
     this.sock = socket.constructUDPSocketInstance();
@@ -118,7 +105,6 @@ export class UdpChannel {
   }
 }
 
-// TCP 通道：connect + 收包粘包分帧（19B 头 payload_len）。
 export class TcpChannel {
   private sock: socket.TCPSocket = socket.constructTCPSocketInstance();
   private rx: Uint8Array = new Uint8Array(0);
@@ -129,9 +115,7 @@ export class TcpChannel {
   public onError: ((err: BusinessError) => void) | null = null;
 
   public connect(addr: string, port: number, timeoutMs: number): Promise<void> {
-    // 每次连接都换全新实例：上一次 close() 是异步的，复用同一实例会让它在 connect 之后落地，
-    // 把刚建立的连接立刻关掉——实测切换主机后新会话 ~17ms 就被判"TCP 断开"，随后被重连
-    // 循环拉回旧主机（表现为"切换不生效、始终连回原来那台"）。
+    // 每次连接必须换全新实例：上一次 close() 是异步的，复用实例会让它落在 connect 之后、关掉新连接。
     this.sock = socket.constructTCPSocketInstance();
     this.eventsBound = false;
     this.rx = new Uint8Array(0);
@@ -141,7 +125,7 @@ export class TcpChannel {
     return this.sock.connect(opt);
   }
 
-  // 重连前重建底层 socket：旧实例已损坏（半开/EOF），复用可能失败；重建后事件需重新挂接。
+  // 重连前重建：旧实例已损坏（半开/EOF），复用可能失败；重建后事件需重挂。
   public reset(): void {
     this.close();
     this.sock = socket.constructTCPSocketInstance();
@@ -154,9 +138,8 @@ export class TcpChannel {
       return;
     }
     this.eventsBound = true;
-    // 事件按 socket 实例归属：reset() 换掉实例后，旧实例的 close/error 仍会异步到达，
-    // 若不校验归属就会把「上一会话的断开」误报给新会话（实测：切换主机后新会话 16ms 即被判
-    // TCP 断开 → 进重连退避 → 又被拉回旧主机，表现为"切换不生效、始终连回原来那台"）。
+    // 事件按 socket 实例归属校验：reset() 换实例后旧实例的 close/error 仍会异步到达，
+    // 不校验就会把上一会话的断开误报给新会话。
     const mySock: socket.TCPSocket = this.sock;
     mySock.on('message', (info: socket.SocketMessageInfo) => {
       if (this.sock !== mySock) {
@@ -228,7 +211,6 @@ export class TcpChannel {
 }
 
 // 会话传输：持有 16 位回绕 seq、token 派生的 HMAC 提供方与统计计数。
-// seal 为同步实现（CryptoHmacProvider），发送路径无异步排队；
 // MOVE/SCROLL 走 UDP 单播（新值覆盖语义，协议层允许丢包）。
 export class Transport {
   private seqN: number = 0;
@@ -238,14 +220,13 @@ export class Transport {
   public readonly udp: UdpChannel = new UdpChannel();
   public readonly tcp: TcpChannel = new TcpChannel();
   public readonly stats: TransportStats = new TransportStats();
-  // 解码+验签通过后的包统一出口（ConnectionManager 分发）。
   public onPacket: PacketHandler | null = null;
 
   public setToken(token: Uint8Array): void {
     this.provider = new CryptoHmacProvider(token);
   }
 
-  // 清空 token（M2 无 token 配对连接）：HELLO/PAIR_REQ 按协议不封签直发。
+  // 清空 token：HELLO/PAIR_REQ 按协议不封签直发。
   public clearToken(): void {
     this.provider = null;
   }
@@ -260,7 +241,7 @@ export class Transport {
     return s;
   }
 
-  // 打开两通道并记住单播目标。udpPort/tcpPort 同为协议默认 53021（可配）。
+  // 打开两通道并记住单播目标（udp/tcp 端口同为协议默认 53021）。
   public open(host: string, udpPort: number, tcpPort: number): Promise<void> {
     this.hostAddr = host;
     this.udpPortN = udpPort;
@@ -270,7 +251,6 @@ export class Transport {
     this.tcp.onFramingError = () => {
       this.stats.recvDecodeFail++;
     };
-    // 上一会话 close 过的 UDP 实例不可复用，统一重建（首次 open 时为 no-op）
     this.udp.reset();
     return this.udp.open().then(() => this.tcp.connect(host, tcpPort, TCP_CONNECT_TIMEOUT_MS));
   }
@@ -304,7 +284,7 @@ export class Transport {
       });
   }
 
-  // TCP 可靠发送（BUTTON/KEY/TEXT/HELLO/ECHO/BYE）。未认证时静默丢弃并计数（断连期间手势不崩 UI）。
+  // TCP 可靠发送。未认证时静默丢弃并计数（断连期间手势不崩 UI）。
   public sendReliable(pkt: Packet): Promise<void> {
     if (this.provider === null) {
       this.stats.tcpSendFail++;
@@ -314,8 +294,8 @@ export class Transport {
     return this.sendUnsealed(pkt);
   }
 
-  // 无 token 会话（配对流）专用：不封签直发 TCP。仅限协议规定不认证的报文（HELLO 首包 / PAIR_REQ）；
-  // 失败计数+日志不上抛（与 sendReliable 同口径，调用方以回包/超时判定结果）。
+  // 无 token 会话（配对流）专用：不封签直发 TCP，仅限协议规定不认证的报文（HELLO 首包 / PAIR_REQ）；
+  // 失败计数+日志不上抛，调用方以回包/超时判定结果。
   public sendUnsealed(pkt: Packet): Promise<void> {
     const wire: ArrayBuffer = encode(pkt);
     return this.tcp.send(wire).then(() => {
@@ -332,7 +312,7 @@ export class Transport {
     this.sendReliable(pkt);
   }
 
-  // HELLO：payload 2B 大端 ver（版本协商）。按协议 TCP 首包必须为未认证 HELLO，恒不封签。
+  // HELLO：payload 2B 大端 ver。按协议 TCP 首包必须为未认证 HELLO，恒不封签。
   public sendHello(): Promise<void> {
     return this.sendUnsealed(buildHelloPacket(this.nextSeq()));
   }
@@ -342,9 +322,8 @@ export class Transport {
     this.sendReliable(pkt);
   }
 
-  // 收包管线：decode → FlagAuth 时常数时间验签 → 业务分发；两类失败分别计数（调试面板展示）。
-  // 无 token 分支（M2 配对流）：PAIR_OK 封签用的是刚签发、本端尚未绑定的 token，
-  // 此时不做本地验签直接上抛，由 PairingModel 以 payload 中的新 token verifyHmac 端到端自证。
+  // 收包管线：decode → FlagAuth 时常数时间验签 → 分发；两类失败分别计数。
+  // 无 token 时不做本地验签直接上抛：PAIR_OK 用的是本端尚未绑定的新 token，由 PairingModel 端到端自证。
   private handleWire(frame: ArrayBuffer): void {
     const r = decode(frame);
     if (!r.ok || r.packet === null) {

@@ -8,7 +8,7 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// udpLoop 处理 UDP 数据面：未认证 HELLO（含广播）→ DISCOVER_RESP 单播；
+// udpLoop 处理 UDP 数据面：未认证 HELLO → DISCOVER_RESP 单播；
 // FlagAuth 的 MOVE/SCROLL → 注入；ECHO → 回传；其余未认证丢弃计数。
 func (s *Server) udpLoop(uc *net.UDPConn) {
 	defer s.internalWG.Done()
@@ -33,7 +33,7 @@ func (s *Server) udpLoop(uc *net.UDPConn) {
 }
 
 func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
-	// UDP 无会话概念，用全局令牌桶限速；超限静默丢弃（新值覆盖语义天然容丢）
+	// UDP 无会话概念，用全局令牌桶；超限静默丢弃（新值覆盖语义天然容丢）
 	if !s.limiter.allow(time.Now()) {
 		s.stats.Dropped.Add(1)
 		return
@@ -45,15 +45,15 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 	}
 	s.vlogf("UDP ← %s %v seq=%d auth=%v plen=%d", addr, pkt.Type, pkt.Seq, pkt.Flags&proto.FlagAuth != 0, len(pkt.Payload))
 	if pkt.Type == proto.TypeHello {
-		// 发现已认证性要求为 0，应答不含敏感信息（JSON 作为 DISCOVER_RESP payload）
+		// 发现包不认证，应答不含敏感信息（JSON 作为 DISCOVER_RESP payload）
 		reply := proto.NewRaw(proto.TypeDiscoverResp, uint16(s.udpSeq.Add(1)), s.discoverBody())
 		body, err := proto.Encode(&reply)
 		if err != nil {
 			s.logf("DISCOVER_RESP 编码失败: %v", err)
 			return
 		}
-		// 写失败必须可见：发现应答发不出去时，手机侧表现为"搜不到这台电脑"，
-		// 而这里若静默吞掉错误，日志里只剩"收到 HELLO"，会把排查方向带偏（实测踩过）。
+		// 写失败必须可见：发现应答发不出去时手机侧表现为"搜不到这台电脑"，
+		// 静默吞掉会把排查方向带偏。
 		if _, werr := s.udp.WriteToUDP(body, addr); werr != nil {
 			s.logf("DISCOVER_RESP 发送失败（目标 %s）: %v", addr, werr)
 		}
@@ -68,8 +68,8 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 		s.stats.HMACFail.Add(1)
 		return
 	}
-	// 多设备控制权与 TCP 同闸：MOVE/SCROLL 是光标与滚动的主通道，
-	// 不过闸则非持权设备仍能驱动指针（裁决形同虚设）。ECHO 属心跳，不受门控。
+	// 控制权与 TCP 同闸：MOVE/SCROLL 是光标与滚动主通道，
+	// 不过闸则非持权设备仍能驱动指针（裁决形同虚设）；ECHO 属心跳，不受门控。
 	if isControlType(pkt.Type) && !s.admitControl(client.ID) {
 		return
 	}

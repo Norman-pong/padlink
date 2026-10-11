@@ -1,7 +1,6 @@
 // hex 编解码纯函数（32B token ↔ 64 字符 hex，配对/快速连接共用）。
-// 抽公共依据：DebugPanelPage 原私有 hexToBytes 与 M2 PairingModel 的 bytesToHex 为第二处重复。
 
-// hex 字符串 → 字节；非法（奇数长/非 hex 字符）返回 null（外部输入校验）。
+// hex 字符串 → 字节；非法（奇数长/非 hex 字符）返回 null（外部输入不可信）。
 export function hexToBytes(hex: string): Uint8Array | null {
   if (hex.length === 0 || hex.length % 2 !== 0) {
     return null;
@@ -18,7 +17,6 @@ export function hexToBytes(hex: string): Uint8Array | null {
   return out;
 }
 
-// 字节 → 小写 hex 字符串。
 export function bytesToHex(bytes: Uint8Array): string {
   const digits = '0123456789abcdef';
   let out = '';

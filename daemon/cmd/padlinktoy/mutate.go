@@ -7,22 +7,20 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// mutateKind 标识一种变异策略（统计/测试用）。
 type mutateKind uint8
 
 const (
-	mBitFlip     mutateKind = iota // 合法帧随机 1/2/4/8 位翻转
-	mTruncate                      // 截断到 19B 头内任意位置（<19B）
-	mPayloadLen                    // payload_len 字段随机放大/缩小
-	mHeaderField                   // magic/ver/flags 字段篡改
-	mUnknownType                   // type 改为未知值（0 或 ≥14）
-	mOversize                      // 超长 payload（payload_len 1401..2048 且实发等长）
-	mBadUTF8                       // TEXT payload 换成非法 UTF-8 序列
-	mRandomHMAC                    // FlagAuth 随机置位 + 随机 hmac_trunc
-	mKindCount                     // 哨兵
+	mBitFlip mutateKind = iota
+	mTruncate
+	mPayloadLen
+	mHeaderField
+	mUnknownType // type 改为 0 或 ≥14
+	mOversize    // payload_len 1401..2048，实发等长
+	mBadUTF8
+	mRandomHMAC
+	mKindCount // 哨兵，须在末尾
 )
 
-// String 返回策略名。
 func (k mutateKind) String() string {
 	switch k {
 	case mBitFlip:
@@ -46,8 +44,7 @@ func (k mutateKind) String() string {
 	}
 }
 
-// mutate 对合法线帧应用一种变异，返回新字节切片（不改入参）。
-// 入参必须 ≥ HeaderSize（fuzz 基底均为合法帧）。
+// mutate 对合法线帧应用一种变异，返回新字节切片（不改入参）；入参须 ≥ HeaderSize。
 func mutate(rng *rand.Rand, frame []byte, kind mutateKind) []byte {
 	out := append([]byte(nil), frame...)
 	switch kind {
@@ -56,7 +53,7 @@ func mutate(rng *rand.Rand, frame []byte, kind mutateKind) []byte {
 		flipped := make(map[int]bool, n)
 		for i := 0; i < n && i < len(out)*8; i++ {
 			var pos int
-			for tries := 0; tries < 16; tries++ { // 抽到已翻转字节则重抽，保证 n 个不同字节各变一位
+			for tries := 0; tries < 16; tries++ { // 保证 n 个不同字节各变一位
 				pos = rng.Intn(len(out))
 				if !flipped[pos] {
 					break

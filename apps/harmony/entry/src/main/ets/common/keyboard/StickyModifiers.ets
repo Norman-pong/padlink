@@ -1,13 +1,7 @@
-// 粘滞修饰键状态机（PRD §4.4 铁律）：
-// - 点按修饰键（Shift/Ctrl/Alt/Super）→ 点亮保持，可多修饰叠加（如 Ctrl+Shift）；再点按同一键 → 取消；
-// - 任一非修饰键触发（takeSequence）→ 组合序列一次生成并全部自动复位：
-//   修饰 down（固定序 Shift→Ctrl→Alt→Super）→ 主键 down → 主键 up → 修饰 up（逆序）；
-// - 纯修饰点按不产生任何按键序列（toggle 只翻状态）。
-// 取舍（v1 从简）：不实现「双击 Shift 锁定全大写」模式；如需扩展可在 toggle 处加时间窗判定，
-// 锁定态需独立于粘滞态（不被 takeSequence 复位）。
-// 纯逻辑层：禁止 @ohos 依赖、禁止装饰器、不用 TS enum、不持有时间源（无定时器）。
-// 注意：单测 harness 按目录整树加载（tools/etstest/run.mjs keyboard），目录须自包含，
-// 故修饰键 usage 在此定义（与 common/hid/KeyCodes.ets LEFT_* 及 daemon hid_map.go 严格一致）。
+// 粘滞修饰键状态机：点按点亮（可叠加），任一非修饰键触发时一次生成
+// 修饰 down（固定序 Shift→Ctrl→Alt→Super）→ 主键 down → 主键 up → 修饰 up（逆序）并全部复位。
+// 纯逻辑层：禁止 @ohos 依赖、禁止装饰器、不用 TS enum、不持时间源（无定时器）。
+// 目录须自包含（harness 按整树加载），故修饰键 usage 在此定义，与 KeyCodes.LEFT_* 及 daemon hid_map.go 一致。
 
 // 修饰键标识（取值即固定发送序下标：Shift → Ctrl → Alt → Super）。
 export class StickyMod {
@@ -51,18 +45,18 @@ export class StickyModifiers {
     return false;
   }
 
-  // 点按修饰键：点亮 / 再点取消。返回新状态（供 UI 同步）。只翻本键，不动其他修饰键（叠加靠多次点按）。
+  // 点亮/再点取消；只翻本键（叠加靠多次点按），返回新状态供 UI 同步。
   public toggle(mod: number): boolean {
     this.latched[mod] = !this.latched[mod];
     return this.latched[mod];
   }
 
-  // 全部复位（切页等场景显式调用；纯本机状态，无线上语义）。
+  // 全部复位（切页等场景显式调用）。
   public clear(): void {
     this.latched = [false, false, false, false];
   }
 
-  // 当前点亮修饰键的 usage 列表，按固定发送序（Shift→Ctrl→Alt→Super）。
+  // 点亮修饰键的 usage 列表，按固定发送序。
   public latchedUsages(): number[] {
     const out: number[] = [];
     for (let i = 0; i < MOD_USAGES.length; i++) {
@@ -73,10 +67,8 @@ export class StickyModifiers {
     return out;
   }
 
-  // 非修饰键触发：生成完整组合序列，并自动复位全部粘滞态（PRD：任一非修饰键触发后修饰键全部复位）。
-  // 序列：修饰 down（固定序）→ 主键 down → 主键 up → 修饰 up（逆序）。
-  // extraShift=true 追加一个临时 Shift（符号层键用）：仅本次生效、不占用粘滞态；
-  // Shift 已点亮时不重复加入。
+  // 非修饰键触发：生成完整组合序列并复位全部粘滞态。
+  // extraShift=true 追加临时 Shift（符号层键用）：仅本次生效、不占用粘滞态，已点亮时不重复加入。
   public takeSequence(hid: number, extraShift: boolean = false): KeyStep[] {
     const mods: number[] = [];
     if (extraShift && !this.latched[StickyMod.SHIFT]) {

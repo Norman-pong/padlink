@@ -1,8 +1,5 @@
-// UDP 发现器（FR-0）：广播 HELLO → 收集窗口内全部 DISCOVER_RESP 单播应答。
-// 广播姿势复用 UdpChannel（faqs-network-96：bind 0.0.0.0 → setExtraOptions({broadcast}) → bindSocket 锁 WiFi）。
-// 广播地址按任务口径仅用 255.255.255.255（子网定向广播为可选优化，未做：需网段计算与多地址并发，
-// 收益仅覆盖禁定向转发的 AP 场景，真机联调再评估）。
-// 依据（现查文档）：js-apis-socket（UDPSocket 收发/faqs-network-86 ArrayBuffer）、js-apis-net-connection（UdpChannel 内部）。
+// UDP 发现器：广播 HELLO → 收集窗口内全部 DISCOVER_RESP 单播应答。
+// 广播姿势复用 UdpChannel（bind → setExtraOptions → bindSocket 锁 WiFi，顺序不可换）。
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { UdpChannel, buildHelloPacket } from './Transport';
@@ -14,7 +11,7 @@ import { DiscoveredHost, parseDiscoverRespJson, upsertHost } from './DiscoverCor
 const TAG: string = 'PadLink.Discover';
 const DOMAIN: number = 0x5050;
 
-// 默认发现窗口与广播间隔（窗口内重发 4 次，容忍丢包）。
+// 窗口内重发 4 次，容忍丢包。
 export class DiscoverPolicy {
   public static readonly WINDOW_MS: number = 2500;
   public static readonly BROADCAST_INTERVAL_MS: number = 600;
@@ -23,7 +20,7 @@ export class DiscoverPolicy {
 export class Discoverer {
   private running: Promise<DiscoveredHost[]> | null = null;
 
-  // 单飞：进行中重复调用复用同一在途 Promise。超时返回已收列表（不去重跨轮）。
+  // 单飞：进行中重复调用复用同一在途 Promise；超时返回已收列表。
   public discover(timeoutMs: number = DiscoverPolicy.WINDOW_MS, port: number = 53021): Promise<DiscoveredHost[]> {
     if (this.running !== null) {
       return this.running;

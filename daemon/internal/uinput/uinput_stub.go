@@ -9,7 +9,7 @@ import (
 	"padlink/daemon/internal/inject"
 )
 
-// Device 在无注入后端的平台不可用；仅为保证可编译（darwin 由 uinput_darwin.go 承载）。
+// Device 在无注入后端的平台不可用；仅为保证可编译。
 type Device struct{}
 
 // Open 无后端平台恒返回错误。

@@ -2,7 +2,7 @@
 // 纯逻辑层禁止 @ohos.util.TextDecoder/TextEncoder，故自行实现；
 // 解码为严格校验：拒绝截断、超长编码、代理对码点（U+D800..U+DFFF）、越界码点（> U+10FFFF）。
 
-// 字符串 → UTF-8 字节。孤立代理对按 U+FFFD 编码（与 WHATWG TextEncoder 行为一致）。
+// 字符串 → UTF-8 字节；孤立代理按 U+FFFD 编码（与 WHATWG TextEncoder 一致）。
 export function utf8Encode(text: string): Uint8Array {
   let byteLen = 0;
   let i = 0;
@@ -80,7 +80,6 @@ export function utf8DecodeStrict(bytes: Uint8Array): string | null {
   return parts.join('');
 }
 
-// 从 position 起取一个码点（组合代理对）；孤立代理按 U+FFFD。
 function nextCodePoint(text: string, pos: number): number {
   const u0: number = text.charCodeAt(pos);
   if (u0 >= 0xd800 && u0 <= 0xdbff && pos + 1 < text.length) {
@@ -138,7 +137,7 @@ function writeCodePoint(out: Uint8Array, pos: number, cp: number): number {
   return pos + 4;
 }
 
-// 码点 → JS 字符串（>0xFFFF 时手工拆代理对，不用 fromCodePoint 以保最大兼容）。
+// >0xFFFF 时手工拆代理对（不用 fromCodePoint 以保最大兼容）。
 function fromCodePoint(cp: number): string {
   if (cp < 0x10000) {
     return String.fromCharCode(cp);

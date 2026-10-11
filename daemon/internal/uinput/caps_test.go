@@ -60,7 +60,6 @@ func TestRelBits(t *testing.T) {
 
 func TestKeyBits(t *testing.T) {
 	bits := KeyBits()
-	// 必须含鼠标三键
 	for _, code := range []uint16{inject.BtnLeft, inject.BtnRight, inject.BtnMiddle} {
 		if !slices.Contains(bits, code) {
 			t.Errorf("KeyBits 缺少鼠标按钮 %d", code)
@@ -72,7 +71,6 @@ func TestKeyBits(t *testing.T) {
 			t.Errorf("KeyBits 缺少 KEY_%d（HIDToKey 映射值）", key)
 		}
 	}
-	// 升序且无重复
 	if !slices.IsSorted(bits) {
 		t.Errorf("KeyBits 未排序: %v", bits)
 	}
@@ -80,7 +78,7 @@ func TestKeyBits(t *testing.T) {
 	if len(dedup) != len(bits) {
 		t.Errorf("KeyBits 存在重复: %v", bits)
 	}
-	// PROBE-LINUX §5 evtest 期望的关键键位（REL 位归 RelBits 校验）
+	// 关键键位抽查（REL 位归 RelBits 校验）
 	for _, tc := range []struct {
 		code uint16
 		name string

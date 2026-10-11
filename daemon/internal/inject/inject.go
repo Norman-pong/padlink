@@ -20,7 +20,7 @@ const (
 	BtnMiddle uint16 = 274 // 0x112
 )
 
-// key repeat 参数（PRD §4.4：长按连发由 daemon 侧处理，与真实键盘一致）。
+// key repeat 参数：长按连发由 daemon 侧处理，与真实键盘一致。
 const (
 	DefaultRepeatDelay    = 250 * time.Millisecond
 	DefaultRepeatInterval = 33 * time.Millisecond
@@ -34,8 +34,7 @@ type DeviceWriter interface {
 	Sync() error
 	Close() error
 	// SetPointerState 更新注入端指针状态（多击序号 + 按住的按钮位），在按钮事件与位移帧前调用。
-	// darwin 后端据此写 kCGMouseEventClickState 并选择 mouseDragged 事件类型；
-	// Linux uinput 后端为空实现（多击与拖拽由内核时间戳/合成器自行判定，见 click.go）。
+	// darwin 后端据此写 kCGMouseEventClickState 并选择 mouseDragged 事件类型；Linux uinput 为空实现。
 	SetPointerState(st PointerState)
 }
 
@@ -49,11 +48,9 @@ type Config struct {
 	DoubleClickInterval time.Duration
 	// DoubleClickDistance 多击合成的最大指针位移（计数，默认 8，仅 darwin 消费）。
 	DoubleClickDistance int32
-	// CapsLockActive 报告主机大写锁定当前是否生效；nil 或恒 false 表示无需补偿。
-	// 手机端的 Shift 表达的是"这个字母要大写"，而主机 CapsLock 会在注入侧再反转一次
-	// （实测 Linux uinput 注入同样受影响：开锁后手机打小写、主机出大写），
-	// 因此字母键需按 XOR 语义改写 Shift，保证"手机显示什么、主机就打什么"。
-	// macOS 传恒 false：合成 CGEvent 带显式 flags，实测开锁后注入 a/b/c 仍得 abc。
+	// CapsLockActive 报告主机大写锁定是否生效；nil 或恒 false 表示无需补偿。
+	// 手机端 Shift 表达的是"这个字母要大写"，主机大写锁会在注入侧再反转一次，
+	// 故字母键按「手机意图 XOR 主机大写锁」改写 Shift。macOS 传恒 false（合成 CGEvent 带显式 flags）。
 	CapsLockActive func() bool
 }
 
@@ -100,10 +97,8 @@ func (in *Injector) Move(dx, dy int16) error {
 	return in.w.Sync()
 }
 
-// Scroll 写 REL_WHEEL_HI_RES（单位 = 1/120 格），并在同一 SYN 帧内按
-// 内核惯例补发 legacy REL_WHEEL = dyHiRes/120（向零取整，不跨帧累积）。
-// GNOME/mutter 只消费 HI_RES 路径，legacy 仅为非 GNOME 环境防御。
-// dyHiRes == 0 不发任何事件。
+// Scroll 写 REL_WHEEL_HI_RES（单位 = 1/120 格），并在同一 SYN 帧内按内核惯例补发
+// legacy REL_WHEEL = dyHiRes/120（向零取整，不跨帧累积）；GNOME/mutter 只消费 HI_RES 路径。
 func (in *Injector) Scroll(dyHiRes int32) error {
 	if dyHiRes == 0 {
 		return nil
@@ -119,8 +114,8 @@ func (in *Injector) Scroll(dyHiRes int32) error {
 	return in.w.Sync()
 }
 
-// Button 注入鼠标按钮事件（btn 1=左 2=中 3=右），非法 btn 丢弃并报错。
-// 按下/抬起前先合成多击序号并交给后端（darwin 写 kCGMouseEventClickState）。
+// Button 注入鼠标按钮事件（btn 1=左 2=中 3=右），非法 btn 丢弃并报错；按下/抬起前先合成
+// 多击序号交给后端（darwin 写 kCGMouseEventClickState）。
 func (in *Injector) Button(btn uint8, down bool) error {
 	code, ok := buttonCode(btn)
 	if !ok {
@@ -137,9 +132,8 @@ func (in *Injector) Button(btn uint8, down bool) error {
 	return in.w.Sync()
 }
 
-// Key 注入键盘事件（HID usage → Linux KEY_*），down 时启动连发，
-// 收到同键 up 或 Close 停止。未知 usage 丢弃并报错。
-// 字母键在主机 CapsLock 生效时按 XOR 语义改写 Shift（见 keyWithCaps）。
+// Key 注入键盘事件（HID usage → Linux KEY_*），down 时启动连发、同键 up 或 Close 停止；
+// 未知 usage 丢弃并报错。字母键在主机 CapsLock 生效时按 XOR 语义改写 Shift（见 keyWithCaps）。
 func (in *Injector) Key(hidUsage uint16, down bool) error {
 	code, ok := HIDToKey[hidUsage]
 	if !ok {
@@ -157,7 +151,6 @@ func (in *Injector) Key(hidUsage uint16, down bool) error {
 	return in.keyRaw(code, down)
 }
 
-// keyRaw 是原始投递路径：down 时启动连发，up 时停止。
 func (in *Injector) keyRaw(code uint16, down bool) error {
 	if !down {
 		in.stopRepeat(code)
@@ -171,9 +164,8 @@ func (in *Injector) keyRaw(code uint16, down bool) error {
 	return nil
 }
 
-// keyWithCaps 按 CapsLock 补偿语义投递字母键：
-// 需要大写而手机没按 Shift 时临时按下 Shift；需要小写而手机按着 Shift 时临时松开，
-// 字母抬起后恢复手机的原状态。wantUpper 已由 capsAdjust 按 XOR 算好。
+// keyWithCaps 按 CapsLock 补偿语义投递字母键：需要大写而手机没按 Shift 时临时按下 Shift，
+// 需要小写而手机按着 Shift 时临时松开，字母抬起后恢复原状态。
 func (in *Injector) keyWithCaps(code uint16, down, wantUpper bool) error {
 	shiftCode, ok := HIDToKey[HIDLeftShift]
 	if !ok {
@@ -229,8 +221,7 @@ func (in *Injector) keyWithCaps(code uint16, down, wantUpper bool) error {
 	return nil
 }
 
-// capsAdjust 给出字母键应达到的大写状态（XOR：手机意图 ⊕ 主机大写锁）。
-// need=false 表示本平台不需要补偿。
+// capsAdjust 给出字母键应达到的大写状态（XOR：手机意图 ⊕ 主机大写锁）；need=false 表示无需补偿。
 func (in *Injector) capsAdjust() (wantUpper, need bool) {
 	if in.cfg.CapsLockActive == nil || !in.cfg.CapsLockActive() {
 		return false, false
@@ -252,8 +243,7 @@ func isLetterHID(hid uint16) bool { return hid >= 0x04 && hid <= 0x1D }
 
 func isShiftHID(hid uint16) bool { return hid == HIDLeftShift || hid == HIDRightShift }
 
-// PressCombo 依次按下 mods、点击 key、逆序抬起 mods（每步 Sync）。
-// 组合键走原始按键路径，不触发 key repeat。
+// PressCombo 依次按下 mods、点击 key、逆序抬起 mods（每步 Sync）；组合键不触发 key repeat。
 func (in *Injector) PressCombo(mods []uint16, key uint16) error {
 	codes := make([]uint16, 0, len(mods)+1)
 	for _, hid := range mods {

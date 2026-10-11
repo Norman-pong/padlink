@@ -8,16 +8,14 @@ import { CommitPlan } from './CommitPlan';
 
 @ObservedV2
 export class KeyboardModel {
-  // 粘滞修饰点亮快照（UI 只读，本类写入）。
   @Trace shiftLatched: boolean = false;
   @Trace ctrlLatched: boolean = false;
   @Trace altLatched: boolean = false;
   @Trace superLatched: boolean = false;
-  // IME 可见性（KeyboardPage 的 TextArea onEditChange 写入）：主控页据此把停靠簇底边距
-  // 收成 0 让键条贴齐 IME 顶——RESIZE 避让下窗口底边即 IME 顶边，手势条避让成死空隙。
+  // IME 可见性单源（KeyboardPage 的 TextArea onEditChange 写入）：主控页据此把停靠簇底边距收成 0
+  // 让键条贴齐 IME 顶（RESIZE 避让下窗口底边即 IME 顶边）。
   @Trace imeVisible: boolean = false;
 
-  // 区域生命周期回调（页面注册：唤起/收起输入法）。
   public onZoneEnter: (() => void) | null = null;
   public onZoneLeave: (() => void) | null = null;
   // zoneEnter 可能早于停靠层挂载（回调尚为 null），页面 onDidBuild 据此补偿进区。
@@ -86,7 +84,6 @@ export class KeyboardModel {
     this.superLatched = false;
   }
 
-  // ---- 区域生命周期 ----
 
   public zoneEnter(): void {
     this.zoneActive = true;
@@ -103,9 +100,8 @@ export class KeyboardModel {
     }
   }
 
-  // ---- 系统输入法提交流 ----
 
-  // 提交增量入口（页面 onChange 且 previewText 为空时调，组合态由页面过滤）。
+  // 提交增量入口（页面 onChange 且 previewText 为空时调；组合态由页面过滤）。
   public commitText(oldText: string, newTextValue: string): void {
     const d = CommitPlan.diff(oldText, newTextValue);
     for (let i = 0; i < d.deletes; i++) {
@@ -144,7 +140,7 @@ export class KeyboardModel {
     this.endKey(usage);
   }
 
-  // TEXT payload 上限 1400B（协议 §4.5），按码点分块不劈 UTF-8。
+  // TEXT payload 上限 1400B，按码点分块不劈 UTF-8。
   private sendTextRun(text: string): void {
     const MAX_B: number = 1400;
     const chars: string[] = Array.from(text);
@@ -183,7 +179,7 @@ export class KeyboardModel {
     this.superLatched = false;
   }
 
-  // sendReliable 断连期间静默丢弃/内部计数，Promise 已自捕获。
+  // sendReliable 断连期间静默丢弃并计数，Promise 已自捕获。
   private send(hid: number, down: boolean): void {
     if (this.transport !== null) {
       this.transport.sendReliable(newKey(this.transport.nextSeq(), hid, down));

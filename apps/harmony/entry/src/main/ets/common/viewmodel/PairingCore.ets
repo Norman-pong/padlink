@@ -1,10 +1,8 @@
-// 配对流程纯逻辑（无 @ohos 依赖、目录内自闭合，tools/etstest 可跑）：
-// PAIR_NAK reason→文案资源键映射、确认码校验、PAIR_REQ payload 构造、设备名 64B 截断。
-// 文案本体按 lore 约束存 string.json（中英双份），本层只产出稳定资源键（$r 需字面量，页面用
-// getStringByNameSync 取键）。协议依据：daemon README「协议 v1 约定」+ internal/pairing（CodeLen=4、
-// MaxNameLen=64 字节、Nak reason 0..4）。
+// 配对流程纯逻辑（无 @ohos 依赖、目录内自闭合，node 可直跑）：PAIR_NAK reason→资源键映射、
+// 确认码校验、PAIR_REQ payload 构造、设备名 64B 截断；文案本体存 string.json，本层只产出资源键。
+// 与 daemon internal/pairing 同源：CodeLen=4、MaxNameLen=64 字节、Nak reason 0..4。
 
-// PAIR_NAK reason 枚举（daemon/session/server.go Nak* 一一对应）。
+// PAIR_NAK reason 枚举（与 daemon Nak* 一一对应）。
 export class PairNak {
   public static readonly WRONG_CODE: number = 0;
   public static readonly EXPIRED: number = 1;
@@ -13,16 +11,15 @@ export class PairNak {
   public static readonly FULL: number = 4;
 }
 
-// 配对常量。
 export class PairPolicy {
   public static readonly CODE_LEN: number = 4;
   public static readonly TOKEN_LEN: number = 32;
   public static readonly NAME_MAX_BYTES: number = 64;
-  // 设备指纹：16 字节随机值的 hex（daemon pairing.MaxDevIDLen 一致）
+  // 设备指纹：16 字节随机值的 hex（daemon MaxDevIDLen 一致）
   public static readonly DEVICE_ID_HEX_LEN: number = 32;
 }
 
-// reason → 文案资源键（string.json；未知值兜底通用失败文案）。
+// reason → 文案资源键；未知值兜底通用失败文案。
 export function nakReasonKey(reason: number): string {
   if (reason === PairNak.WRONG_CODE) {
     return 'pair_nak_wrong_code';
@@ -42,7 +39,7 @@ export function nakReasonKey(reason: number): string {
   return 'pair_nak_unknown';
 }
 
-// 确认码校验：恰为 4 个 ASCII 数字（对齐 daemon isDigits + CodeLen）。
+// 恰为 4 个 ASCII 数字（对齐 daemon isDigits + CodeLen）。
 export function validatePairCode(code: string): boolean {
   if (code.length !== PairPolicy.CODE_LEN) {
     return false;
@@ -56,7 +53,7 @@ export function validatePairCode(code: string): boolean {
   return true;
 }
 
-// PAIR_NAK payload（1B reason）→ 数值；形态非法返回 -1（按未知原因兜底）。
+// 1B reason → 数值；形态非法返回 -1（按未知原因兜底）。
 export function parsePairNakReason(payload: ArrayBuffer): number {
   if (payload.byteLength !== 1) {
     return -1;
@@ -64,7 +61,7 @@ export function parsePairNakReason(payload: ArrayBuffer): number {
   return new Uint8Array(payload)[0];
 }
 
-// PAIR_OK payload → token 字节副本（32B）；形态非法返回 null。
+// payload → token 字节副本（32B）；形态非法返回 null。
 export function pairOkToken(payload: ArrayBuffer): Uint8Array | null {
   if (payload.byteLength !== PairPolicy.TOKEN_LEN) {
     return null;
@@ -75,8 +72,8 @@ export function pairOkToken(payload: ArrayBuffer): Uint8Array | null {
 }
 
 // 发起配对 PAIR_REQ payload（JSON 文本，调用方 UTF-8 编码后发送）。
-// daemon 侧校验：len(name) > 64 字节 或 dev 非法 → ERR(2)+关，故发送前必须截断/校验。
-// dev 为空串或不合法时不下发该字段（daemon 按新设备处理，对旧版双向兼容）。
+// daemon 校验 len(name) > 64B 或 dev 非法即 ERR(2)+关，故发送前必须截断/校验。
+// dev 不合法时不下发该字段（daemon 按新设备处理，旧版手机兼容）。
 export function buildPairReqInitJson(name: string, devId: string = ''): string {
   const clean: string = sanitizeDeviceName(name);
   if (!isDeviceId(devId)) {
@@ -85,7 +82,7 @@ export function buildPairReqInitJson(name: string, devId: string = ''): string {
   return `{"name":"${jsonEscape(clean)}","dev":"${devId}"}`;
 }
 
-// 设备指纹校验：恰为 32 个小写 hex 字符（daemon pairing.ValidDevID 同口径）。
+// 恰为 32 个小写 hex 字符（daemon ValidDevID 同口径）。
 export function isDeviceId(s: string): boolean {
   if (s.length !== PairPolicy.DEVICE_ID_HEX_LEN) {
     return false;
@@ -99,8 +96,7 @@ export function isDeviceId(s: string): boolean {
   return true;
 }
 
-// UUID 字符串（util.generateRandomUUID，RFC 4122 v4，含连字符）→ 设备指纹 hex。
-// 非 UUID 形态返回 ''（调用方按无指纹处理，不阻断配对）。
+// UUID 字符串（含连字符）→ 设备指纹 hex；非 UUID 形态返回 ''（按无指纹处理，不阻断配对）。
 export function uuidToDeviceId(uuid: string): string {
   const hex: string = uuid.replace(/-/g, '').toLowerCase();
   return isDeviceId(hex) ? hex : '';
@@ -118,8 +114,8 @@ export function buildPairReqCodeBytes(code: string): Uint8Array | null {
   return out;
 }
 
-// 设备名清洗：去首尾空白 + 按 UTF-8 字节数截断（不劈开多字节码点；孤立代理按 3B 计，
-// 与 Utf8.encode 按 U+FFFD 编码的体积一致）。maxBytes ≤ 0 时返回空串。
+// 去首尾空白 + 按 UTF-8 字节数截断，不劈开多字节码点。
+// 孤立代理按 3B 计（与 Utf8.encode 按 U+FFFD 编码的体积一致）；maxBytes ≤ 0 返回空串。
 export function sanitizeDeviceName(raw: string, maxBytes: number = PairPolicy.NAME_MAX_BYTES): string {
   const s: string = raw.trim();
   if (maxBytes <= 0 || utf8ByteLen(s) <= maxBytes) {
@@ -139,7 +135,7 @@ export function sanitizeDeviceName(raw: string, maxBytes: number = PairPolicy.NA
   return s.slice(0, end);
 }
 
-// ---- 内部：UTF-8 字节体积估算（与 common/proto/Utf8 编码规则一致） ----
+// UTF-8 字节体积估算（与 common/proto/Utf8 编码规则一致）。
 
 function utf8ByteLen(s: string): number {
   let total = 0;
@@ -152,7 +148,6 @@ function utf8ByteLen(s: string): number {
   return total;
 }
 
-// 单个码点的 UTF-8 字节数；孤立代理按 U+FFFD 的 3 字节计。
 function utf8BytesOfUnit(u: number, next: number): number {
   if (u >= 0xd800 && u <= 0xdbff) {
     return next >= 0xdc00 && next <= 0xdfff ? 4 : 3;
@@ -169,7 +164,6 @@ function utf8BytesOfUnit(u: number, next: number): number {
   return 3;
 }
 
-// 码点占用字符串单元数（代理对为 2，其余 1）。
 function surrogateUnits(u: number, next: number): number {
   return u >= 0xd800 && u <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 2 : 1;
 }

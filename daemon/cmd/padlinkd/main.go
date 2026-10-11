@@ -1,7 +1,5 @@
-// padlinkd 是 PadLink 守护进程入口。
-// --test：注入链路自测（PRD §7.3 / PROBE-LINUX §4）；
-// 常驻模式：hostinfo 自检 → uinput → token 存储 → 网络（pairing/session/discovery）→ 控制通道，
-// SIGINT/SIGTERM 优雅退出（关全部会话、控制 socket、恢复按键）。
+// padlinkd 是 PadLink 守护进程入口：常驻模式起注入后端、配对存储、网络与控制通道，
+// --test 只跑合成注入自测（无手机）。
 package main
 
 import (
@@ -27,7 +25,7 @@ import (
 	"padlink/daemon/internal/uinput"
 )
 
-// daemonVersion 由发布流程以 ldflags -X 注入（goreleaser）；本地开发构建回落 0.1.0-dev。
+// daemonVersion 由发布流程以 ldflags -X 注入（goreleaser）；本地构建回落 0.1.0-dev。
 var daemonVersion = "0.1.0-dev"
 
 func main() {
@@ -82,13 +80,10 @@ type config struct {
 	restoreDelay time.Duration
 }
 
-// run 常驻模式主流程；返回错误即启动失败（fatal）。
 func run(cfg config) error {
 	logf := log.New(os.Stdout, "padlinkd ", log.LstdFlags)
 
-	// ① 主机环境自检（警告不阻断）；hostinfo 检查项仅对 Linux 有意义
-	// （macOS 指针加速由 darwin 注入后端的绝对定位语义绕开，docs/PLAN-MACOS.md §2.2）。
-	// 非 Linux 平台 rep 保持零值（AccelProfile 空 = 未检测到，控制通道语义不变）。
+	// 主机自检仅 Linux 有意义：非 Linux 保持 rep 零值（AccelProfile 空 = 未检测到）。
 	var rep hostinfo.Report
 	if runtime.GOOS == "linux" {
 		rep = hostinfo.Check(hostinfo.Options{})
@@ -97,19 +92,16 @@ func run(cfg config) error {
 		}
 	}
 
-	// ② 注入后端（uinput.Open 失败即 fatal，错误文案含处置指引）
 	dev, err := uinput.Open()
 	if err != nil {
 		return err
 	}
-	// 多击间隔取平台系统设置（macOS NSEvent.doubleClickInterval；Linux 恒 0 回落默认值）：
-	// darwin 注入必须显式写 CGEvent 点击序号，阈值不一致会导致系统设置下的双击不生效。
+	// 多击间隔必须取平台系统设置：darwin 注入要显式写 CGEvent 点击序号，阈值不一致会让双击失效。
 	inj := inject.NewInjector(dev, inject.Config{
 		DoubleClickInterval: uinput.DoubleClickInterval(),
 		CapsLockActive:      uinput.CapsLockActive,
 	})
 
-	// ③ token 存储
 	storePath, err := storePath(cfg.stateDir)
 	if err != nil {
 		inj.Close()
@@ -124,10 +116,9 @@ func run(cfg config) error {
 		logf.Printf("警告[token] %s", w)
 	}
 	mgr := pairing.NewManager(store)
-	mgr.Log = logf.Printf // 同设备指纹轮换等关键判定需可诊断
+	mgr.Log = logf.Printf
 
-	// ④ 网络（会话/配对/发现）与文本注入
-	// 粘贴组合键按平台选：Linux Ctrl+V，macOS Cmd+V（inject 接口不动）。
+	// 粘贴组合键按平台选：Linux Ctrl+V，macOS Cmd+V。
 	pasteKey := inj.CtrlV
 	if runtime.GOOS == "darwin" {
 		pasteKey = inj.SuperV
@@ -143,7 +134,7 @@ func run(cfg config) error {
 		return err
 	}
 
-	// ⑤ 控制通道（无 XDG_RUNTIME_DIR 时禁用并告警，不阻断）
+	// 控制通道：无 XDG_RUNTIME_DIR 时禁用并告警，不阻断启动。
 	ctl, err := control.Start(&ctlBackend{
 		start: time.Now(),
 		store: store,
@@ -161,7 +152,6 @@ func run(cfg config) error {
 	logf.Printf("padlinkd %s 已启动（端口 %d，已配对客户端 %d，文本注入 %s）",
 		daemonVersion, srv.Port(), store.Count(), onOff(ti.Available()))
 
-	// ⑥ SIGINT/SIGTERM 优雅退出
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
@@ -169,7 +159,7 @@ func run(cfg config) error {
 	if ctl != nil {
 		ctl.Stop()
 	}
-	srv.Stop() // 会话收尾兜底补发未释放按键，排空注入队列
+	srv.Stop() // 先收会话：兜底补发未释放按键，排空注入队列
 	inj.Close()
 	logf.Printf("已退出")
 	return nil
@@ -189,19 +179,15 @@ func onOff(b bool) string {
 	return "降级"
 }
 
-// runTest 执行 PROBE-LINUX §4 的合成注入序列。
-// ensureUTF8Locale 保证本进程及其子进程使用 UTF-8 locale（仅 macOS 需要）。
-// 实测：launchd 启动的 daemon 环境里没有任何 locale，此时 pbcopy 无法表示 CJK 字节，
-// 会把中文写成**空内容**——表现为手机注入中文/语音「发送成功但不上屏」，而且备份
-// 非 ASCII 剪贴板会读成空、还原时再写回空（等于清空用户剪贴板）。Linux 侧的
-// wl-clipboard 是 UTF-8 原生、不依赖 locale，故不做处理。
+// ensureUTF8Locale 保证本进程及子进程拿到 UTF-8 locale（仅 macOS）：launchd 环境无 locale 时
+// pbcopy 写 CJK 会得到空内容，备份/还原非 ASCII 剪贴板等于清空用户剪贴板；wl-clipboard 不受影响。
 func ensureUTF8Locale() {
 	if runtime.GOOS != "darwin" {
 		return
 	}
 	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
 		if v := strings.ToUpper(os.Getenv(k)); strings.Contains(v, "UTF-8") || strings.Contains(v, "UTF8") {
-			return // 已有 UTF-8 locale，尊重用户环境
+			return // 已有 UTF-8 locale，不得覆盖
 		}
 	}
 	_ = os.Setenv("LC_CTYPE", "UTF-8")
@@ -210,10 +196,8 @@ func ensureUTF8Locale() {
 	}
 }
 
-// defaultRestoreDelayMs 返回文本注入后还原剪贴板的默认延迟（毫秒）。
-// 必须够长到目标应用读完粘贴板：macOS 实测 300ms 时应用还没取走内容就被还原，
-// 表现为「中文/语音注入看起来成功但不上屏」，400–500ms 起可用，取 800ms 给
-// 非原生应用留余量（Linux 300ms 实测够用，保持不动）。
+// defaultRestoreDelayMs 返回还原剪贴板的默认延迟：必须够目标应用读完粘贴板，
+// macOS 800ms / Linux 300ms，改小前须真机复测。
 func defaultRestoreDelayMs() int {
 	if runtime.GOOS == "darwin" {
 		return 800
@@ -260,11 +244,11 @@ func runTest(w inject.DeviceWriter, verbose bool) error {
 	return nil
 }
 
-// drawCircles 以圆周相邻点求每段位移，保证各圆按整数计数精确闭合回起点。
+// drawCircles 以相邻点求每段位移，保证每圆位移代数和为零（精确闭合）。
 func drawCircles(inj *inject.Injector, circles, radius, segments int) error {
 	fmt.Printf("drawing %d circles (r=%dpx, %d segments each)…\n", circles, radius, segments)
 	for c := 0; c < circles; c++ {
-		prevX, prevY := float64(radius), 0.0 // 起点即终点：angle 0
+		prevX, prevY := float64(radius), 0.0
 		for i := 1; i <= segments; i++ {
 			a := 2 * math.Pi * float64(i) / float64(segments)
 			x := math.Round(float64(radius) * math.Cos(a))

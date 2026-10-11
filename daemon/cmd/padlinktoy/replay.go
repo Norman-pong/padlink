@@ -12,7 +12,6 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// typeOrder 固定统计打印顺序。
 var typeOrder = []proto.Type{
 	proto.TypeMove, proto.TypeScroll, proto.TypeButton, proto.TypeKey,
 	proto.TypeText, proto.TypeEcho, proto.TypeHello, proto.TypeBye,
@@ -37,7 +36,7 @@ type replayStats struct {
 }
 
 // runReplay 将 .plrec 回放到目标 daemon：TCP 建连 + 未认证 HELLO →
-// 按时间戳节奏发送（通道 0 走 UDP 单播，通道 1 走已封签 TCP）→ 封签 BYE 优雅退出。
+// 按时间戳节奏发送（通道 0 走 UDP 单播，通道 1 走 TCP）→ 封签 BYE 优雅退出。
 func runReplay(o replayOptions) (replayStats, error) {
 	var st replayStats
 	if o.Speed <= 0 {
@@ -137,7 +136,6 @@ func runReplay(o replayOptions) (replayStats, error) {
 	return st, nil
 }
 
-// scaleMs 换算回放目标延时（speed > 1 加速）。
 func scaleMs(relMs uint64, speed float64) time.Duration {
 	return time.Duration(float64(relMs) / speed * float64(time.Millisecond))
 }

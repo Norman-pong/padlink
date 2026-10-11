@@ -1,25 +1,19 @@
-// 已配对主机列表纯逻辑（无 @ohos 依赖、目录内自闭合，tools/etstest 可跑）：
-// 持久化形态为 preferences 单键 JSON（hosts_json：HostInfo[]，上限 4 与 daemon
-// internal/pairing DefaultMaxClients 一致）+ default_ip 两键；本类只管列表操作，
+// 已配对主机列表纯逻辑（无 @ohos 依赖、目录内自闭合，node 可直跑）。
+// 持久化形态：preferences 单键 JSON（hosts_json: HostInfo[]，上限 4 与 daemon DefaultMaxClients 一致）+ default_ip。
 // 存取经构造注入的字符串回调（SettingsModel 注 preferences 适配，单测注内存实现）。
-// 操作：upsert（按 ip+port 去重插入/更新并置默认，满额拒绝）、重命名、删除（删默认
-// 顺延列表首个）、设默认；名称 ≤64B 校验复用 PairingCore.sanitizeDeviceName（同一
-// daemon MaxNameLen 约定）。
+// 名称 ≤64B 校验复用 PairingCore.sanitizeDeviceName（与 daemon MaxNameLen 同源）。
 import { sanitizeDeviceName, PairPolicy } from './PairingCore';
 import { ResError } from '../ResError';
 
-// 主机列表常量。
 export class HostsPolicy {
   // 列表上限（daemon DefaultMaxClients=4）。
   public static readonly LIMIT: number = 4;
-  // preferences 键名。
   public static readonly KEY_HOSTS: string = 'hosts_json';
   public static readonly KEY_DEFAULT: string = 'default_ip';
   // 主机名最大字节数（daemon MaxNameLen）。
   public static readonly NAME_MAX_BYTES: number = PairPolicy.NAME_MAX_BYTES;
 }
 
-// 已配对主机档案（M2 配对流产出；M1 由调试面板手动连接写入）。
 export class HostInfo {
   public name: string = '';
   public ip: string = '';
@@ -27,7 +21,7 @@ export class HostInfo {
   public tokenHex: string = '';
 }
 
-// 列表已满且为新主机时抛出；调用方按 instanceof 给「先在设置中删除」提示。
+// 列表已满且为新主机时抛出；调用方按 instanceof 给「先删除」提示。
 export class HostsFullError extends ResError {
   constructor(limit: number) {
     super('hosts_full_fmt', [String(limit)], `已配对主机已满（上限 ${limit} 台），请先删除`);
@@ -41,8 +35,8 @@ export interface HostsKVStore {
   putString(key: string, value: string): void;
 }
 
-// hosts_json 解析：非法 JSON 按空列表处理；畸形条目（缺 IP/端口越界）跳过；
-// 重复 ip+port 保留首个；超出上限截断（正常写入路径不会超，防御手改/降级数据）。
+// 非法 JSON 按空列表处理；畸形条目（缺 IP/端口越界）跳过；重复 ip+port 保留首个；
+// 超出上限截断（防御手改/降级数据）。
 export function parseHosts(json: string): HostInfo[] {
   const out: HostInfo[] = [];
   if (json.length === 0) {
@@ -74,8 +68,8 @@ export function parseHosts(json: string): HostInfo[] {
   return out;
 }
 
-// 主机名校验：去首尾空白；为空或超 64B（daemon MaxNameLen）返回 ''，否则返回清洗名。
-// ≤64B 判定复用 sanitizeDeviceName：其截断结果与修剪串不一致即说明超限。
+// 去首尾空白；为空或超 64B 返回 ''。
+// ≤64B 判定复用 sanitizeDeviceName：截断结果与修剪串不一致即超限。
 export function validateHostName(raw: string): string {
   const trimmed: string = raw.trim();
   if (trimmed.length === 0) {
@@ -87,7 +81,6 @@ export function validateHostName(raw: string): string {
   return trimmed;
 }
 
-// 单条 JSON 记录 → HostInfo；形态非法返回 null。
 function toHost(item: Object | null): HostInfo | null {
   if (item === null) {
     return null;
@@ -127,8 +120,7 @@ export function hostKeyOf(ip: string, port: number): string {
   return `${ip}:${port}`;
 }
 
-// 在列表中查找主机（ip+port 精确匹配）；未命中返回 null。
-// 发现页「本机已配对」标注与直连路由共用本判据，避免两处各写一套匹配。
+// ip+port 精确匹配；发现页「已配对」标注与直连路由共用本判据。
 export function findHost(hosts: HostInfo[], ip: string, port: number): HostInfo | null {
   for (const h of hosts) {
     if (h.ip === ip && h.port === port) {
@@ -141,7 +133,7 @@ export function findHost(hosts: HostInfo[], ip: string, port: number): HostInfo 
 export class HostsStore {
   private kv: HostsKVStore;
   private hosts: HostInfo[] = [];
-  // 默认主机 IP；未设/已失效时回退列表首个（getDefault 兜底）。
+  // 默认主机 IP；未设/已失效时回退列表首个。
   private defaultIp: string = '';
 
   constructor(kv: HostsKVStore) {
@@ -151,12 +143,10 @@ export class HostsStore {
     this.defaultIp = this.indexOfIp(d) >= 0 ? d : (this.hosts.length > 0 ? this.hosts[0].ip : '');
   }
 
-  // 列表快照（浅拷贝；项内容由本类独占维护，调用方不得改写字段）。
   public listHosts(): HostInfo[] {
     return this.hosts.slice();
   }
 
-  // 默认主机：default_ip 命中则返回；未设/已失效回退列表首个；空列表返回 null。
   public getDefault(): HostInfo | null {
     if (this.hosts.length === 0) {
       return null;
@@ -165,7 +155,7 @@ export class HostsStore {
     return idx >= 0 ? this.hosts[idx] : this.hosts[0];
   }
 
-  // 插入或更新（按 ip+port 去重）并置为默认；新主机且列表已满抛 HostsFullError。
+  // 按 ip+port 去重插入/更新并置默认；新主机且列表已满抛 HostsFullError。
   public upsert(h: HostInfo): void {
     if (h.ip.length === 0) {
       throw new ResError('hosts_ip_empty', [], '主机 IP 不能为空');
@@ -184,7 +174,6 @@ export class HostsStore {
     this.persist();
   }
 
-  // 重命名：目标不存在或名称非法（空/超 64B）返回 false；成功返回 true 并持久化。
   public renameHost(ip: string, port: number, newName: string): boolean {
     const name = validateHostName(newName);
     if (name.length === 0) {
@@ -199,7 +188,7 @@ export class HostsStore {
     return true;
   }
 
-  // 删除：目标不存在返回 false。删除的是默认主机时默认顺延列表首个（无剩余则清空）。
+  // 目标不存在返回 false；删的是默认主机时默认顺延列表首个（无剩余则清空）。
   public removeHost(ip: string, port: number): boolean {
     const idx = this.indexOfAt(ip, port);
     if (idx < 0) {
@@ -214,7 +203,6 @@ export class HostsStore {
     return true;
   }
 
-  // 设为默认：目标不存在返回 false。
   public setDefault(ip: string, port: number): boolean {
     const idx = this.indexOfAt(ip, port);
     if (idx < 0) {

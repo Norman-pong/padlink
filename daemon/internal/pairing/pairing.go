@@ -1,5 +1,5 @@
-// Package pairing 实现配对确认码生命周期（60s/5 次）与客户端 token 的
-// 签发、存储、校验（PRD §4.1）。同一时刻最多一个进行中的配对会话。
+// Package pairing 实现配对确认码生命周期（60s / 5 次）与客户端 token 的签发、存储、校验；
+// 同一时刻最多一个进行中的配对会话。
 package pairing
 
 import (
@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// 配对参数与 token 规格。
 const (
 	CodeLen            = 4
 	TokenLen           = 32
@@ -34,7 +33,6 @@ var (
 	ErrBadDevID        = errors.New("设备指纹格式非法（应为 32 个小写 hex 字符或空）")
 )
 
-// attempt 是一轮进行中的配对会话。
 type attempt struct {
 	code    string
 	name    string
@@ -43,7 +41,7 @@ type attempt struct {
 	fails   int
 }
 
-// Manager 管理配对会话与已配对客户端。经 NewManager 创建，零值不可用。
+// Manager 管理配对会话与已配对客户端；零值不可用。
 type Manager struct {
 	store *Store
 
@@ -51,7 +49,7 @@ type Manager struct {
 	CodeTTL     time.Duration
 	MaxAttempts int
 
-	// Log 可选日志回调（nil 静默）；daemon 装配时注入主 logger。
+	// Log 可选日志回调（nil 静默）。
 	Log func(format string, args ...any)
 
 	notify func(code string)
@@ -60,7 +58,6 @@ type Manager struct {
 	active *attempt
 }
 
-// NewManager 基于 token 存储创建配对管理器；确认码生成后经 notify-send 展示。
 func NewManager(store *Store) *Manager {
 	return &Manager{
 		store:       store,
@@ -70,7 +67,7 @@ func NewManager(store *Store) *Manager {
 	}
 }
 
-// SetNotify 替换确认码展示函数（测试注入用；nil 恢复默认 notify-send）。
+// SetNotify 替换确认码展示函数（测试注入用；nil 恢复默认）。
 func (m *Manager) SetNotify(f func(code string)) {
 	if f == nil {
 		f = NotifyDesktop
@@ -79,8 +76,7 @@ func (m *Manager) SetNotify(f func(code string)) {
 }
 
 // StartPairing 发起一轮配对（无进行中会话时生成新码，否则复用既有码，幂等）。
-// devID 为手机上报的设备指纹（可为空 = 旧版手机未上报；非空时必须是 32 位小写 hex）。
-// 成功后经 notify 展示确认码（notify-send，无桌面环境时静默失败）。
+// devID 为手机上报的设备指纹，空 = 旧版手机未上报（非空时必须是 32 位小写 hex）。
 func (m *Manager) StartPairing(name, devID string) (string, error) {
 	if len(name) > MaxNameLen {
 		return "", ErrNameTooLong
@@ -133,9 +129,8 @@ func ValidDevID(devID string) bool {
 	return true
 }
 
-// Verify 校验确认码；成功即签发并持久化 token（绑定客户端名、设备指纹与时间戳）。
-// 同设备指纹命中既有记录时复用该记录并轮换 token（见 Store.Issue）。
-// 错误码错误次数达上限即作废本轮，需重新发起。
+// Verify 校验确认码；成功即签发并持久化 token（同设备指纹命中时复用既有记录并轮换 token）。
+// 错码达上限即作废本轮，须重新发起。
 func (m *Manager) Verify(code string) (Client, error) {
 	m.mu.Lock()
 	if m.active == nil {
@@ -173,14 +168,14 @@ func (m *Manager) Verify(code string) (Client, error) {
 	return c, nil
 }
 
-// logf 可选日志（未注入时静默）：同设备轮换是"名额没涨"的唯一解释，需可诊断。
+// logf 可选日志（未注入时静默）。
 func (m *Manager) logf(format string, args ...any) {
 	if m.Log != nil {
 		m.Log(format, args...)
 	}
 }
 
-// devShort 指纹前 8 位（日志用，不打印完整指纹）。
+// devShort 返回指纹前 8 位（日志不打印完整指纹）。
 func devShort(devID string) string {
 	if len(devID) > 8 {
 		return devID[:8]
@@ -217,7 +212,7 @@ func (m *Manager) maxAttempts() int {
 	return m.MaxAttempts
 }
 
-// genCode 生成 4 位数字确认码（0000-9999，拒绝采样保证均匀）。
+// genCode 生成 4 位数字确认码（拒绝采样保证均匀）。
 func genCode() (string, error) {
 	for {
 		var b [2]byte

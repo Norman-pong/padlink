@@ -20,7 +20,6 @@ export interface ButtonField {
   down: boolean;
 }
 
-// KEY：USB HID 键盘页 usage。
 export interface KeyField {
   hidUsage: number;
   down: boolean;
@@ -37,7 +36,6 @@ export interface NoticeField {
   arg: number;
 }
 
-// 一次解码后的完整报文。
 export interface Packet {
   type: number;
   flags: number;
@@ -155,7 +153,7 @@ export function newEcho(seq: number, tsMs: number): Packet {
   return pkt;
 }
 
-// NOTICE 报文（daemon → 手机；daemon 侧 Seal 后下发，手机端只收不发）。
+// NOTICE 报文（daemon 侧 Seal 后下发，手机端只收不发）。
 export function newNotice(seq: number, code: number, arg: number): Packet {
   const p = new Uint8Array(2);
   p[0] = code & 0xff;

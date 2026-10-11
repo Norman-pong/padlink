@@ -12,13 +12,12 @@ import (
 )
 
 type recordOptions struct {
-	Out    io.Writer // .plrec 内容（二进制）
+	Out    io.Writer
 	ErrOut io.Writer // 摘要/告警（保证 Out 可安全重定向）
 	Token  []byte    // 非空时帧就地封签（sealed 模式）
 	Spec   synthSpec
 }
 
-// runRecord 生成合成录制并写出；人读摘要走 ErrOut。
 func runRecord(o recordOptions) error {
 	frames, err := synthEvents(o.Spec)
 	if err != nil {
@@ -71,8 +70,7 @@ func recordMain(args []string) error {
 	gapMs := fs.Int("gap-ms", 8, "相邻事件间隔（毫秒）")
 	tokenHex := fs.String("token", "", "封签 token（hex，缺省读 PADLINK_TOKEN；提供则录制 sealed，否则 raw）")
 	fs.Parse(args)
-	// 支持 "--circle 半径 段数" 双值写法：flag 包在首个位置参数处停摆，
-	// 此处把紧随其后的整数摘出并入 --circle 后重新解析剩余 flags。
+	// flag 包在首个位置参数处停摆：把 "--circle 半径 段数" 的第二段摘出并入 --circle 后重解析剩余 flags。
 	rest := fs.Args()
 	if *circle != "" && !strings.ContainsAny(*circle, " \t") && len(rest) > 0 {
 		if _, err := strconv.Atoi(rest[0]); err == nil {
@@ -100,7 +98,7 @@ func recordMain(args []string) error {
 		spec.CircleR, spec.CircleSegs = r, segs
 	}
 	if spec.CircleR == 0 && spec.CircleSegs == 0 && spec.ScrollNotches == 0 && spec.Text == "" && !spec.Buttons {
-		// 未指定任何生成段：默认对齐 padlinkd --test 的合成序列
+		// 无生成段时默认对齐 padlinkd --test 的合成序列
 		spec.CircleR, spec.CircleSegs = 200, 120
 		spec.ScrollNotches = 3
 		spec.Buttons = true

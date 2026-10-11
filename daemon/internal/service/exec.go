@@ -40,9 +40,8 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-// Run 按顺序执行 plan 的步骤。dryRun 为 true 时只打印将执行的命令与将删除的路径，
-// 不产生任何副作用。删除前再次校验路径守卫；步骤失败会如实打印并继续执行剩余步骤，
-// 最终用 errors.Join 汇总返回。
+// Run 按顺序执行 plan 的步骤。dryRun 只打印将执行的命令与将删除的路径，不产生副作用；
+// 删除前再次校验路径守卫；步骤失败如实打印并继续执行剩余步骤，最终用 errors.Join 汇总返回。
 func Run(plan Plan, dryRun bool, out io.Writer) (Result, error) {
 	res := Result{DryRun: dryRun}
 	var errs []error
@@ -89,8 +88,7 @@ func Run(plan Plan, dryRun bool, out io.Writer) (Result, error) {
 	return res, errors.Join(errs...)
 }
 
-// runRemove 删除单个文件或目录：先校验路径守卫，再用 os.Remove 删除
-// （不用 RemoveAll；目录非空等失败如实报错并给出可复制的手动命令）。
+// runRemove 删除单个文件或目录：先校验路径守卫再用 os.Remove（不用 RemoveAll；失败如实报错并给出手动命令）。
 func runRemove(st Step, dryRun bool, out io.Writer, res *Result) error {
 	if err := CheckRemovable(st.Path, st.Guard); err != nil {
 		fmt.Fprintf(out, "拒绝删除: %v\n", err)
@@ -124,8 +122,7 @@ func runRemove(st Step, dryRun bool, out io.Writer, res *Result) error {
 	return nil
 }
 
-// Control 执行 start/stop/restart：探测安装形态、构造并执行计划。
-// 不经控制 socket，padlinkd 未运行时也可用。
+// Control 执行 start/stop/restart：探测安装形态、构造并执行计划；不经控制 socket，padlinkd 未运行也可用。
 func Control(action ControlAction, out io.Writer) error {
 	p := HostProbe()
 	plan, err := BuildControl(p, action)
@@ -225,8 +222,7 @@ func joinCommands(cmds []string) string {
 	}
 }
 
-// DaemonRunning 判断 padlinkd 是否仍在运行：优先连接控制 socket，
-// 失败再退回同名进程检查（socket 目录不可用时也能发现残留进程）。
+// DaemonRunning 判断 padlinkd 是否仍在运行：优先连接控制 socket，失败再退回同名进程检查。
 func DaemonRunning() bool {
 	if path, err := control.SocketPath(); err == nil {
 		if conn, err := net.DialTimeout("unix", path, 300*time.Millisecond); err == nil {

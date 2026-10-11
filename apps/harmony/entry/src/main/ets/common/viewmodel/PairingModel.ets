@@ -1,8 +1,5 @@
-// 配对 ViewModel（FR-0 M2）：发现 → 选择主机 → 无 token 连接 → PAIR_REQ 发起 → 码校验 →
-// PAIR_OK 验签绑定 token → CONNECTED。状态机 Idle/Discovering/ConnectingHost/PairingPending/
-// Verifying/Paired/Failed；PAIR_NAK reason 文案走 PairingCore 资源键 + string.json。
-// 设备名取 @ohos.deviceInfo（js-apis-device-info，API6+）：marketName 优先、productModel 兜底，
-// 发送前经 sanitizeDeviceName 截到 ≤64 字节（daemon MaxNameLen）。
+// 配对 ViewModel：发现 → 选择主机 → 无 token 连接 → PAIR_REQ 发起 → 码校验 → PAIR_OK 验签绑定 token → CONNECTED。
+// 设备名取 @ohos.deviceInfo（marketName 优先、productModel 兜底），发送前经 sanitizeDeviceName 截到 ≤64 字节。
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ConnState } from '../net/ConnectionManager';
@@ -27,24 +24,16 @@ const TAG: string = 'PadLink.Pairing';
 const DOMAIN: number = 0x5050;
 // daemon 单端口约定：发现广播与 TCP/UDP 数据面同端口（PROTOCOL.md §1）。
 export const DEFAULT_PORT: number = 53021;
-// PAIR_OK/PAIR_NAK 应答超时：覆盖 daemon 侧校验与回包（本机局域网 RTT ≪ 1s，取 4s 容忍抖动）。
+// PAIR_OK/PAIR_NAK 应答超时：覆盖 daemon 侧校验与回包。
 const PAIR_REPLY_TIMEOUT_MS: number = 4000;
 
-// 配对流程状态（readonly 常量类，同 ConnState 风格）。
 export class PairPhase {
-  // 空闲/发现结果展示（列表或空态）。
   public static readonly IDLE: number = 0;
-  // 发现中（UDP 广播窗口）。
   public static readonly DISCOVERING: number = 1;
-  // 正在连接选中主机（TCP + 无 token HELLO）。
   public static readonly CONNECTING: number = 2;
-  // 等待用户输入确认码（PAIR_REQ 已发起，daemon 主机侧展示确认码）。
   public static readonly PENDING_CODE: number = 3;
-  // 码已提交，等待 PAIR_OK/PAIR_NAK。
   public static readonly VERIFYING: number = 4;
-  // 配对成功（token 已绑定，短暂停留后回主控页）。
   public static readonly PAIRED: number = 5;
-  // 失败（errorText/errorKey 给原因，可重试）。
   public static readonly FAILED: number = 6;
 }
 
@@ -52,21 +41,15 @@ export class PairPhase {
 @ObservedV2
 export class PairingSnapshot {
   @Trace phase: number = PairPhase.IDLE;
-  // 发现结果（整体重赋值触发刷新，项内容不可变）。
   @Trace hosts: DiscoveredHost[] = [];
-  // 本机已配对主机的 "ip:port" 集合（发现页据此标注「已配对」并走 token 直连）。
+  // 已配对主机的 "ip:port" 集合（发现页据此标注「已配对」并走 token 直连）。
   @Trace knownHostKeys: string[] = [];
-  // 选中主机展示名（name 为空时用 ip）。
   @Trace hostLabel: string = '';
-  // 快速连接入口标签（''=无 lastHost 档案）。
   @Trace quickLabel: string = '';
-  // 动态错误文案（连接/发现/回包异常等运行时原因）。
   @Trace errorText: string = '';
-  // 静态错误文案资源键（PAIR_NAK 映射；页面 getStringByNameSync 取）。
+  // 静态错误文案资源键（页面 getStringByNameSync 取）。
   @Trace errorKey: string = '';
-  // errorKey 的格式化参数（%1$s 按序替换；无参时为空数组）。
   @Trace errorParams: string[] = [];
-  // 补充提示资源键（如快连失败时的自动重连引导；''= 无）。
   @Trace errorHintKey: string = '';
   // 确认码输入镜像（4 格回显 + 输满自动提交）。
   @Trace code: string = '';
@@ -74,9 +57,9 @@ export class PairingSnapshot {
 
 export class PairingModel {
   public readonly snapshot: PairingSnapshot = new PairingSnapshot();
-  // 配对/快连成功回调（页面借此短暂停留后返回主控页；PairingModel 非 @ObservedV2，不用 @Monitor 深路径）。
+  // 配对/快连成功回调（页面借此短暂停留后返回主控页）。
   public onPaired: (() => void) | null = null;
-  // 配对成功但档案保存被拒（本机列表满 4 台）回调：页面 toast 提示先删除；连接本身不受影响。
+  // 配对成功但档案保存被拒（列表满 4 台）回调：页面 toast 提示先删除。
   public onHostsFull: (() => void) | null = null;
 
   private conn: ConnectionManager;
@@ -95,9 +78,8 @@ export class PairingModel {
     };
   }
 
-  // ---- 页面生命周期 ----
 
-  // 进入发现页：刷新快速连接入口；空闲态自动发起一次发现。
+  // 进入发现页：刷新快连入口；空闲态自动发起一次发现。
   public onPageEnter(): void {
     this.refreshQuickLabel();
     this.refreshKnownHosts();
@@ -111,7 +93,7 @@ export class PairingModel {
     }
   }
 
-  // 离开发现页：配对进行中则取消会话（PAIRED/已完成连接不回收，回主控页即用）。
+  // 离开发现页：配对进行中则取消会话（PAIRED/已完成连接不回收）。
   public onPageLeave(): void {
     const p: number = this.snapshot.phase;
     if (p === PairPhase.DISCOVERING || p === PairPhase.CONNECTING
@@ -120,7 +102,6 @@ export class PairingModel {
     }
   }
 
-  // ---- 流程方法 ----
 
   // UDP 广播发现（窗口内收集全部应答，按 IP 去重）。
   // conn 浮层态只在断开态下挂 DISCOVERING，回收只认自写的态——不踩踏活动会话。
@@ -151,8 +132,7 @@ export class PairingModel {
     }
   }
 
-  // 选中主机：本机已配对（同一 ip+port 有 token）→ 直接用 token 连接（不再消耗电脑端配对名额）；
-  // token 失效（电脑重装/解绑）→ 落回配对流程自愈；否则走配对。
+  // 选中主机：已配对（同一 ip+port 有 token）→ token 直连（不消耗电脑端名额）；token 失效 → 回落配对自愈。
   public async selectHost(host: DiscoveredHost): Promise<void> {
     this.resetError();
     this.selected = host;
@@ -164,7 +144,6 @@ export class PairingModel {
       if (await this.connectKnown(known)) {
         return;
       }
-      // 档案失效：清掉错误提示，改走配对（PRD §4.1「token 失效走重新配对」）
       hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对');
       this.resetError();
       this.snapshot.phase = PairPhase.CONNECTING;
@@ -180,10 +159,8 @@ export class PairingModel {
     await this.startPairing();
   }
 
-  // 连接一台「已配对」主机（发现页选中、主机列表切换、快速连接三条路径共用）。
-  // 成功后把该主机写成默认主机：AutoConnect 与快速连接都按默认重连，
-  // 否则用户切到另一台后会被自动重连拽回上一台（一对多切换失效的根因）。
-  // 返回 true 表示已进入 CONNECTED；false 表示凭据不可用或连接失败（错误已写入快照）。
+  // 连接一台「已配对」主机（发现页选中、主机列表切换、快速连接三路共用）；成功后写成默认主机。
+  // 返回 false = 凭据不可用或连接失败（错误已写入快照）。
   public async connectKnown(h: HostInfo): Promise<boolean> {
     hilog.info(DOMAIN, TAG, 'connectKnown → %{public}s:%{public}d', h.ip, h.port);
     const token = hexToBytes(h.tokenHex);
@@ -208,24 +185,21 @@ export class PairingModel {
     return true;
   }
 
-  // 当前已连接主机 IP（未连接为空串）：发现页据此把对应行标注为「使用中」。
+  // 当前已连接主机 IP（未连接为空串）：发现页据此标注「使用中」。
   public currentHostIp(): string {
     return this.conn.getHost();
   }
 
-  // 把主机记为默认：写失败不影响本会话（连接已建立），仅记日志便于排查。
   private async markActiveHost(h: HostInfo): Promise<void> {
     try {
       await this.settings.saveLastHost(h);
-      // 切换主机是低频但关键的状态变更：留一条可见日志，便于确认"默认主机已跟随"。
       hilog.info(DOMAIN, TAG, 'active host saved: %{public}s', h.ip);
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'markActiveHost saveLastHost fail: %{public}s', (err as Error).message);
     }
   }
 
-  // 发起（或重新发起）配对：PAIR_REQ JSON（成功无回包，确认码在主机屏幕展示）。
-  // 带设备指纹：电脑端据此区分同一台手机重配（复用记录只轮换 token）与新手机。
+  // 发起（或重新发起）配对：PAIR_REQ JSON 带设备指纹（电脑端据此区分重配与新手机）；成功无回包。
   public async startPairing(): Promise<void> {
     if (this.selected === null || this.snapshot.phase === PairPhase.PENDING_CODE) {
       return;
@@ -242,11 +216,10 @@ export class PairingModel {
     const json: string = buildPairReqInitJson(this.deviceName(), devId);
     const bytes: Uint8Array = utf8Encode(json);
     const pkt: Packet = newRaw(PacketType.PAIR_REQ, this.conn.transport.nextSeq(), bytes.buffer as ArrayBuffer);
-    // 发送失败不上抛（sendUnsealed 同 sendReliable 口径）；会话已死时由提交码的超时/NAK 路径自愈
+    // 发送失败不上抛（同 sendReliable 口径）；会话已死时由提交码的超时/NAK 路径自愈
     await this.conn.transport.sendUnsealed(pkt);
   }
 
-  // 重新发起按钮：会话可能已死（daemon 重启/断连），直接重建连接再发起，幂等自愈。
   public restartPairing(): void {
     if (this.selected === null) {
       return;
@@ -256,12 +229,11 @@ export class PairingModel {
     this.selectHost(host);
   }
 
-  // 确认码输入镜像（页面 TextInput onChange 调用；inputFilter 已限数字）。
   public setCode(code: string): void {
     this.snapshot.code = code;
   }
 
-  // 提交确认码：PAIR_REQ 4B ASCII → PAIR_OK（新 token 封签，verifyHmac 自证）/ PAIR_NAK（文案可重输）。
+  // 提交确认码：PAIR_REQ 4B ASCII → PAIR_OK（新 token 封签，verifyHmac 自证）/ PAIR_NAK（可重输）。
   public async submitCode(code: string): Promise<void> {
     if (this.snapshot.phase === PairPhase.VERIFYING) {
       return;
@@ -303,7 +275,6 @@ export class PairingModel {
     this.finishPairing(reply);
   }
 
-  // 失败重试：有选中主机 → 重走连接+发起；否则重扫。
   public retry(): void {
     if (this.selected !== null) {
       const host: DiscoveredHost = this.selected;
@@ -314,7 +285,7 @@ export class PairingModel {
     }
   }
 
-  // 取消：配对各态持有连接照常断开；纯发现（未选中主机）不持有连接，只回退发现浮层态。
+  // 取消：配对各态持有连接照常断开；纯发现（未选中主机）只回退发现浮层态。
   public cancel(): void {
     this.pairWaiter = null;
     this.selected = null;
@@ -330,7 +301,6 @@ export class PairingModel {
     this.resetError();
   }
 
-  // 快速连接上次的主机（token 已存）：直连进入 CONNECTED。
   public async quickConnect(): Promise<void> {
     if (this.snapshot.phase === PairPhase.CONNECTING) {
       return;
@@ -354,13 +324,12 @@ export class PairingModel {
       this.snapshot.phase = PairPhase.FAILED;
       return;
     }
-    // 与发现页选中、主机列表切换共用同一条连接路径（含"记为默认主机"语义）
+    // 与发现页选中、主机列表切换共用同一条连接路径（含「记为默认主机」语义）
     if (!await this.connectKnown(host)) {
       this.snapshot.errorHintKey = 'pair_hint_auto_reconnect';
     }
   }
 
-  // ---- 内部 ----
 
   private finishPairing(reply: Packet): void {
     if (this.selected === null) {
@@ -387,14 +356,13 @@ export class PairingModel {
     h.tokenHex = bytesToHex(token);
     this.settings.saveLastHost(h).catch((err: Error) => {
       if (err instanceof HostsFullError) {
-        // 满 4 台未入库：本会话仍可用（token 已绑定 CONNECTED），页面轻提示引导先删除
+        // 满 4 台未入库：本会话仍可用（token 已绑定），页面轻提示引导先删除
         hilog.warn(DOMAIN, TAG, 'saveLastHost full: %{public}s', err.message);
         if (this.onHostsFull !== null) {
           this.onHostsFull();
         }
         return;
       }
-      // 保存失败不影响本会话使用（token 已绑定 CONNECTED），记日志便于排查
       hilog.error(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
     });
     this.conn.completePairing(token);
@@ -452,7 +420,6 @@ export class PairingModel {
     this.snapshot.errorParams = params;
   }
 
-  // ResError 转资源键，其余原样展示 message。
   private setConnError(err: Error): void {
     if (err instanceof ResError) {
       this.setKeyError(err.resKey, err.resParams);
@@ -472,7 +439,7 @@ export class PairingModel {
     });
   }
 
-  // 本机已配对主机键集合（ip:port）：发现页据此标注「已配对」，selectHost 据此走 token 直连。
+  // 本机已配对主机键集合（ip:port）：发现页标注与 selectHost 直连共用。
   private refreshKnownHosts(): void {
     this.settings.listHosts().then((hosts: HostInfo[]) => {
       const keys: string[] = [];
@@ -486,7 +453,6 @@ export class PairingModel {
     });
   }
 
-  // 发现的主机是否已在本地主机列表（同一 ip+port）——页面标注与直连共用同一判据。
   public isKnownHost(host: DiscoveredHost): boolean {
     return this.snapshot.knownHostKeys.indexOf(hostKeyOf(host.ip, host.port)) >= 0;
   }
@@ -500,7 +466,7 @@ export class PairingModel {
     });
   }
 
-  // 设备名（PAIR_REQ JSON 用）：marketName 优先、productModel 兜底，≤64 字节（API 只调一次并缓存）。
+  // 设备名（PAIR_REQ JSON 用）：marketName 优先、productModel 兜底，≤64 字节（只调一次并缓存）。
   private deviceName(): string {
     if (this.deviceNameCache !== null) {
       return this.deviceNameCache;

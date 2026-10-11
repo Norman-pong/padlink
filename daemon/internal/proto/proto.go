@@ -1,5 +1,5 @@
-// Package proto 实现 PadLink 线协议 v1 的编解码（19 字节头 + payload，大端序）。
-// 一致性以 protocol/testvectors.json 黄金向量为单源。
+// Package proto 实现 PadLink 线协议 v1 编解码（19 字节头 + payload，大端序）。
+// 字节级一致性以 protocol/testvectors.json 为对拍单源，不得复制副本。
 package proto
 
 import (
@@ -12,18 +12,15 @@ import (
 	"unicode/utf8"
 )
 
-// 线协议常量（PROTOCOL.md §2）。
 const (
-	HeaderSize = 19   // 固定头长度
-	MaxPayload = 1400 // payload 上限（UDP 分片安全值）
-	Ver        = 1    // 协议版本
+	HeaderSize = 19
+	MaxPayload = 1400 // payload 上限（UDP 分片安全）
+	Ver        = 1
 	FlagAuth   = 0x01 // flags bit0：hmac_trunc 有效
 )
 
-// magic 恒为 'PL'。
 var magic = [2]byte{'P', 'L'}
 
-// Type 事件类型枚举（PROTOCOL.md §3）。
 type Type uint8
 
 const (
@@ -40,7 +37,7 @@ const (
 	TypeEcho         Type = 11
 	TypeBye          Type = 12
 	TypeErr          Type = 13
-	TypeNotice       Type = 14 // daemon → 手机提示（唯一的下行事件，PROTOCOL.md §4.7）
+	TypeNotice       Type = 14 // daemon → 手机提示：唯一的下行事件，payload 定长 2B
 )
 
 func (t Type) String() string {
@@ -78,7 +75,7 @@ func (t Type) String() string {
 	}
 }
 
-// 哨兵错误，用 errors.Is 判断；上下文细节经 %w 包装在同一错误链上。
+// 哨兵错误：调用方用 errors.Is 判断，上下文经 %w 包装。
 var (
 	ErrBadMagic    = errors.New("bad magic")
 	ErrBadVersion  = errors.New("unsupported protocol version")
@@ -90,7 +87,6 @@ var (
 	ErrBadUTF8     = errors.New("TEXT payload is not valid UTF-8")
 )
 
-// 定长 payload 的类型化字段。
 type (
 	// MOVE：相对指针位移，单位为计数。
 	Move struct {
@@ -114,20 +110,18 @@ type (
 	Echo struct {
 		TsMs int64
 	}
-	// NOTICE：daemon → 手机提示（code 语义见 PROTOCOL.md §4.7）。
 	Notice struct {
 		Code uint8
 		Arg  uint8
 	}
 )
 
-// NoticeCode 是 NOTICE.code 的取值（PROTOCOL.md §4.7）。
 const (
 	NoticeControlBusy uint8 = 0 // 控制被其他设备占用：arg = 冷静期剩余秒数
 )
 
-// Packet 是一次解码后的完整报文。类型化字段仅在与 Type 匹配时有效；
-// 会话层类型（HELLO/DISCOVER_RESP/PAIR_*/BYE/ERR）的 payload 保留原始字节。
+// Packet 是一次解码后的完整报文。类型化字段仅在 Type 匹配时有效；
+// 会话层类型的 payload 保留原始字节。
 type Packet struct {
 	Type  Type
 	Flags uint8
@@ -145,8 +139,7 @@ type Packet struct {
 	Text   string // Type==TypeText 时有效
 }
 
-// Decode 按 PROTOCOL.md §2.2 顺序校验并解析报文。
-// FlagAuth 置位时不在此校验 HMAC（本层不持有 key），由调用方调 VerifyHMAC。
+// Decode 校验并解析报文；FlagAuth 置位时不校验 HMAC（本层无 key），须由调用方调 VerifyHMAC。
 func Decode(data []byte) (Packet, error) {
 	var p Packet
 	if len(data) < HeaderSize {
@@ -215,14 +208,14 @@ func Decode(data []byte) (Packet, error) {
 		}
 		p.Notice = Notice{Code: p.Payload[0], Arg: p.Payload[1]}
 	case TypeHello, TypeDiscoverResp, TypePairReq, TypePairOK, TypePairNak, TypeBye, TypeErr:
-		// 会话层 payload 本层不解析，保留在 p.Payload
+		// 会话层 payload 不解析，保留原始字节
 	default:
 		return p, fmt.Errorf("%w: type=0x%02X", ErrUnknownType, uint8(p.Type))
 	}
 	return p, nil
 }
 
-// Encode 将报文序列化为线格式；reserved 置 0，hmac 字段原样写入 pkt.HMAC。
+// Encode 序列化为线格式；reserved 置 0，hmac 字段原样写入。
 func Encode(pkt *Packet) ([]byte, error) {
 	if len(pkt.Payload) > MaxPayload {
 		return nil, fmt.Errorf("%w: %d > %d", ErrLenRange, len(pkt.Payload), MaxPayload)
@@ -230,15 +223,14 @@ func Encode(pkt *Packet) ([]byte, error) {
 	return marshal(pkt, false), nil
 }
 
-// Seal 计算并写入 hmac_trunc，置 FlagAuth。
+// Seal 计算 hmac_trunc 并置 FlagAuth：
 // hmac_trunc = HMAC-SHA256(key=token, 头 19B（hmac 字段全零）|| payload)[:8]。
 func Seal(pkt *Packet, token []byte) {
 	pkt.Flags |= FlagAuth
 	pkt.HMAC = hmacTrunc(pkt, token)
 }
 
-// VerifyHMAC 校验已认证报文的 hmac_trunc（常数时间比较）。
-// FlagAuth 未置位、或比较失败均返回 false。
+// VerifyHMAC 常数时间校验 hmac_trunc；FlagAuth 未置位或比较失败返回 false。
 func VerifyHMAC(pkt *Packet, token []byte) bool {
 	if pkt.Flags&FlagAuth == 0 {
 		return false
@@ -255,7 +247,7 @@ func hmacTrunc(pkt *Packet, token []byte) [8]byte {
 	return out
 }
 
-// marshal 序列化报文；zeroHMAC 时偏移 11..19 以全零参与（HMAC 计算输入）。
+// marshal 序列化报文；zeroHMAC 时偏移 11..19 全零参与（HMAC 计算输入）。
 func marshal(pkt *Packet, zeroHMAC bool) []byte {
 	buf := make([]byte, HeaderSize+len(pkt.Payload))
 	buf[0], buf[1] = magic[0], magic[1]
@@ -264,7 +256,6 @@ func marshal(pkt *Packet, zeroHMAC bool) []byte {
 	buf[4] = pkt.Flags
 	binary.BigEndian.PutUint16(buf[5:7], pkt.Seq)
 	binary.BigEndian.PutUint16(buf[7:9], uint16(len(pkt.Payload)))
-	// 9..11 reserved 恒 0
 	if !zeroHMAC {
 		copy(buf[11:19], pkt.HMAC[:])
 	}
@@ -272,12 +263,10 @@ func marshal(pkt *Packet, zeroHMAC bool) []byte {
 	return buf
 }
 
-// NewRaw 构造会话层报文（HELLO/DISCOVER_RESP/PAIR_*/BYE/ERR），payload 透传。
 func NewRaw(t Type, seq uint16, payload []byte) Packet {
 	return Packet{Type: t, Seq: seq, Payload: append([]byte(nil), payload...)}
 }
 
-// NewMove 构造 MOVE 报文。
 func NewMove(seq uint16, dx, dy int16) Packet {
 	payload := make([]byte, 4)
 	binary.BigEndian.PutUint16(payload[0:2], uint16(dx))
@@ -285,14 +274,12 @@ func NewMove(seq uint16, dx, dy int16) Packet {
 	return Packet{Type: TypeMove, Seq: seq, Payload: payload}
 }
 
-// NewScroll 构造 SCROLL 报文。
 func NewScroll(seq uint16, dyHiRes int32) Packet {
 	payload := make([]byte, 4)
 	binary.BigEndian.PutUint32(payload, uint32(dyHiRes))
 	return Packet{Type: TypeScroll, Seq: seq, Payload: payload}
 }
 
-// NewButton 构造 BUTTON 报文（btn 1=左 2=中 3=右）。
 func NewButton(seq uint16, btn uint8, down bool) Packet {
 	var downByte byte
 	if down {
@@ -301,7 +288,6 @@ func NewButton(seq uint16, btn uint8, down bool) Packet {
 	return Packet{Type: TypeButton, Seq: seq, Payload: []byte{btn, downByte}}
 }
 
-// NewKey 构造 KEY 报文。
 func NewKey(seq uint16, hidUsage uint16, down bool) Packet {
 	payload := make([]byte, 3)
 	binary.BigEndian.PutUint16(payload[0:2], hidUsage)
@@ -316,7 +302,6 @@ func NewText(seq uint16, text string) Packet {
 	return Packet{Type: TypeText, Seq: seq, Payload: []byte(text)}
 }
 
-// NewEcho 构造 ECHO 报文。
 func NewEcho(seq uint16, tsMs int64) Packet {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, uint64(tsMs))

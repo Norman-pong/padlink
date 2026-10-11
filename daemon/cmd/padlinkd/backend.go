@@ -9,13 +9,12 @@ import (
 	"padlink/daemon/internal/session"
 )
 
-// ctlBackend 聚合 pairing/session/hostinfo，向 control 包提供控制面视图。
 type ctlBackend struct {
 	start time.Time
 	store *pairing.Store
 	mgr   *pairing.Manager
 	srv   *session.Server
-	accel string // 启动时 accel-profile 检测结果（空 = 未检测到）
+	accel string // 启动时 accel-profile 检测结果，空 = 未检测到
 }
 
 func (b *ctlBackend) Status() control.StatusData {
@@ -41,8 +40,7 @@ func (b *ctlBackend) Status() control.StatusData {
 	}
 }
 
-// Pair 发起配对并返回确认码（ctl 终端展示路径）；进行中则复用同码。
-// ctl 路径不带设备指纹（终端配对无手机指纹可用），按新设备处理。
+// Pair 发起配对并返回确认码，进行中则复用同码；ctl 路径无手机指纹可传，按新设备处理。
 func (b *ctlBackend) Pair() (string, error) {
 	code, err := b.mgr.StartPairing("", "")
 	if err != nil {
@@ -67,7 +65,6 @@ func (b *ctlBackend) Clients() []control.ClientInfo {
 	return out
 }
 
-// Unpair 删 token 并踢下线（会话收尾兜底补发未释放按键）。
 func (b *ctlBackend) Unpair(id string) error {
 	_, ok, err := b.store.Remove(id)
 	if err != nil {

@@ -1,9 +1,6 @@
-// 语音听写 ViewModel（PRD §4.5）：权限 → AsrSession → 最终结果发 TEXT 的状态机。
-// 快照字段全部 @Trace 驱动 UI；phase 状态：Idle → Initializing →（Listening ⇄ Recognizing）
-// → Sending → Done / Error。松手 finish 后等最终结果（isLast==true）才发送，空文本不发；
-// 发送失败保留 finalText 供 resend()（Transport.sendReliable 吞错只计数，用 tcpSendFail
-// 计数差判失败，不改 Transport）。权限被拒不抛异常：Error 态 + 引导文案键，去设置走
-// requestPermissionOnSetting（request-user-authorization-second 现查）。
+// 语音听写 ViewModel：权限 → AsrSession → 最终结果发 TEXT。
+// 松手 finish 后等最终结果（isLast）才发送，空文本不发；发送失败保留 finalText 供 resend()
+//（sendReliable 吞错只计数，以 tcpSendFail 计数差判失败）。权限被拒不抛异常：Error 态 + 引导文案键。
 import { abilityAccessCtrl, bundleManager } from '@kit.AbilityKit';
 import type { common, Permissions } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
@@ -19,7 +16,6 @@ const DOMAIN: number = 0x5050;
 // SDK 的 Permissions 为字面量联合类型，须以字面量声明（string 不能赋值）。
 const MIC_PERMISSION: Permissions = 'ohos.permission.MICROPHONE';
 
-// 会话阶段常量（readonly 常量类，同 ConnState 风格）。
 export class VoicePhase {
   public static readonly IDLE: number = 0;
   public static readonly INITIALIZING: number = 1; // 权限申请 + createEngine 中
@@ -46,16 +42,14 @@ export class VoiceModel {
   private finishWhenReady: boolean = false; // begin 未完成时已松手
   private awaitingFinal: boolean = false; // 已松手/已判停，等待最终结果
   private accumulated: string = ''; // 子句最终结果累计
-  private sent: boolean = false; // 本轮是否已成功上屏（防 isLast+onComplete 双发）
+  private sent: boolean = false; // 本次识别是否已成功上屏（防 isLast+onComplete 双发）
 
-  // Index 装配：连接管理器与 UIAbility 上下文（权限弹窗需要）。
   public attach(conn: ConnectionManager, context: common.UIAbilityContext): void {
     this.conn = conn;
     this.context = context;
     const model: VoiceModel = this;
     const session: AsrSession = new AsrSession();
     session.onStarted = (): void => {
-      // startListening 成功；phase 由 press() 在 begin 返回后置位
     };
     session.onResult = (text: string, isFinal: boolean, isLast: boolean): void => {
       model.handleResult(text, isFinal, isLast);
@@ -69,7 +63,7 @@ export class VoiceModel {
     this.asr = session;
   }
 
-  // 按下：权限检查 → 申请 → begin → LISTENING。被拒/未连接/引擎失败一律落 ERROR 态，不抛异常。
+  // 按下：权限检查 → 申请 → begin → LISTENING；被拒/未连接/引擎失败一律落 ERROR 态，不抛异常。
   public async press(): Promise<void> {
     if (this.phase !== VoicePhase.IDLE && this.phase !== VoicePhase.DONE
       && this.phase !== VoicePhase.ERROR) {
@@ -139,8 +133,7 @@ export class VoiceModel {
     session.finish();
   }
 
-  // 取消当前会话（切 Tab / 离开页面 / 三指切换打断按住）：丢在途结果，麦克风立即释放。
-  // DONE/ERROR 态（已上屏内容、权限引导、发送失败重发位）不被抹掉。
+  // 取消会话（切 Tab/离开页面）：丢在途结果、麦克风立即释放；DONE/ERROR 态不被抹掉。
   public cancelSession(): void {
     this.gen++;
     this.finishWhenReady = false;
@@ -156,7 +149,7 @@ export class VoiceModel {
     }
   }
 
-  // 重发上屏（发送失败后 finalText 保留，按钮触发）。
+  // 重发上屏（发送失败后 finalText 保留）。
   public resend(): void {
     if (this.accumulated.length === 0 || this.sent) {
       return;
@@ -164,7 +157,7 @@ export class VoiceModel {
     this.sendText();
   }
 
-  // 权限引导态的「去设置开启」：直接拉起本应用的权限设置弹框（request-user-authorization-second）。
+  // 权限引导态的「去设置开启」：直接拉起本应用的权限设置弹框。
   public async openPermissionSettings(): Promise<void> {
     const ctx: common.UIAbilityContext | null = this.context;
     if (ctx === null) {
@@ -184,7 +177,7 @@ export class VoiceModel {
     }
   }
 
-  // 页面最终离开时释放引擎（AsrSession.shutdown 幂等；再次 press 自动重建）。
+  // 页面最终离开时释放引擎（shutdown 幂等；再次 press 自动重建）。
   public dispose(): void {
     this.gen++;
     const session: AsrSession | null = this.asr;
@@ -195,7 +188,6 @@ export class VoiceModel {
     this.interimText = '';
   }
 
-  // ---- 内部 ----
 
   private resetSession(): void {
     this.interimText = '';
@@ -208,8 +200,7 @@ export class VoiceModel {
     this.finishWhenReady = false;
   }
 
-  // 中间/最终结果同走 onResult：isFinal=false 实时刷新中间区；isFinal=true 累计并按
-  // isLast 判定发送（hms-ai-speechrecognizer SpeechRecognitionResult 字段语义）。
+  // 中间/最终结果同走 onResult：isFinal=false 刷中间区，true 累计并按 isLast 判定发送。
   private handleResult(text: string, isFinal: boolean, isLast: boolean): void {
     const active: boolean = this.phase === VoicePhase.LISTENING
       || this.phase === VoicePhase.RECOGNIZING;
@@ -239,7 +230,7 @@ export class VoiceModel {
 
   private handleError(errKey: string, code: number): void {
     if (code === 1002200004 || code === 1002200005) {
-      // finish/cancel 时无进行中任务：松手/取消的正常伴随回包，静默收口不算错。
+      // finish/cancel 时无进行中任务：正常伴随回包，静默收口不算错。
       if (this.awaitingFinal) {
         this.finalize();
       }
@@ -253,7 +244,7 @@ export class VoiceModel {
     this.errorKey = errKey; // 1002200012 → voice_err_mic_permission（UI 引导态）
   }
 
-  // 会话收口：空文本不发（PRD 口径）；有文本进发送流程。
+  // 会话收口：空文本不发；有文本进发送流程。
   private finalize(): void {
     this.awaitingFinal = false;
     if (this.sent) {
@@ -266,8 +257,7 @@ export class VoiceModel {
     this.sendText();
   }
 
-  // 发送 TEXT（TCP 可靠通道）。sendReliable 内部吞错仅计数（既有口径），以 tcpSendFail
-  // 计数差判定成败：失败保留 finalText 并置 sendFailed 供手动重发。
+  // 发送 TEXT（TCP）：以 tcpSendFail 计数差判定成败，失败置 sendFailed 供手动重发。
   private sendText(): void {
     const conn: ConnectionManager | null = this.conn;
     if (conn === null || !conn.isConnected()) {
@@ -297,9 +287,8 @@ export class VoiceModel {
       });
   }
 
-  // AGC 隐私托管门控（store-privacy）：未签署隐私协议时系统拒绝权限申请，须先拉起标准化
-  // 隐私弹窗征得同意。result 语义：1=同意完整模式、0=未同意。服务不可达（模拟器/侧载未托管）
-  // 放行——隐私管理服务不支持模拟器，不应阻断开发链路；上架渠道包托管必达、门控必生效。
+  // AGC 隐私托管门控：未签署时系统拒绝权限申请，须先拉起标准化隐私弹窗（result：1=同意完整模式）。
+  // 服务不可达（模拟器/侧载）放行——隐私管理服务不支持模拟器，不阻断开发链路。
   private async ensurePrivacyConsented(ctx: common.UIAbilityContext): Promise<boolean> {
     let results: privacyManager.AppPrivacyResult[];
     try {
@@ -329,7 +318,7 @@ export class VoiceModel {
     }
   }
 
-  // 权限检查 → 隐私签署门控 → 必要时弹窗申请。已授权直接过；被拒/异常返回 false（不抛异常）。
+  // 权限检查 → 隐私签署门控 → 必要时弹窗申请；已授权直接过，被拒/异常返回 false（不抛异常）。
   private async ensureMicPermission(): Promise<boolean> {
     const ctx: common.UIAbilityContext | null = this.context;
     if (ctx === null) {

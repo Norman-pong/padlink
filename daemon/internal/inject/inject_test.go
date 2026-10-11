@@ -268,7 +268,7 @@ func TestCtrlVSequence(t *testing.T) {
 	if err := inj.CtrlV(); err != nil {
 		t.Fatalf("CtrlV: %v", err)
 	}
-	// LCTRL down → V down → V up → LCTRL up，每步 Sync；组合键不触发连发
+	// LCTRL down → V down → V up → LCTRL up，每步 Sync
 	requireEvents(t, fw.recorded(), []recordedEvent{
 		{kindKeyEvent, 29, 1}, {kind: kindSync},
 		{kindKeyEvent, 47, 1}, {kind: kindSync},
@@ -343,7 +343,7 @@ func TestRepeatRepressResetsCadence(t *testing.T) {
 	}
 }
 
-// keyEventsOf 取出记录中的键盘事件（去掉 SYN 边界），便于断言修饰键改写。
+// keyEventsOf 取出记录中的键盘事件（去掉 SYN 边界）。
 func keyEventsOf(f *fakeDeviceWriter) []recordedEvent {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -364,7 +364,7 @@ func keysString(evs []recordedEvent) string {
 	return fmt.Sprint(parts)
 }
 
-// 大写锁生效且手机打小写：必须临时补 Shift，否则主机出大写（回归：手机显示小写、Linux 打大写）。
+// 大写锁生效且手机打小写：必须临时补 Shift，否则主机出大写。
 func TestCapsLockCompensatesLowercase(t *testing.T) {
 	f := &fakeDeviceWriter{}
 	inj := NewInjector(f, Config{CapsLockActive: func() bool { return true }})
@@ -385,8 +385,7 @@ func TestCapsLockCompensatesLowercase(t *testing.T) {
 func TestCapsLockCompensatesUppercase(t *testing.T) {
 	f := &fakeDeviceWriter{}
 	inj := NewInjector(f, Config{CapsLockActive: func() bool { return true }})
-	// 真实按键顺序：Shift 按住 → 字母 → Shift 松开（不能先点一下 Shift 再按字母，
-	// 那不是大写意图）。按住期间 must 临时松开 Shift，字母抬起后再恢复。
+	// 真实按键顺序：Shift 按住 → 字母 → Shift 松开；按住期间临时松开 Shift，字母抬起后恢复。
 	steps := []struct {
 		hid  uint16
 		down bool
@@ -403,7 +402,7 @@ func TestCapsLockCompensatesUppercase(t *testing.T) {
 	}
 }
 
-// 未开启大写锁时不得引入任何额外事件（Linux 默认路径回归）。
+// 未开启大写锁时不得引入任何额外事件。
 func TestCapsLockInactiveKeepsPlainKey(t *testing.T) {
 	f := &fakeDeviceWriter{}
 	inj := NewInjector(f, Config{CapsLockActive: func() bool { return false }})
@@ -432,8 +431,8 @@ func TestCapsLockDoesNotRestoreShiftPhoneReleased(t *testing.T) {
 			t.Fatalf("Key 0x%02X down=%v: %v", step.hid, step.down, err)
 		}
 	}
-	// 不变量：字母抬起之后不得再按下 Shift（否则主机留下按住不放的修饰键）。
-	// 中途的 (42,0) 是"为出小写而临时松开手机按住的 Shift"，属预期。
+	// 不变量：字母抬起之后不得再按下 Shift（否则主机留下按住不放的修饰键；
+	// 中途的 (42,0) 是为出小写而临时松开手机按住的 Shift，属预期）。
 	evs := keyEventsOf(f)
 	lastLetterUp := -1
 	for i, e := range evs {

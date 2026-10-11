@@ -1,15 +1,8 @@
 package main
 
-// .plrec 录制文件格式（自描述；token 不入文件）：
-//
-//	行 1（ASCII）：PLREC <版本> <raw|sealed>\n
-//	  raw    = 帧未封签，回放时须经 -token 现场封签
-//	  sealed = 帧已在录制时封签，回放原样发送
-//	其后每帧：
-//	  8B 大端 uint64 相对录制起点的毫秒时间戳
-//	  2B 大端 uint16 通道（0=UDP，1=TCP）
-//	  2B 大端 uint16 帧长 N（≤ 19+1400）
-//	  N 字节线协议帧（19B 头 + payload）
+// .plrec 录制格式（token 不入文件）：
+// 行 1：PLREC <版本> <raw|sealed>\n（raw 回放时须现场封签，sealed 原样发送）；
+// 其后每帧：8B 大端 ms 时间戳 | 2B 大端通道（0=UDP，1=TCP） | 2B 大端帧长 N（≤ 19+1400） | N 字节线协议帧
 
 import (
 	"bufio"
@@ -23,7 +16,6 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// 录制格式常量。
 const (
 	FormatVersion = 1
 	RecMagic      = "PLREC"
@@ -31,7 +23,6 @@ const (
 	MaxFrameLen = proto.HeaderSize + proto.MaxPayload
 )
 
-// Channel 标记帧的目标传输通道。
 type Channel uint16
 
 const (
@@ -39,10 +30,8 @@ const (
 	ChanTCP Channel = 1
 )
 
-// Valid 报告通道取值是否合法。
 func (c Channel) Valid() bool { return c == ChanUDP || c == ChanTCP }
 
-// String 返回通道名（UDP/TCP）。
 func (c Channel) String() string {
 	if c == ChanUDP {
 		return "UDP"
@@ -50,12 +39,10 @@ func (c Channel) String() string {
 	return "TCP"
 }
 
-// Header 是 .plrec 头信息。
 type Header struct {
 	Sealed bool // 帧是否已在录制时封签
 }
 
-// Frame 是一条录制记录。
 type Frame struct {
 	RelMs uint64 // 相对时间戳（毫秒）
 	Chan  Channel
@@ -70,7 +57,6 @@ func headerLine(h Header) string {
 	return RecMagic + " " + strconv.Itoa(FormatVersion) + " " + mode + "\n"
 }
 
-// WritePLREC 写入头行与全部帧记录。
 func WritePLREC(w io.Writer, h Header, frames []Frame) error {
 	if _, err := io.WriteString(w, headerLine(h)); err != nil {
 		return fmt.Errorf("写头行: %w", err)
@@ -96,7 +82,6 @@ func WritePLREC(w io.Writer, h Header, frames []Frame) error {
 	return nil
 }
 
-// ReadPLREC 读取并校验 .plrec 全部内容。
 func ReadPLREC(r io.Reader) (Header, []Frame, error) {
 	var h Header
 	br := bufio.NewReaderSize(r, 512)

@@ -1,7 +1,7 @@
 package inject
 
-// HID usage（USB HID 键盘页 0x07）→ Linux KEY_* 映射表。
-// 值逐一对照 linux/input-event-codes.h；daemon 用它做 UI_SET_KEYBIT 注册与按键转换。
+// HID usage（USB HID 键盘页 0x07）→ Linux KEY_* 映射表，值对照 linux/input-event-codes.h；
+// daemon 用它做 UI_SET_KEYBIT 注册与按键转换。
 const (
 	HIDLeftCtrl   uint16 = 0xE0
 	HIDLeftShift  uint16 = 0xE1
@@ -20,7 +20,7 @@ const (
 
 // HIDToKey 覆盖手机端全键盘所需键位（103 项）。
 var HIDToKey = map[uint16]uint16{
-	// 字母 A-Z（0x04-0x1D）→ KEY_A(30)…KEY_Z(44)
+	// 字母 A-Z → KEY_A(30)…KEY_Z(44)
 	0x04: 30, 0x05: 48, 0x06: 46, 0x07: 32, 0x08: 18, // A B C D E
 	0x09: 33, 0x0A: 34, 0x0B: 35, 0x0C: 23, 0x0D: 36, // F G H I J
 	0x0E: 37, 0x0F: 38, 0x10: 50, 0x11: 49, 0x12: 24, // K L M N O
@@ -28,7 +28,7 @@ var HIDToKey = map[uint16]uint16{
 	0x18: 22, 0x19: 47, 0x1A: 17, 0x1B: 45, 0x1C: 21, // U V W X Y
 	0x1D: 44, // Z
 
-	// 数字行 1-9,0（0x1E-0x27）→ KEY_1(2)…KEY_0(11)
+	// 数字行 1-9,0 → KEY_1(2)…KEY_0(11)
 	0x1E: 2, 0x1F: 3, 0x20: 4, 0x21: 5, 0x22: 6,
 	0x23: 7, 0x24: 8, 0x25: 9, 0x26: 10, 0x27: 11,
 
@@ -54,7 +54,7 @@ var HIDToKey = map[uint16]uint16{
 
 	0x39: 58, // CapsLock KEY_CAPSLOCK
 
-	// F1-F12（0x3A-0x45）→ KEY_F1(59)…KEY_F12(88)
+	// F1-F12 → KEY_F1(59)…KEY_F12(88)
 	0x3A: 59, 0x3B: 60, 0x3C: 61, 0x3D: 62, 0x3E: 63, 0x3F: 64,
 	0x40: 65, 0x41: 66, 0x42: 67, 0x43: 68, 0x44: 87, 0x45: 88,
 
@@ -85,7 +85,7 @@ var HIDToKey = map[uint16]uint16{
 	0x57: 78, // KP +       KEY_KPPLUS
 	0x58: 96, // KP Enter   KEY_KPENTER
 
-	// 小键盘数字 KP1-KP9,KP0 与 KP.（KEY_KP7=71…KEY_KP0=82）
+	// 小键盘数字 → KEY_KP7=71…KEY_KP0=82
 	0x59: 79, 0x5A: 80, 0x5B: 81, 0x5C: 75, 0x5D: 76,
 	0x5E: 77, 0x5F: 71, 0x60: 72, 0x61: 73, 0x62: 82,
 	0x63: 83, // KP .  KEY_KPDOT

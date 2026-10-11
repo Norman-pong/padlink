@@ -25,7 +25,6 @@ function finish() {
   console.log(`\n本文件 ${caseNo} 例全过`);
 }
 
-// ---- CreateEngineParams ----
 
 test('createEngine：zh-CN + 离线 + locate/recognizerMode 显式', () => {
   const p = buildCreateEngineParams();
@@ -60,7 +59,6 @@ test('startListening：vadEnd 非法值经钳制回退 3000', () => {
   assert.equal(buildStartParams('sid', NaN).extraParams['vadEnd'], 3000);
 });
 
-// ---- StartParams 其余必填字段 ----
 
 test('startListening：audioInfo 固定 pcm/16000/单声道/16bit', () => {
   const p = buildStartParams('sid', 3000);

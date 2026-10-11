@@ -1,33 +1,29 @@
-# macOS 移植规划（PRD 附录 B v2 前置研发）
+# macOS 移植方案与实测（PRD 附录 B v2 扩展）
 
-日期：2026-10-09 ｜ 依据：PRD §4.8 / 附录 B（macOS v2 预留：CGEvent + cgo 或 Swift 辅助进程）
+依据：PRD §7.1 / 附录 B（macOS v2 扩展：CGEvent + cgo）
 动机：开发机即 macOS（27.0.1 arm64），鸿蒙模拟器/真机 → 本机 Mac 的链路比 Linux 更易做真机验证。
 
-## 进度（2026-10-09 当日）
+## 进度
 
 - M-macOS-1 ✅ 注入后端（quartz/uinput_darwin/键表/AX 门控），`--test` 真机 PASSED
 - M-macOS-2 ✅ 文本注入 pbcopy/pbpaste 后端 + Cmd+V 平台化
-- M-macOS-3 ✅ 控制 socket `$TMPDIR` 回落、配对通知 osascript、launchd 安装物（install.sh 本机实测通过）
-- M-macOS-4 ✅ CI 迁 macos-latest + darwin cgo 构建（快照 8 产物验证）；端到端联调通过——
-  模拟器经调试手动配对入口连本机 Mac：配对（15s 慢输码）→ Connected（RTT 1ms）→
-  位移/按键/点击注入全部实证（光标坐标探针 + TextEdit AppleScript 回读）
+- M-macOS-3 ✅ 控制 socket `$TMPDIR` 回落、配对通知 osascript、launchd 安装物
+- M-macOS-4 ✅ CI 迁 macos-latest + darwin cgo 构建；端到端联调通过——模拟器经调试手动配对入口连本机 Mac：配对 → Connected（RTT 1ms）→ 位移/按键/点击注入全部实证
 
 设计变更记录：AX 授权等待从「2 分钟超时退出」改为「驻留轮询不限时」——
 launchd 场景下超时退出会触发 KeepAlive 重启并反复弹系统授权框；前台场景用户可 Ctrl+C 中断。
 
-E2E 实测结论（2026-10-09，模拟器 Pura90API26 ↔ 本机 Mac）：
+E2E 实测结论（模拟器 Pura90API26 ↔ 本机 Mac）：
 
 1. **模拟器发现非对称**：UDP HELLO 能出模拟器（宿主收到，源地址 127.0.0.1），
-   但应答路由不回去——广播发现在模拟器不可用，实锤只能走手动 IP（调试入口）。
-2. **踩出跨平台配对缺陷**（已修）：配对会话 10s 读超时 < 用户读码输码时长，
-   慢输码必断连。修复=配对轮次期间读超时宽限至码 TTL+10s（session 层 pairWaitUntil）。
+   但应答路由不回去——广播发现在模拟器不可用，只能走手动 IP（调试入口）。
+2. **跨平台配对约束**：配对会话 10s 读超时 < 用户读码输码时长，慢输码必断连；
+   配对轮次期间读超时须宽限至码 TTL+10s（session 层 pairWaitUntil）。
 3. 滚轮手机端双指手势 CLI 无法模拟，注入路径由 `--test` 像素滚轮覆盖；
    语音听写模拟器无 MIC 链路，留真机验证。
-4. **踩出修饰键合成缺陷**（2026-10-09 用户报障复现，已修）：CGEvent 投递的合成
-   修饰键 keyDown 不进入系统修饰状态，后续合成按键 flags 恒 0——Cmd+V 退化为
-   裸 v（TEXT 注入整体失效，中文/语音落地全灭），Shift+字母退化为小写。
-   修复=Go 侧跟踪按住修饰键，PostKey 显式 CGEventSetFlags；
-   探针实证 TextEdit 落「你好世界中文ABC」+「A」，剪贴板原内容恢复。
+4. **修饰键合成约束**：CGEvent 投递的合成修饰键 keyDown 不进入系统修饰状态，
+   后续合成按键 flags 恒 0——Cmd+V 退化为裸 v（TEXT 注入整体失效），Shift+字母退化为小写。
+   须在 Go 侧跟踪按住修饰键，PostKey 显式 CGEventSetFlags。
 
 ## 0. PoC 结论（本机实测，/tmp/padlink-mac-poc 一次性程序）
 
@@ -38,7 +34,7 @@ E2E 实测结论（2026-10-09，模拟器 Pura90API26 ↔ 本机 Mac）：
 | TCC 辅助功能权限 | AXIsProcessTrusted / WithOptions(prompt) | ✅ 检测与系统授权弹窗均可用 |
 | 剪贴板链路 | pbcopy/pbpaste 写入-回读-恢复 | ✅ 无需任何权限 |
 
-授权后复测（同日，终端已获辅助功能权限）：相对位移注入 ✅（+3px 精确命中），
+授权后复测：相对位移注入 ✅（+3px 精确命中），
 M-macOS-1 真机验收 `padlinkd --test`（画圆/点击/敲键/滚动）PASSED。
 
 结论：注入通道=Quartz CGEvent（cgo），门槛=TCC 辅助功能权限（授权前事件被静默丢弃，
@@ -67,9 +63,9 @@ M-macOS-1 真机验收 `padlinkd --test`（画圆/点击/敲键/滚动）PASSED�
 darwin 后端实现与 Linux 相同的 `Open/KeyEvent/RelEvent/Sync/Close` 面，`Sync()` 在 darwin 为空操作
 （CGEventPost 逐事件落窗Server）。cgo 面收敛在 `internal/quartz` 一个包内，只暴露
 moveAbs/scrollPixel/key/button/axTrusted 五个函数级原语，业务逻辑留在 Go 侧。
-Linux 侧保持无 cgo 单二进制（PRD §4.8 既定：两平台构建互不影响）。
+Linux 侧保持无 cgo 单二进制（PRD §7.1 既定：两平台构建互不影响）。
 
-**合成事件的两处必写字段（M-macOS-5 补全，Apple CGEventField 文档 + 社区实证）**：
+**合成事件的两处必写字段（Apple CGEventField 文档 + 社区实证）**：
 
 - 按钮事件必须显式写 `kCGMouseEventClickState`（1=单击 / 2=双击 / 3=三击）；
   不写时应用侧 `NSEvent.clickCount` 恒为 1 —— 双击打开文件、三击选段全部失效。
@@ -89,12 +85,12 @@ CGEvent 鼠标事件显式携带目标位置。darwin 后端对 REL_X/REL_Y 的�
 **OS 加速曲线只作用于 HID 硬件相对事件，对绝对定位 mouseMoved 不生效** ——
 Linux 侧需要 gsettings flat profile 的问题在 macOS 架构性消失，hostinfo 无需对应检查。
 已知取舍：物理鼠标与注入并发时的合成公平性不如内核 REL 模型（极端场景丢一个 delta），
-与 Barrier/Synergy 同款取舍，v1 接受；多显示器坐标系与屏幕边缘钳制行为列入 M-1 实测。
+与 Barrier/Synergy 同款取舍，v1 接受；多显示器坐标系与屏幕边缘钳制行为待实测。
 
 ### 2.3 滚轮：原生像素单位
 
 REL_WHEEL_HI_RES（1/120 格）→ CGEventCreateScrollWheelEvent(kCGScrollEventUnitPixel)。
-macOS 原生支持像素级平滑滚动，体验上限高于 Linux 的 hi-res 转换；映射系数 M-1 实测校准。
+macOS 原生支持像素级平滑滚动，体验上限高于 Linux 的 hi-res 转换；映射系数为手感起步值，待真机校准。
 自然滚动方向由系统按当前设备设置处理，App 侧 natural_scroll 开关语义保持一致（默认开）。
 
 ### 2.4 TCC 辅助功能权限首启流与稳定签名身份
@@ -105,7 +101,7 @@ macOS 原生支持像素级平滑滚动，体验上限高于 Linux 的 hi-res �
 弹窗；前台运行可由用户 Ctrl+C 中断。
 PoC 已验证：未授权时事件被静默丢弃，因此该门控不是可选优化而是正确性前提。
 
-**问题（2026-10-11 实测）**：TCC 对"责任进程"的记账粒度取决于代码签名。Go 产出的二进制默认是
+**问题（真机实测）**：TCC 对"责任进程"的记账粒度取决于代码签名。Go 产出的二进制默认是
 ad-hoc（linker-signed）签名，TCC 记的是 **cdhash**（代码哈希）——每次重新构建 cdhash 都变，
 **替换二进制后授权立即失效**（实测：换掉同路径二进制后 daemon 停在「仍在等待辅助功能授权」
 轮询上；按"按路径记账"的旧认知去重新勾选列表里的同名条目同样无效，那是旧 cdhash 的残留条目）。
@@ -146,14 +142,14 @@ ProgramArguments 指向 `PadLink.app/Contents/MacOS/padlinkd`（保持 launchd �
 `AXIsProcessTrustedWithOptions(prompt=true)`），点「打开系统设置」→ 辅助功能里开启 **PadLink**；
 若列表里有更早的 `padlinkd` 残留条目，用 `−` 删掉以免混淆。daemon 在轮询授权状态。
 
-**真机验证（2026-10-11，macOS 26 / arm64，均为实测）**：
+**真机验证（macOS 26 / arm64，均为实测）**：
 
 | 验证项 | 方法与结果 |
 | --- | --- |
 | 一次授权 | 用户在辅助功能里开启 PadLink 后，launchd 实例立即通过门控并监听 53021 |
-| **更新免授权** | 用新版本串重建（cdhash `aebfb321…`，与旧构建不同）→ 重签（同证书哈希）→ 重装 → 重启：**未要求任何授权**，日志直接 `padlinkd 1.1.0+bundle3 已启动（端口 53021…）` |
+| **更新免授权** | 用新版本串重建（cdhash 与旧构建不同）→ 重签（同证书哈希）→ 重装 → 重启：**未要求任何授权**，日志直接 `padlinkd <版本> 已启动（端口 53021…）` |
 | 事件真的能投递 | `txtprobe -moves 40:40` 打给生产 bundle 实例后，用 `CGEventGetLocation` 读光标：1157.7,576.3 → 1197.7,616.3（**精确 +40/+40**）。注意别拿"文本是否出现在某编辑器文件里"当判据——TextEdit 不会即时落盘，会误判成"注入没生效" |
-| 带图标的更新同样免授权 | 装了应用图标后再走一次完整更新（新版本串 `1.1.0+icon1` → `+icon2`）：install.sh 全程自动（组装 bundle → 生成 .icns → 签名 → `lsregister` → 重启），**未弹授权、未等待**，直接 `padlinkd 1.1.0+icon2 已启动（端口 53021…）` |
+| 带图标的更新同样免授权 | 装了应用图标后再走一次完整更新（`+icon1` → `+icon2`）：install.sh 全程自动（组装 bundle → 生成 .icns → 签名 → `lsregister` → 重启），**未弹授权、未等待**，直接启动成功 |
 | 图标本身可用 | `Contents/Resources/PadLink.icns` 可由 `iconutil -c iconset` 反向解出全部 10 个尺寸，其中 512@2x 为 1024×1024 且带 alpha；Info.plist `CFBundleIconFile=PadLink`；bundle `codesign --verify` 报 valid on disk + satisfies its DR |
 | 剪贴板契约 | 文本型粘贴板注入后原样恢复；图片型粘贴板取消注入且类型表前后一致；两处均无失败行（详见 §2.5） |
 | 签名身份不需要信任设置 | 曾把自签证书加进用户信任设置做对照实验：`find-identity -v -p codesigning` 仍报 0 valid，行为无变化；随后已 `security remove-trusted-cert` 撤销，daemon 依然免授权启动 ⇒ 该信任设置不是必要条件，不应留在用户机器上 |
@@ -163,20 +159,17 @@ ProgramArguments 指向 `PadLink.app/Contents/MacOS/padlinkd`（保持 launchd �
 终端用户同样是"授权一次，更新免授权"。若将来要连首次授权弹窗都免掉（并让 Gatekeeper/公证通过），
 再换 Apple Developer ID 证书（见 §2.6 v2 项）。
 
-**清环境复位流程（2026-10-11 实测一遍，用于排查"环境不一致"）**：
+**清环境复位流程（用于排查"环境不一致"）**：
 
 ```sh
 ./uninstall.sh --purge     # 停 LaunchAgent + 删 PadLink.app/padlinkctl + 清 token + 删签名身份
 ./install.sh               # 全新安装（新证书 → 系统视为新应用）
 # 授权：辅助功能里开启 PadLink → 重启 daemon（launchctl kickstart -k gui/$UID/com.zhimingcool.padlink）
 ```
-复位后实测结果：Mac 端全新身份免授权启动、手机端重新发现并配对成功
-（`客户端 "HUAWEI Pura X 典藏版"（037bb1ef）配对成功` → `认证上线`，`padlinkctl clients` 显示在线）。
+复位后：Mac 端以全新身份免授权启动，手机端重新发现并配对成功。
 
-**排查教训**：验证「手机能否发现本机」必须以**手机**为准。用另一台 Linux 机（Ubuntu）发广播做替身
-时，Mac 收到并回复了 HELLO 却收不到回包，容易误判成"应答被系统门控拦掉"；而同一时刻手机侧
-`UDP ← 192.168.0.4:54417 HELLO` 与列表里出现 `normanpong.local` 都证明发现链路正常。替身探针
-可用于验证**协议与端口**，但不能用来断言客户端的发现体验。
+**排查口径**：验证「手机能否发现本机」必须以**手机**为准。替身探针（另一台 Linux 机发广播）
+只能验证**协议与端口**，不能用来断言客户端的发现体验——探针收不到回包不代表应答被系统门控拦掉。
 
 ### 2.5 文本注入：pbcopy/pbpaste
 
@@ -184,7 +177,7 @@ textinject 的 wl-copy/wl-paste 命令名/参数按平台参数化（Runner 抽�
 darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 main.go 按平台注入
 （inject 接口不动）。
 
-**两端共同契约**（2026-10-11 真机对齐，textinject 包注释同步声明，改动须同时满足）：
+**两端共同契约**（textinject 包注释同步声明，改动须同时满足）：
 
 > 能备份到内容 → 注入后精确恢复；备份不到内容（Linux：读取失败；macOS：粘贴板只有非文本）→
 > 取消本次注入并给出可见错误。任何情况下都不把注入文本留在剪贴板，也不覆盖备份不到的原内容。
@@ -202,7 +195,7 @@ darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 
 `osascript` 为系统自带、纯本地粘贴板查询，不需要辅助功能/自动化授权，且只在 `pbpaste` 取空的
 少数路径上调用；类型表查询失败按备份失败降级，同样不写剪贴板。
 
-**真机验收（2026-10-11，macOS 26 / arm64）**：测试实例 `padlinkd -v -port 53099
+**真机验收（macOS 26 / arm64）**：测试实例 `padlinkd -v -port 53099
 -restore-delay-ms 4000`，粘贴落点用 TextEdit 打开 `/tmp/mac-accept.txt`（避免把注入文本粘进用户
 正在用的窗口）：
 
@@ -213,8 +206,8 @@ darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 
 | C 只有图片 | 写入 NSImage → 注入 → 等 6s | 类型表前后一致（`TIFF picture`/`«class AVIF»`/`«class 8BPS»`… 仍在），恰好新增 1 条失败行：`注入 TEXT 失败: 剪贴板内容不是文本（本次注入已取消，剪贴板未改动）` |
 | D 实际上屏 | A/B 两次注入落到 TextEdit | 落盘文件内容为 `空粘贴板注入验收乙macOS 注入上屏验收甲`（daemon → pbcopy → Cmd+V → TextEdit 自动保存） |
 
-测量时机必须晚于恢复延迟（本例 4s）：早期两次「RESTORE FAIL / 图片被破坏」的判定，都是在注入
-窗口内读剪贴板得到的中间态（其中一次还叠加了用户同期复制内容），不是缺陷。
+测量时机必须晚于恢复延迟（上例 4s）：在注入窗口内读剪贴板得到的是中间态，不能据此判定
+「RESTORE FAIL / 图片被破坏」。
 
 **与 Linux 端的差异（同为"不破坏剪贴板"，结果因能力不同而不同）**：Linux 侧 `wl-paste` 通常
 能按字节读到非文本内容（真机实测 `image/png` 193 字节原样往返、类型不变），因此**注入照常进行**
@@ -227,7 +220,7 @@ darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 
 不保真——粘贴板含文本时文本内容仍能备份/恢复，只有非文本时取消注入。`pbcopy` 空输入用于收尾：
 macOS 无 `wl-copy --clear` 对应的 CLI，对粘贴方等价于"粘不出内容"，但类型表仍留有文本类型。
 
-**两个必须在 daemon 侧兜底的平台差异（2026-10-11 真机定位，此前表现为"中文与语音注入不上屏"）**：
+**两个必须在 daemon 侧兜底的平台差异（真机定位，此前表现为"中文与语音注入不上屏"）**：
 
 - **UTF-8 locale**：`pbcopy/pbpaste` 按 locale 解释输入输出。launchd 启动的 daemon 环境里
   **没有任何 locale**，此时写 CJK 得到的是**空内容**——手机侧显示"发送成功"、daemon 无失败行、
@@ -267,22 +260,21 @@ macOS 无 `wl-copy --clear` 对应的 CLI，对粘贴方等价于"粘不出内�
 | 阶段 | 内容 | 验收（本机真机） |
 | --- | --- | --- |
 | M-macOS-1 | internal/quartz + uinput_darwin + KEY_*→CGKeyCode 表 + AX 首启流 | 本机授权后 `padlinkd --test` 注入自测：光标按脚本轨迹移动、滚轮/按键生效 |
-| M-macOS-2 | textinject pbcopy 后端 + Cmd+V 平台化 | TextEdit 焦点下语音文本注入上屏，剪贴板按延迟恢复；图片型剪贴板下取消注入且粘贴板内容不变（两端契约，见 §2.5） |
+| M-macOS-2 | textinject pbcopy 后端 + Cmd+V 平台化 | TextEdit 焦点下文本注入上屏、剪贴板按延迟恢复；图片型剪贴板取消注入且粘贴板内容不变（两端契约，见 §2.5） |
 | M-macOS-3 | hostinfo darwin 分支 + control socket 路径回落 + launchd 安装物 | install.sh 一键安装，重启会话后自启，padlinkctl 连通 |
 | M-macOS-4 | CI 迁移 + 文档 + 端到端联调 | tag 构建出 darwin/linux 全部产物；模拟器手动 IP 连本机 Mac 触控板/键盘/语音全链路 |
 
-模拟器网络注记：鸿蒙模拟器 NAT 后 UDP 广播发现可能不可达，联调走手动添加主机 IP
-（宿主 LAN IP），TCP/UDP 会话面不受影响；真机 Wi-Fi 场景广播发现不受影响。
+模拟器网络注记：见 §0 结论 1（广播发现在模拟器不可用，联调走手动添加主机 IP；真机 Wi-Fi 场景不受影响）。
 
 ## 4. 影响范围与回归
 
 - Linux 路径零改动（全部新代码走 darwin build tag / 平台分支），Linux 单测+probe 脚本照旧回归。
-- 文档表述修正：daemon/README.md 与 PRD "无 cgo 单二进制" → "Linux 无 cgo；darwin 经 cgo 调 Quartz"（PRD §4.8 已预留该措辞）。
+- 文档表述：daemon "无 cgo 单二进制" → "Linux 无 cgo；darwin 经 cgo 调 Quartz"（PRD §7.1 已按此措辞）。
 - 不动：鸿蒙 App、协议格式、配对/token 体系、Linux packaging。
 
 ## 5. 风险清单
 
-1. AX 授权 UX：用户不授权则功能全灭——首启流+install.sh 文案+日志三处引导，M-1 实测打磨。
-2. 绝对定位与物理输入并发公平性（§2.2 取舍）——M-1 实测确认可接受。
-3. 滚轮像素映射系数手感——M-1/M-4 实测校准。
-4. 未公证二进制的下载摩擦——文档兜底，v2 后期评估公证/ Homebrew tap。
+1. AX 授权 UX：用户不授权则功能全灭——首启流 + install.sh 文案 + 日志三处引导；已固化「授权一次、更新免授权」（§2.4）。
+2. 绝对定位与物理输入并发公平性（§2.2 取舍）——接受，极端场景丢一个 delta。
+3. 滚轮像素映射系数手感——映射系数需真机校准。
+4. 未公证二进制的下载摩擦——文档兜底，后续评估公证 / Homebrew tap。

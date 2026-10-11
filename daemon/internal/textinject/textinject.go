@@ -1,12 +1,8 @@
-// Package textinject 实现语音文本注入（PRD §4.5）：剪贴板备份 → 写入 → 粘贴组合键 → 延迟恢复。
-// 平台剪贴板差异收敛在 clipboard 操作集：Linux 走 wl-clipboard（严格按 RESEARCH-WAYLAND.md §3
-// 规避已记录的坑：wl-paste 一律 --no-newline、注入文本显式 --type、恢复不用 -n、固定可配恢复延迟、
-// 空剪贴板按无内容处理而非降级、子进程输出落文件防 Wait 挂死）；
-// macOS 走 pbcopy/pbpaste（系统自带零依赖，见 docs/PLAN-MACOS.md §2.5）。
+// Package textinject 实现语音文本注入：剪贴板备份 → 写入 → 粘贴组合键 → 延迟恢复。
 //
-// 两端共同契约（行为一致，改动必须同时满足）：
-// 能备份到内容 → 注入后精确恢复；备份不到内容（原剪贴板只有非文本、或读取失败）→ 取消本次注入
-// 并给出可见错误。任何情况下都不得把注入文本留在剪贴板，也不得覆盖备份不到的原内容。
+// 两端共同契约（行为一致，改动必须同时满足）：能备份到内容 → 注入后精确恢复；
+// 备份不到内容（原剪贴板只有非文本、或读取失败）→ 取消本次注入并给出可见错误；
+// 任何情况下都不得把注入文本留在剪贴板，也不得覆盖备份不到的原内容。
 package textinject
 
 import (
@@ -22,42 +18,37 @@ import (
 )
 
 const (
-	// pasteType 注入文本的显式 MIME（规避 wl-copy 文本类型推断失灵）。
+	// pasteType 注入文本的显式 MIME（wl-copy 的文本类型推断不可靠）。
 	pasteType = "text/plain;charset=utf-8"
-	// execTimeout 单个剪贴板子进程超时；超时按功能降级处理。
+	// execTimeout 单个剪贴板子进程超时（超时按降级处理）。
 	execTimeout = 3 * time.Second
-	// DefaultRestoreDelay 粘贴组合键后恢复原剪贴板的默认延迟（可配 300–500ms）。
+	// DefaultRestoreDelay 粘贴组合键后恢复原剪贴板的默认延迟；改小必须确认目标应用已读完粘贴板。
 	DefaultRestoreDelay = 300 * time.Millisecond
-	// InstallHint wl-clipboard 缺失/超时的降级提示（Linux）。
+	// InstallHint wl-clipboard 不可用时的降级提示（Linux）。
 	InstallHint = "sudo apt install wl-clipboard"
 )
 
-// ErrUnavailable 哨兵：剪贴板工具不可用、超时或会话环境缺失。结构化降级错误。
+// ErrUnavailable 哨兵：剪贴板工具不可用、超时或会话环境缺失。
 var ErrUnavailable = errors.New("剪贴板工具不可用")
 
-// errNoSelection 内部哨兵：剪贴板当前没有任何选择内容（空剪贴板）。
-// 空剪贴板不是工具故障——注入照常进行，只把收尾从"写回备份"改为"清空选择"。
-// 不区分它会让中文/语音注入在空剪贴板下全部静默失败（wl-paste --list-types 退出码 1）。
+// errNoSelection 内部哨兵：剪贴板当前没有任何选择内容。空剪贴板不是工具故障——注入照常进行，
+// 只把收尾从"写回备份"改为"清空选择"；不区分它会让中文/语音注入在空剪贴板下全部静默失败。
 var errNoSelection = errors.New("剪贴板无选择内容")
 
 // noSelectionMarker 是 wl-clipboard 报告"无选择内容"的固定英文文案（该工具不做本地化）。
-// 不能用错误类型判定：CommandContext 超时同样是 *exec.ExitError（"signal: killed"），
-// 而超时属于真实故障，必须继续走降级路径。
+// 不能用错误类型判定：CommandContext 超时同样是 *exec.ExitError，必须继续走降级路径。
 const noSelectionMarker = "Nothing is copied"
 
-// isNoSelection 判定错误是否为"无选择内容"（而非工具故障/超时）。
 func isNoSelection(err error) bool {
 	return err != nil && strings.Contains(err.Error(), noSelectionMarker)
 }
 
-// errNonText 内部哨兵：原剪贴板有内容但不是文本（图片/文件等），CLI 备份不到。
-// 两端统一契约：备份不到内容就取消本次注入——宁可这次不注入，也不覆盖用户剪贴板。
-// Linux 由 wl-paste 报"推断输出类型不可用"触发（配合已记录的 MIME 判定，不依赖固定文案）；
-// macOS 由 pbpaste 取空 + 类型表无文本类型触发（pbpaste 对空与非文本都退 0 输出空串）。
+// errNonText 内部哨兵：原剪贴板有内容但不是文本（CLI 备份不到），调用方据此取消本次注入。
+// Linux 由 wl-paste 读取失败 + 已记录的 MIME 判定触发；macOS 由 pbpaste 取空 + 类型表无文本类型触发。
 var errNonText = errors.New("剪贴板内容不是文本")
 
-// isNonTextMIME 判定已记录的 MIME 是否为非文本（image/png、application/pdf…）。
-// 文本类 MIME 读取失败属工具故障；非文本类读取失败属能力边界，两者降级语义不同。
+// isNonTextMIME 判定已记录的 MIME 是否为非文本（image/png、application/pdf…）：
+// 文本类 MIME 读取失败属工具故障，非文本类读取失败属能力边界，两者降级语义不同。
 func isNonTextMIME(mime string) bool {
 	if mime == "" {
 		return false
@@ -78,11 +69,10 @@ type Runner interface {
 type ExecRunner struct{}
 
 // Run 执行命令并带回 stdout/stderr。
-// 输出落临时文件而非 bytes.Buffer：os/exec 对非 *os.File 的 Stdout/Stderr 会建管道并用
-// goroutine 复制，Wait 需等管道 EOF；而 wl-copy 写完剪贴板后 fork 出的常驻子进程持有继承的
-// stderr（实测 PPid=1、fd 2 → pipe），EOF 永不到来 → Wait 永久阻塞（3s context 只作用于
-// 直接子进程，对已退出的父进程与孙进程均无效），注入 worker 随之卡死：整机输入失效、进程
-// 无法优雅退出。文件无复制 goroutine，直接子进程退出即返回；WaitDelay 兜底 stdin 管道。
+// 输出落临时文件而非 bytes.Buffer：os/exec 对非 *os.File 的 Stdout/Stderr 会建管道 + goroutine
+// 复制，Wait 需等管道 EOF；而 wl-copy 写完剪贴板后 fork 的常驻孙进程持有继承的 stderr，EOF 永不
+// 到来 → Wait 永久阻塞（context 只作用于直接子进程），注入 worker 随之卡死。文件无复制 goroutine，
+// 直接子进程退出即返回；WaitDelay 兜底 stdin 管道。
 func (ExecRunner) Run(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 	outF, outDone, err := tempCapture()
 	if err != nil {
@@ -112,8 +102,6 @@ func (ExecRunner) Run(ctx context.Context, name string, args []string, stdin []b
 	return out, nil
 }
 
-// tempCapture 建临时文件承载子进程输出，返回文件与读回收尾函数（读后删除；
-// 孙进程仍持有时按已删除句柄处理，不影响内容）。
 func tempCapture() (*os.File, func() []byte, error) {
 	f, err := os.CreateTemp("", "padlink-exec-*")
 	if err != nil {
@@ -135,8 +123,7 @@ type clipboard struct {
 	needEnv string // 非空时要求该环境变量存在才可用（Linux=WAYLAND_DISPLAY；macOS 无门槛）
 	// readMIME 记录原剪贴板 MIME；平台无类型概念时返回 ""；无选择内容时返回 errNoSelection。
 	readMIME func(r Runner) (string, error)
-	// read 读取备份；mime 为 ① 记录的原始类型（macOS 无类型概念恒空）。
-	// 原内容非文本（CLI 备份不到）时返回 errNonText，调用方据此取消注入。
+	// read 读取备份（mime 为已记录的原始类型，macOS 恒空）；原内容非文本（CLI 备份不到）时返回 errNonText。
 	read func(r Runner, mime string) ([]byte, error)
 	// write 写入内容；mime 为空时由实现决定默认类型（wl-clipboard 按 pasteType 恢复）。
 	write func(r Runner, data []byte, mime string) error
@@ -153,17 +140,14 @@ var wlClipboard = clipboard{
 		out, err := runCmd(r, "wl-paste", nil, "--list-types")
 		if err != nil {
 			if isNoSelection(err) {
-				return "", errNoSelection // 空剪贴板：无 MIME 可记，按无内容处理
+				return "", errNoSelection
 			}
 			return "", err
 		}
 		return firstLine(out), nil
 	},
-	// --no-newline 防尾部多出换行；备份恰逢选择消失同样按无内容处理。
-	// 非文本选择（图片/文件）通常能按字节读到（实测 image/png 193 字节往返无损），
-	// 恢复时按记录的 MIME 写回即完整还原，注入照常进行；
-	// 只有读取确实失败时才是能力边界而非工具故障，此时按 errNonText 取消注入，
-	// 绝不用空备份覆盖原内容。
+	// --no-newline 防尾部多出换行；非文本选择（图片/文件）通常能按字节读到并按记录的 MIME
+	// 原样写回，只有读取确实失败时才是能力边界 → errNonText 取消注入，绝不用空备份覆盖原内容。
 	read: func(r Runner, mime string) ([]byte, error) {
 		out, err := runCmd(r, "wl-paste", nil, "--no-newline")
 		if err != nil {
@@ -176,7 +160,7 @@ var wlClipboard = clipboard{
 		}
 		return out, err
 	},
-	// 恢复走原样字节写回（不用 -n 防裁掉合法尾部换行）
+	// 恢复走原样字节写回：-n 会裁掉合法的尾部换行。
 	write: func(r Runner, data []byte, mime string) error {
 		if mime == "" {
 			mime = pasteType // 空剪贴板无类型可记，按文本类型恢复
@@ -190,9 +174,8 @@ var wlClipboard = clipboard{
 	},
 }
 
-// pbClipboard：macOS pbcopy/pbpaste 后端（系统自带）。
-// 已知限制：CLI 只有纯文本面，非文本剪贴板（图片/文件）备份不了——备份不到即取消注入
-// （见下方 read），恢复只写回文本，富文本类型不保真（docs/PLAN-MACOS.md §2.5）。
+// pbClipboard：macOS pbcopy/pbpaste 后端（系统自带）。已知限制：CLI 只有纯文本面，
+// 非文本剪贴板备份不了——备份不到即取消注入（见 read）。
 var pbClipboard = clipboard{
 	name: "pbcopy/pbpaste",
 	hint: "macOS 系统自带，失败请查日志",
@@ -204,9 +187,8 @@ var pbClipboard = clipboard{
 		if err != nil || len(out) > 0 {
 			return out, err
 		}
-		// pbpaste 取空有两种含义：粘贴板确实为空（含空文本），或里面只有非文本内容。
-		// 两者都是退 0 + 空串（实测：真·清空/只有图片/空串文本三种状态一致），
-		// 只能另查类型表区分；不区分就会在恢复阶段把用户的图片/文件覆盖成空文本。
+		// pbpaste 取空有两种含义：粘贴板确实为空（含空文本），或里面只有非文本内容，两者都是
+		// 退 0 + 空串，只能另查类型表区分；不区分就会在恢复阶段把用户的图片/文件覆盖成空文本。
 		// 类型表查不出来（osascript 失败）按备份失败处理——同样不动剪贴板。
 		hasContent, hasText, terr := pbTypes(r)
 		if terr != nil {
@@ -221,8 +203,8 @@ var pbClipboard = clipboard{
 		_, err := runCmd(r, "pbcopy", data)
 		return err
 	},
-	// pbcopy 空输入即清空粘贴板：macOS 无 wl-copy --clear 对应的 CLI，
-	// 空文本与"真·无内容"对粘贴方等价（都是粘不出东西），但类型表仍留有文本类型。
+	// pbcopy 空输入即清空粘贴板：macOS 无 wl-copy --clear 对应的 CLI，空文本与"真·无内容"
+	// 对粘贴方等价（都粘不出东西），但类型表仍留有文本类型。
 	clear: func(r Runner) error {
 		_, err := runCmd(r, "pbcopy", nil)
 		return err
@@ -230,14 +212,13 @@ var pbClipboard = clipboard{
 }
 
 // pbTypes 查询 macOS 粘贴板类型表，返回"是否有任何类型"与"是否含文本类型"。
-// 走系统自带的 osascript（clipboard info：纯本地粘贴板查询，不需要辅助功能/自动化授权），
-// 且只在 pbpaste 取空的少数路径上调用，不进入常规注入路径。
+// 走系统自带的 osascript（clipboard info 为纯本地查询，不需要辅助功能/自动化授权），只在 pbpaste 取空时调用。
 func pbTypes(r Runner) (hasContent bool, hasText bool, err error) {
 	out, err := runCmd(r, "osascript", nil, "-e", "clipboard info")
 	if err != nil {
 		return false, false, err
 	}
-	// 形如「TIFF picture, 6386, «class utf8», 5, string, 5」：类型名与字节数交替出现。
+	// 形如「TIFF picture, 6386, «class utf8», 5」：类型名与字节数交替出现。
 	parts := strings.Split(string(out), ",")
 	for i := 0; i+1 < len(parts); i += 2 {
 		name := strings.ToLower(strings.TrimSpace(parts[i]))
@@ -252,9 +233,8 @@ func pbTypes(r Runner) (hasContent bool, hasText bool, err error) {
 	return hasContent, false, nil
 }
 
-// isTextPasteboardType 判定粘贴板类型是否为文本类。Apple 的类名/UTI 命名五花八门
-// （«class utf8»、string、Unicode text、public.utf8-plain-text、NSStringPboardType…），
-// 判定宁宽勿严：误判成文本只会退回"写回纯文本"的既有降级，误判成非文本会直接拒绝注入。
+// isTextPasteboardType 判定粘贴板类型是否为文本类。Apple 的类名/UTI 命名五花八门，判定宁宽勿严：
+// 误判成文本只会退回"写回纯文本"的降级，误判成非文本会直接拒绝注入。
 func isTextPasteboardType(name string) bool {
 	for _, k := range []string{"text", "string", "utf8", "ut16", "txt"} {
 		if strings.Contains(name, k) {
@@ -264,8 +244,7 @@ func isTextPasteboardType(name string) bool {
 	return false
 }
 
-// platformClipboard 按运行平台选默认剪贴板后端；其余平台回落 wl-clipboard
-// （不可用即结构化降级，行为同 Linux 缺工具）。
+// platformClipboard 按运行平台选默认剪贴板后端；其余平台回落 wl-clipboard（不可用即降级）。
 func platformClipboard() clipboard {
 	if runtime.GOOS == "darwin" {
 		return pbClipboard
@@ -273,8 +252,7 @@ func platformClipboard() clipboard {
 	return wlClipboard
 }
 
-// Injector 执行一次文本注入。CtrlV 由注入器提供（经会话层串行化调用）；
-// Env 可在测试中替换环境查询（nil 用 os.Getenv）。
+// Injector 执行一次文本注入；CtrlV 经会话层串行化调用，Env 可在测试中替换环境查询（nil 用 os.Getenv）。
 type Injector struct {
 	run          Runner
 	clip         clipboard
@@ -283,7 +261,7 @@ type Injector struct {
 	Env          func(key string) string
 }
 
-// New 构造文本注入器（剪贴板后端按平台默认）。restoreDelay ≤ 0 时取默认 300ms。
+// New 构造文本注入器（剪贴板后端按平台默认）；restoreDelay ≤ 0 时取默认值。
 func New(run Runner, ctrlV func() error, restoreDelay time.Duration) *Injector {
 	if restoreDelay <= 0 {
 		restoreDelay = DefaultRestoreDelay
@@ -291,7 +269,7 @@ func New(run Runner, ctrlV func() error, restoreDelay time.Duration) *Injector {
 	return &Injector{run: run, clip: platformClipboard(), CtrlV: ctrlV, RestoreDelay: restoreDelay}
 }
 
-// Available 报告剪贴板环境是否就绪（Linux 要求 WAYLAND_DISPLAY；macOS 无环境门槛）。
+// Available 报告剪贴板环境是否就绪（Linux 要求 WAYLAND_DISPLAY；macOS 无门槛）。
 func (in *Injector) Available() bool {
 	if in.clip.needEnv == "" {
 		return true
@@ -307,14 +285,13 @@ func (in *Injector) Inject(text string) error {
 		return fmt.Errorf("textinject: 未配置粘贴组合键注入器")
 	}
 
-	// ① 记录原 MIME（空剪贴板走无内容分支；超时/工具故障按降级处理；macOS 无类型概念恒空）
 	mime, err := in.clip.readMIME(in.run)
 	noSelection := errors.Is(err, errNoSelection)
 	if err != nil && !noSelection {
 		return in.unavailable("记录原 MIME 失败", err)
 	}
 
-	// ② 备份原内容（仅驻内存）；原本无内容则无需备份
+	// 备份只驻内存；原本无内容则无需备份。
 	var backup []byte
 	if !noSelection {
 		backup, err = in.clip.read(in.run, mime)
@@ -322,26 +299,24 @@ func (in *Injector) Inject(text string) error {
 		case errors.Is(err, errNoSelection):
 			noSelection = true // 备份间隙选择消失：等同空剪贴板
 		case errors.Is(err, errNonText):
-			// 备份读不到内容（原剪贴板为非文本且 CLI 读不出，或类型表查询失败）→ 取消本次注入。
-			// 绝不"用空备份覆盖回去"——那会把用户的图片静默抹掉（两端共同契约）。
+			// 备份不到内容（非文本且 CLI 读不出，或类型表查询失败）→ 取消本次注入；
+			// 绝不"用空备份覆盖回去"，那会把用户的图片静默抹掉（两端共同契约）。
 			return fmt.Errorf("%w（本次注入已取消，剪贴板未改动）", err)
 		case err != nil:
 			return in.unavailable("备份剪贴板失败", err)
 		}
 	}
 
-	// ③ 写入待注入文本
 	if err := in.clip.write(in.run, []byte(text), pasteType); err != nil {
 		return in.unavailable("写入剪贴板失败", err)
 	}
 
-	// ④ 粘贴组合键（失败仍尝试恢复，剪贴板不能留在注入文本）
+	// 粘贴失败也必须继续恢复：注入文本不得留在剪贴板。
 	pasteErr := in.CtrlV()
 
-	// ⑤ 固定恢复延迟（恢复时机竞态为已知接受边界，PRD §4.5）
 	time.Sleep(in.RestoreDelay)
 
-	// ⑥ 恢复原内容：原本无内容则清空选择（注入文本不得留在剪贴板）
+	// 原本无内容则清空选择，注入文本不得留在剪贴板。
 	var restoreErr error
 	if noSelection {
 		restoreErr = in.clip.clear(in.run)
@@ -357,12 +332,10 @@ func (in *Injector) Inject(text string) error {
 	return pasteErr
 }
 
-// unavailable 组装结构化降级错误：哨兵 + 阶段 + 工具名 + 处置指引。
 func (in *Injector) unavailable(stage string, err error) error {
 	return fmt.Errorf("%w: %s（工具 %s，处置：%s）: %v", ErrUnavailable, stage, in.clip.name, in.clip.hint, err)
 }
 
-// runCmd 以 3s 超时执行单个剪贴板子进程。
 func runCmd(r Runner, name string, stdin []byte, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
 	defer cancel()

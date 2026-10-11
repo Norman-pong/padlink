@@ -1,8 +1,6 @@
-// 连接管理（FR-6）：状态机 + 1Hz TCP 心跳 + 指数退避重连。
-// 状态：IDLE / DISCOVERING / PAIRING（M2 页面流接入）/ CONNECTED / RECONNECTING / LOST（M1 手动 connect 直达 CONNECTED）。
-// 失联判定：心跳 1Hz，连续 3 个窗口（各 1s）无回包 → RECONNECTING；
-// 退避 1/2/4/8/15s 封顶，连续 8 次重连失败 → LOST（释放一切，等待手动重连）。
-// 状态/RTT 经 @ObservedV2/@Trace 快照暴露给 UI；时间源统一 new Date().getTime()（系统 API）。
+// 连接管理：状态机 + 1Hz TCP 心跳 + 指数退避重连。
+// 失联判定：连续 3 个 1s 窗口无回包 → RECONNECTING；退避 1/2/4/8/15s 封顶，连续 8 次失败 → LOST（释放一切等手动重连）。
+// 状态/RTT 经 @ObservedV2/@Trace 快照暴露给 UI。
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { NoticeCode, PacketType } from '../proto/PacketType';
@@ -14,59 +12,48 @@ import { ResError } from '../ResError';
 const TAG: string = 'PadLink.ConnMgr';
 const DOMAIN: number = 0x5050;
 
-// 错误文案入资源参数前必须落为字符串：socket/网络回调可能不带 message（undefined），
-// 而后端资源框架对非字符串参数抛 9001008，调用点又在 build 内 → 直接杀进程。
+// 错误文案入资源参数前必须落为字符串：socket 回调的 message 可能 undefined，
+// 资源框架对非字符串参数抛 9001008，调用点又在 build 内 → 直接杀进程。
 function errText(err: Error): string {
   const msg: string | undefined = err.message;
   return msg !== undefined ? msg : '';
 }
 
-// 心跳与重连参数（PRD §4.7：1Hz ECHO、3 次超时判失联、退避 1/2/4/8…上限 15s）。
 export class ConnPolicy {
   public static readonly HEARTBEAT_INTERVAL_MS: number = 1000;
   public static readonly MAX_MISSED: number = 3;
   public static readonly HELLO_TIMEOUT_MS: number = 3000;
   public static readonly BACKOFF_MS: number[] = [1000, 2000, 4000, 8000, 15000];
   public static readonly MAX_RECONNECT_FAILURES: number = 8;
-  // 控制权冷静期倒计时刷新间隔（1Hz：文案按秒显示，无需更高频）。
   public static readonly CTRL_BUSY_TICK_MS: number = 1000;
 }
 
-// 状态机状态（readonly 常量类，同 GestureStateName 风格；不占位的不用 TS enum）。
+// 状态常量（不用 TS enum：纯逻辑层须 node 可直跑）。
 export class ConnState {
-  // 空闲（未连接 / 已手动断开）。
   public static readonly IDLE: number = 0;
-  // 发现中（M2 接入：UDP 广播搜索主机）。
   public static readonly DISCOVERING: number = 1;
-  // 配对中（M2 接入：PAIR_REQ 握手）。
   public static readonly PAIRING: number = 2;
-  // 已连接（HELLO 握手完成，心跳正常）。
   public static readonly CONNECTED: number = 3;
-  // 重连中（心跳超时/TCP 断开，指数退避重试）。
   public static readonly RECONNECTING: number = 4;
-  // 失联（重连失败达上限，已释放一切资源，需手动重连）。
+  // 重连失败达上限：已释放一切资源，需手动重连。
   public static readonly LOST: number = 5;
 }
 
-// UI 可观察快照：字段仅由 ConnectionManager 写入（UI 只读），@Trace 驱动刷新。
+// UI 可观察快照：字段仅由 ConnectionManager 写入（UI 只读）；@Trace 是刷新驱动，字段缺了它写入不触发 UI 更新。
 @ObservedV2
 export class ConnectionState {
   @Trace state: number = ConnState.IDLE;
-  // 最近一次 ECHO 往返毫秒；-1 表示未知（未连接/尚无回包）。
   @Trace rttMs: number = -1;
-  // 最近一次失败原因（string.json 资源键 + 参数，页面解析为当前语言文案；''= 无）。
+  // string.json 资源键 + 参数（页面解析文案）；空串 = 无。
   @Trace lastErrorKey: string = '';
   @Trace lastErrorParams: string[] = [];
-  // 当前重连轮次（1 起；CONNECTED 时归零）。
   @Trace reconnectAttempt: number = 0;
-  // 控制权冷静期剩余秒数（>0 = 本机输入正被其他设备占用，主控页据此常驻倒计时；
-  // 由 daemon NOTICE(0, 剩余秒数) 驱动，本端按 1Hz 递减，断开/换会话即清零）。
+  // 控制权冷静期剩余秒数（>0 = 本机输入被其他设备占用；主控页据此常驻倒计时）。
+  // 由 daemon NOTICE(0, 剩余秒数) 驱动，本端按 1Hz 递减，断开/换会话即清零。
   @Trace ctrlBusyLeftSec: number = 0;
 }
 
-// RTT 观察者（调试面板 echo 自测用）。
 export type RttListener = (rttMs: number) => void;
-// PAIR_* / DISCOVER_RESP 观察者（M2 配对流预留）。
 export type PairPacketListener = (pkt: Packet) => void;
 
 export class ConnectionManager {
@@ -86,7 +73,6 @@ export class ConnectionManager {
   private epoch: number = 0;
   private helloWaiter: ((ok: boolean) => void) | null = null;
   private rttListeners: RttListener[] = [];
-  // 控制权冷静期倒计时定时器（-1 = 未计时；会话结束/断开即清）。
   private ctrlBusyTimer: number = -1;
   public onPairPacket: PairPacketListener | null = null;
 
@@ -94,13 +80,11 @@ export class ConnectionManager {
     this.transport.onPacket = (pkt: Packet) => {
       this.handlePacket(pkt);
     };
-    // 注意：TCP 断开回调不在这里挂。旧 socket 的 close/error 是异步到达的，若回调只在
-    // 构造时挂一次，就会被当成"当前会话断开"——实测切换主机后新会话 20ms 内被判断开、
-    // 随后被重连循环拉回旧主机（表现为"切换不生效"）。改由 beginSession 后的 bindTcpEvents
-    // 按会话代次挂载，旧会话的事件一律丢弃。
+    // TCP 断开回调不在此挂：旧 socket 的 close/error 异步到达，只在构造时挂一次会被
+    // 当成「当前会话断开」；改由 beginSession 后的 bindTcpEvents 按会话代次挂载。
   }
 
-  // 按会话挂载 TCP 事件回调：闭包捕获本会话代次，代次不符即丢弃（旧会话残留事件）。
+  // 按会话挂载 TCP 事件回调：闭包捕获本会话代次，代次不符即丢弃。
   private bindTcpEvents(myEpoch: number): void {
     this.transport.tcp.onClosed = () => {
       if (this.epoch !== myEpoch) {
@@ -128,7 +112,6 @@ export class ConnectionManager {
     return this.snapshot.state === ConnState.CONNECTED;
   }
 
-  // 注册/移除 RTT 监听（调试面板）。
   public addRttListener(cb: RttListener): void {
     this.rttListeners.push(cb);
   }
@@ -140,10 +123,8 @@ export class ConnectionManager {
     }
   }
 
-  // ---- 控制权冷静期倒计时（daemon NOTICE 驱动，主控页常驻展示） ----
 
-  // 本机输入被其他设备占用：按 daemon 给出的剩余秒数起倒计时；
-  // 已在倒计时则只刷新剩余值（每轮冷静期各收到一次 NOTICE，不重复起定时器）。
+  // 按 daemon 给出的剩余秒数起倒计时；已在倒计时则只刷新剩余值（每轮冷静期只收一次 NOTICE）。
   private startCtrlBusy(leftSec: number): void {
     this.snapshot.ctrlBusyLeftSec = leftSec > 0 ? Math.floor(leftSec) : 1; // arg=0（未知）按 1 秒兜底
     if (this.ctrlBusyTimer >= 0) {
@@ -166,8 +147,8 @@ export class ConnectionManager {
     this.snapshot.ctrlBusyLeftSec = 0;
   }
 
-  // 手动连接（M1）：TCP 建连 + HELLO 握手 → CONNECTED → 心跳。失败抛错（文案进 UI 提示）。
-  // autoRetry=true（FR-6 静默自动重连）：首连失败不抛错、不回 IDLE，转入 RECONNECTING 退避重试。
+  // 手动连接：TCP 建连 + HELLO 握手 → CONNECTED → 心跳；失败抛 ResError。
+  // autoRetry=true（静默自动重连）：首连失败不抛错、不回 IDLE，转入 RECONNECTING 退避重试。
   public async connect(host: string, port: number, udpPort: number, token: Uint8Array,
     autoRetry: boolean = false): Promise<void> {
     const myEpoch: number = this.beginSession();
@@ -179,7 +160,7 @@ export class ConnectionManager {
     this.snapshot.lastErrorKey = '';
     this.snapshot.lastErrorParams = [];
     this.snapshot.rttMs = -1;
-    // 连接进行中保持 IDLE：加载态由发起页（手动连接区）自管 connecting 标志。
+    // 连接进行中保持 IDLE：加载态由发起页自管 connecting 标志。
     try {
       await this.transport.open(host, udpPort, port);
     } catch (err) {
@@ -212,8 +193,8 @@ export class ConnectionManager {
     this.enterConnected();
   }
 
-  // 无 token 配对连接（M2）：TCP 建连 + 未认证 HELLO 握手 → PAIRING（不启动心跳——
-  // ECHO 属认证语义，须待 completePairing 绑定新 token 后开始）。失败抛错回 IDLE。
+  // 无 token 配对连接：建连 + 未认证 HELLO 握手 → PAIRING，不启动心跳
+  //（tokenless ECHO 会触发 daemon ERR 断连），待 completePairing 绑定 token 后开始。
   public async connectForPairing(host: string, port: number, udpPort: number): Promise<void> {
     const myEpoch: number = this.beginSession();
     this.bindTcpEvents(myEpoch);
@@ -257,7 +238,6 @@ export class ConnectionManager {
     this.enterConnected();
   }
 
-  // 手动断开：best-effort BYE 后释放一切，回 IDLE。
   public disconnect(): void {
     this.beginSession();
     try {
@@ -274,14 +254,13 @@ export class ConnectionManager {
     this.snapshot.reconnectAttempt = 0;
   }
 
-  // ---- 内部状态迁移 ----
 
   // 开启新会话：清定时器/旧 socket，递增代次使在途回调失效。
   private beginSession(): number {
     this.epoch++;
     hilog.info(DOMAIN, TAG, 'beginSession #%{public}d（旧会话定时器/套接字作废）', this.epoch);
     // 旧会话的心跳与重连定时器必须随会话一起停：它们只有状态守卫、没有代次守卫，
-    // 继续运行会驱动/打断新会话（切换主机时的竞态来源之一）。
+    // 继续运行会驱动/打断新会话。
     this.stopHeartbeat();
     if (this.reconnectTimer >= 0) {
       clearTimeout(this.reconnectTimer);
@@ -310,7 +289,7 @@ export class ConnectionManager {
     this.startHeartbeat();
   }
 
-  // 首连失败转重连（FR-6 autoRetry）：释放 socket 后进 RECONNECTING 退避循环（至多 MAX_RECONNECT_FAILURES → LOST）。
+  // 首连失败转重连：释放 socket 后进 RECONNECTING 退避（至多 8 轮 → LOST）。
   private enterReconnectingFromInitial(reasonKey: string, reasonParams: string[] = []): void {
     this.teardown(true);
     this.snapshot.state = ConnState.RECONNECTING;
@@ -363,7 +342,7 @@ export class ConnectionManager {
       if (!helloOk) {
         throw new ResError('conn_hello_timeout', [], '握手超时');
       }
-      // 首连失败路径可能已 teardown(true) 关闭 UDP 数据面，重连成功前补开（保持 MOVE/SCROLL 通道）
+      // 首连失败路径可能已 teardown 关闭 UDP 数据面，重连成功前补开（保持 MOVE/SCROLL 通道）
       this.transport.udp.reset();
       await this.transport.udp.open();
       if (this.epoch !== myEpoch) {
@@ -499,7 +478,7 @@ export class ConnectionManager {
     if (pkt.type === PacketType.PAIR_REQ || pkt.type === PacketType.PAIR_OK
       || pkt.type === PacketType.PAIR_NAK || pkt.type === PacketType.DISCOVER_RESP) {
       if (this.onPairPacket !== null) {
-        this.onPairPacket(pkt); // M2 配对/发现流预留
+        this.onPairPacket(pkt);
       }
     }
   }

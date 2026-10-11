@@ -7,8 +7,7 @@ import (
 
 // 多击合成默认值。
 const (
-	// DefaultDoubleClickInterval 相邻两次按下的最大间隔（macOS 系统默认双击间隔 0.5s）。
-	// Linux 侧多击由内核/合成器按时序自行判定，本值不参与注入。
+	// DefaultDoubleClickInterval 相邻两次按下的最大间隔；Linux 侧多击判定不消费本值。
 	DefaultDoubleClickInterval = 500 * time.Millisecond
 	// DefaultDoubleClickDistance 判定"同一位置点击"的最大指针位移（计数）。
 	DefaultDoubleClickDistance = 8
@@ -22,13 +21,12 @@ type PointerState struct {
 	ButtonsDown uint8 // 当前按住的按钮位掩码：1=左 2=中 4=右
 }
 
-// clickTracker 合成多击点击序号：同键、限时（interval）、限距（distance）的连续按下递增计数。
+// clickTracker 合成多击点击序号：同键、限时（interval）、限距（distance）的连续按下递增计数；
 // 时钟由调用方传入（纯逻辑，可在任意平台单测）。
 //
-// 平台差异：现代 Linux 桌面（Wayland/GTK）由内核时间戳 + 合成器/工具包自行判定多击与拖拽，
-// uinput 后端不消费本计数；macOS 合成的 CGEvent 不会由 WindowServer 补算点击序号，
-// 应用侧 NSEvent.clickCount 恒为 1（双击打开文件、三击选段全部失效），
-// 必须显式写 kCGMouseEventClickState（Apple: 1=单击 2=双击 3=三击）。
+// 平台差异：Linux 桌面由内核时间戳 + 合成器/工具包判定多击与拖拽，uinput 后端不消费本计数；
+// macOS 的 CGEvent 不会由 WindowServer 补算序号，应用侧 clickCount 恒为 1，必须显式写
+// kCGMouseEventClickState。
 type clickTracker struct {
 	interval time.Duration
 	distance float64
@@ -50,13 +48,11 @@ func newClickTracker(interval time.Duration, distance int32) *clickTracker {
 	return &clickTracker{interval: interval, distance: float64(distance)}
 }
 
-// moved 累积指针位移（判"同位置"用；按下时归零）。
 func (c *clickTracker) moved(dx, dy int32) {
 	c.dx += float64(dx)
 	c.dy += float64(dy)
 }
 
-// press 记录一次按下并返回本次点击序号。
 func (c *clickTracker) press(btn uint8, now time.Time) PointerState {
 	bit := buttonBit(btn)
 	if bit == 0 {
@@ -67,7 +63,7 @@ func (c *clickTracker) press(btn uint8, now time.Time) PointerState {
 		now.Sub(c.lastDown) <= c.interval &&
 		math.Hypot(c.dx, c.dy) <= c.distance
 	if contiguous {
-		// 同一轮多击持续封顶在 3：第 4 次快速点击不重开新序列（应用侧按三击处理最稳）。
+		// 封顶在 3：第 4 次快速点击不重开新序列（应用侧按三击处理最稳）。
 		count = c.count + 1
 		if count > MaxClickCount {
 			count = MaxClickCount

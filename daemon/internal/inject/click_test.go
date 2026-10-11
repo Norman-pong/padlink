@@ -128,8 +128,7 @@ func TestClickTrackerButtonsDown(t *testing.T) {
 	}
 }
 
-// Injector 必须把合成结果交给后端（darwin 写 kCGMouseEventClickState），
-// 且位移帧携带当前按住状态（darwin 选 mouseDragged 事件类型）。
+// Injector 必须把合成结果交给后端，且位移帧携带当前按住状态（darwin 选 mouseDragged）。
 func TestInjectorForwardsPointerState(t *testing.T) {
 	w := &fakeDeviceWriter{}
 	in := NewInjector(w, Config{DoubleClickInterval: time.Hour}) // 拉长窗口便于稳定双击

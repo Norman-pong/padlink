@@ -13,10 +13,9 @@ import (
 )
 
 // Device 是 macOS Quartz CGEvent 注入后端，实现 inject.DeviceWriter。
-// 与 Linux uinput 后端的语义差异（docs/PLAN-MACOS.md §2.2/§2.3）：
-// REL 事件先入缓冲、Sync 时合成一次绝对定位 post（OS 加速曲线不作用于绝对定位）；
-// legacy REL_WHEEL 忽略，像素滚轮只从 REL_WHEEL_HI_RES 单边推导，双发会重复滚动；
-// 按钮与拖拽必须显式携带点击序号与 mouseDragged 类型（见 SetPointerState / Sync）。
+// 与 Linux uinput 后端的语义差异：REL 事件先入缓冲、Sync 时合成一次绝对定位 post
+// （OS 加速曲线不作用于绝对定位）；legacy REL_WHEEL 忽略，像素滚轮只从 REL_WHEEL_HI_RES
+// 单边推导，双发会重复滚动；按钮与拖拽必须显式携带点击序号与 mouseDragged 类型。
 type Device struct {
 	mu    sync.Mutex
 	dx    int32  // 待合成 REL_X 累积
@@ -27,14 +26,11 @@ type Device struct {
 	click inject.PointerState
 }
 
-// TCC 辅助功能授权等待：弹窗后轮询直到授权；不设超时——launchd 场景下超时会引发
-// 退出/重启反复弹窗，前台场景用户可自行 Ctrl+C 中断。
+// TCC 辅助功能授权轮询间隔。不设超时退出：launchd KeepAlive 下会被立刻拉起、反复弹窗。
 const axPollInterval = 500 * time.Millisecond
 
-// Open 过 TCC 辅助功能门控后返回后端。未授权时 CGEvent 注入被系统静默丢弃
-// （PoC 实测），所以先弹系统授权框再驻留轮询授权，而不是带病启动。
-// 提示文案要可操作：app bundle 安装时列表里的条目名是 PadLink，开发/裸二进制运行时是二进制名；
-// 若条目已开仍停在此处，几乎都是旧签名（ad-hoc 时代）留下的同名残留条目在挡路。
+// Open 过 TCC 辅助功能门控后返回后端：未授权时 CGEvent 注入被系统静默丢弃，
+// 所以先弹系统授权框再驻留轮询，而不是带病启动。
 func Open() (*Device, error) {
 	if quartz.Trusted(false) {
 		return &Device{}, nil
@@ -67,17 +63,15 @@ func Open() (*Device, error) {
 	}
 }
 
-// SetPointerState 记录 inject 层合成的点击序号与按住按钮位。
-// CGEvent 的 kCGMouseEventClickState 不会由 WindowServer 补算：不写该字段时
-// 应用侧 clickCount 恒为 1，双击打开文件/三击选段失效（Apple CGEventField 文档 + 实测）。
+// SetPointerState 记录 inject 层合成的点击序号与按住按钮位。CGEvent 的 kCGMouseEventClickState
+// 不会由 WindowServer 补算：不写该字段时应用侧 clickCount 恒为 1，双击/三击失效。
 func (d *Device) SetPointerState(st inject.PointerState) {
 	d.mu.Lock()
 	d.click = st
 	d.mu.Unlock()
 }
 
-// DoubleClickInterval 返回系统"双击速度"设置（NSEvent.doubleClickInterval）；
-// 取不到时返回 0，由调用方回落 inject.DefaultDoubleClickInterval。
+// DoubleClickInterval 返回系统"双击速度"设置；取不到时返回 0，由调用方回落默认值。
 func DoubleClickInterval() time.Duration { return quartz.DoubleClickInterval() }
 
 // KeyEvent 投递键盘/鼠标按钮事件；value 非 0 即按下（含连发值 2）。
@@ -95,8 +89,8 @@ func (d *Device) KeyEvent(code uint16, value int32) error {
 	return quartz.PostKey(kc, value != 0, d.trackMod(code, value != 0))
 }
 
-// trackMod 更新按住修饰键状态并返回本事件应携带的 flags：
-// 修饰键自身按下含自身位、抬起不含（同物理键盘）；非修饰键原样返回当前掩码。
+// trackMod 更新按住修饰键状态并返回本事件应携带的 flags：修饰键自身按下含自身位、抬起不含
+// （同物理键盘）；非修饰键原样返回当前掩码。
 func (d *Device) trackMod(code uint16, down bool) uint64 {
 	bit, isMod := cgModFlag(code)
 	d.mu.Lock()
@@ -123,7 +117,7 @@ func (d *Device) RelEvent(code uint16, value int32) error {
 	case inject.RelWheelHiRes:
 		d.wheel += value
 	case inject.RelWheel:
-		// 帧内 legacy 补发是 Linux 内核惯例，darwin 只消费 HI_RES
+		// legacy 补发是 Linux 内核惯例，darwin 只消费 HI_RES（双发会重复滚动）
 	default:
 		return fmt.Errorf("uinput(darwin): 未知 REL code %d", code)
 	}
@@ -160,8 +154,7 @@ func (d *Device) Sync() error {
 // Close darwin 后端无设备句柄，空操作。
 func (d *Device) Close() error { return nil }
 
-// hiResToPixels 把 1/120 格换算为像素：1 格≈53px（Mac 触控板行滚手感起步值，
-// 手感系数由 M-1/M-4 真机实测校准，docs/PLAN-MACOS.md §2.3）。非零输入保底 ±1px。
+// hiResToPixels 把 1/120 格换算为像素：1 格≈53px（手感系数起步值）。非零输入保底 ±1px。
 func hiResToPixels(hiRes int32) int32 {
 	px := hiRes * 53 / 120
 	if px == 0 && hiRes != 0 {
@@ -173,8 +166,6 @@ func hiResToPixels(hiRes int32) int32 {
 	return px
 }
 
-// CapsLockActive 恒 false：macOS 无需大写锁补偿。
-// 实测：注入 CapsLock 打开主机大写锁后，再注入 a/b/c（不带 Shift）仍得到 abc——
-// 合成 CGEvent 携带显式 flags，不经过系统的大写锁改写。保留函数是为了让
-// main 无需按平台分支装配 Config（两端接口一致）。
+// CapsLockActive 恒 false：合成 CGEvent 携带显式 flags，不经过系统大写锁改写，无需补偿。
+// 保留函数是为了让 main 无需按平台分支装配 Config。
 func CapsLockActive() bool { return false }

@@ -22,8 +22,6 @@ import (
 	"padlink/daemon/internal/proto"
 )
 
-// ---- fake DeviceWriter ----
-
 type evKind uint8
 
 const (
@@ -95,8 +93,6 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 var _ inject.DeviceWriter = (*capture)(nil)
 
-// ---- 测试服务器装具 ----
-
 type testSrv struct {
 	srv   *Server
 	store *pairing.Store
@@ -135,10 +131,7 @@ func newTestServer(t *testing.T, mutate func(*Config)) *testSrv {
 	return &testSrv{srv: srv, store: store, pair: mgr, cap: cap}
 }
 
-// ---- TCP 测试客户端 ----
-
-// TestPortZeroEphemeral 钉住 Start 的承诺：Config.Port=0 绑定系统临时端口
-// （此前 New 误归一成 DefaultPort，文档与行为矛盾且并行测试互抢 53021）。
+// TestPortZeroEphemeral 钉住 Config.Port=0 绑定系统临时端口（不得归一成 DefaultPort）。
 func TestPortZeroEphemeral(t *testing.T) {
 	ts := newTestServer(t, nil)
 	if p := ts.srv.Port(); p <= 0 || p == DefaultPort {
@@ -233,14 +226,11 @@ func (c *tcpClient) expectEOF(timeout time.Duration) {
 	c.t.Fatalf("期望连接关闭，实得 %v", err)
 }
 
-// ---- 用例 ----
-
 func TestFullPairFlow(t *testing.T) {
 	ts := newTestServer(t, nil)
 	c := dialTCP(t, ts.srv.Port())
 	c.hello(1, 1)
 
-	// 发起配对：JSON 名字
 	c.send(proto.NewRaw(proto.TypePairReq, 2, []byte(`{"name":"测试手机"}`)))
 	// 发起成功不回包
 	if _, err := c.recv(250 * time.Millisecond); !errors.Is(err, os.ErrDeadlineExceeded) {
@@ -283,7 +273,7 @@ func TestFullPairFlow(t *testing.T) {
 	if reply.Echo.TsMs != 1234567890 {
 		t.Errorf("ECHO payload 往返不一致: %d", reply.Echo.TsMs)
 	}
-	if reply.Seq != okPkt.Seq+1 { // 回包 seq 自增（HELLO/PAIR_OK 之后）
+	if reply.Seq != okPkt.Seq+1 {
 		t.Errorf("ECHO 回包 seq = %d, want %d", reply.Seq, okPkt.Seq+1)
 	}
 	if !proto.VerifyHMAC(&reply, token) {
@@ -360,7 +350,6 @@ func TestDuplicateHelloAndDiscoverOnTCP(t *testing.T) {
 	token := prepair(t, ts)
 	c := dialTCP(t, ts.srv.Port())
 	c.hello(1, 1)
-	// 认证绑定
 	echo := proto.NewEcho(1, 1)
 	proto.Seal(&echo, token)
 	c.send(echo)
@@ -598,7 +587,6 @@ func TestUDPMoveAndEcho(t *testing.T) {
 		return ts.cap.count(evRel, 0, 12) == 1 && ts.cap.count(evRel, 1, -34) == 1 && ts.cap.count(evRel, 11, 240) == 1
 	})
 
-	// UDP ECHO 回传
 	uc.SetReadDeadline(time.Now().Add(2 * time.Second))
 	sendUDP(proto.NewEcho(3, 777))
 	buf := make([]byte, 2048)
@@ -635,8 +623,6 @@ func TestUDPMoveAndEcho(t *testing.T) {
 	}
 	waitFor(t, "错包不注入", func() bool { return ts.cap.count(evRel, 0, 99) == 0 })
 }
-
-// ---- 辅助 ----
 
 // prepair 直接经存储预置一个已配对客户端，返回其 token。
 func prepair(t *testing.T, ts *testSrv) []byte {

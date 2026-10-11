@@ -1,10 +1,10 @@
 # 安装与使用指南
 
-> 本文档为仓库侧完整版。APP 内置同款浓缩向导（发现页空态「电脑还没装服务端？」入口 / 设置 → 关于 → 服务端安装指南），两处内容改动需同步。
-
 面向**使用者**：在电脑上装好服务端（padlinkd），手机 APP 才能找到电脑、配对并控制。全部通信仅在局域网内进行，不经过任何云端。
 
 支持平台：**Ubuntu 26.04（GNOME Wayland，正式支持）**、**macOS（Apple Silicon / Intel）**。其他 Linux 发行版可用 tar.gz 安装，但不承诺兼容性。
+
+> APP 内置同款浓缩向导（发现页空态「电脑还没装服务端？」入口 / 设置 → 关于 → 服务端安装指南），两处内容改动需同步。
 
 ## 一、在电脑上安装服务端
 
@@ -16,46 +16,43 @@
 curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 ```
 
-脚本自动识别系统与架构，下载最新 Release 安装包、校验 SHA-256 后完成安装（Ubuntu 仅 udev 规则一步需要 sudo 密码）。装完后按平台收尾：
+脚本自动识别系统与架构，下载最新 Release 安装包、校验 SHA-256 后完成安装（Ubuntu 仅 udev 规则一步需要 sudo 密码）。
 
-- **Ubuntu**：**注销并重新登录**（首次安装必须，否则注入权限不生效）；语音听写再装 `sudo apt install wl-clipboard`；建议 `gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'`。
-- **macOS**：允许首次运行弹出的两项授权——「辅助功能」与「接受传入连接」。
+**Ubuntu 收尾**：
 
-`padlinkctl status` 能看到版本号即安装成功。以下为手动安装（备选）。
-
-### Ubuntu 26.04（手动安装）
-
-1. 从 GitHub Releases 下载对应包：
-   - **deb**（推荐）：`sudo apt install ./padlink_<版本>_linux_amd64.deb`
-   - **rpm**：`sudo dnf install ./padlink_<版本>_linux_x86_64.rpm`
-   - **tar.gz**：解压后在包根目录执行 `./install.sh`
-2. **首次安装后注销并重新登录**（/dev/uinput 的访问权限在登录时附加，不注销不生效）。
-3. 启动并设为开机自启：
-
-   ```sh
-   systemctl --user enable --now padlink
-   padlinkctl status        # 能看到版本号即正常
-   ```
-
-4. 语音听写依赖（不装则语音上屏功能降级，其余不受影响）：
-
-   ```sh
-   sudo apt install wl-clipboard
-   ```
-
-5. 建议把指针加速设为 flat（GNOME 默认曲线会与手机端灵敏度叠加；daemon 检测到非 flat 会在日志里警告）：
+1. **注销并重新登录**（首次安装必须，否则注入权限不生效）。
+2. 语音听写再装 `sudo apt install wl-clipboard`（不装则语音上屏降级，其余不受影响）。
+3. 建议关闭指针加速——GNOME 默认曲线会与手机端灵敏度叠加（daemon 检测到非 flat 会在日志里警告）：
 
    ```sh
    gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'
    ```
 
-### macOS（手动安装）
+**macOS 收尾**：首次运行系统会各弹一次授权窗，**两项都必须允许**：
 
-1. 从 GitHub Releases 下载 `padlink_<版本>_darwin_<arch>.tar.gz`（arm64 = Apple Silicon，amd64/x86_64 = Intel），解压后在包根目录执行 `./install.sh`（全程无需 sudo）。
-2. 首次运行系统会各弹一次授权窗，**两项都必须允许**：
-   - **辅助功能**（系统设置 → 隐私与安全性 → 辅助功能）：不授权则注入的键鼠事件被系统静默丢弃，表现为「连上了但光标不动」；
-   - **接受传入连接**：不授权则手机搜不到/连不上本机。
-3. 日志在 `~/Library/Logs/padlinkd.log`；`padlinkctl status` 可验证运行状态。
+- **辅助功能**（系统设置 → 隐私与安全性 → 辅助功能）：不授权则注入的键鼠事件被系统静默丢弃，表现为「连上了但光标不动」；
+- **接受传入连接**：不授权则手机搜不到、连不上本机。
+
+日志在 `~/Library/Logs/padlinkd.log`。
+
+装好后 `padlinkctl status` 能看到版本号即安装成功。
+
+### 手动安装（备选）
+
+**Ubuntu 26.04**：从 GitHub Releases 下载对应包
+
+- **deb**（推荐）：`sudo apt install ./padlink_<版本>_linux_amd64.deb`
+- **rpm**：`sudo dnf install ./padlink_<版本>_linux_x86_64.rpm`
+- **tar.gz**：解压后在包根目录执行 `./install.sh`
+
+然后启动并设为开机自启，再按上面的 Ubuntu 收尾三步执行：
+
+```sh
+systemctl --user enable --now padlink
+padlinkctl status        # 能看到版本号即正常
+```
+
+**macOS**：下载 `padlink_<版本>_darwin_<arch>.tar.gz`（arm64 = Apple Silicon，amd64/x86_64 = Intel），解压后在包根目录执行 `./install.sh`（全程无需 sudo），再按上面的 macOS 收尾授权。
 
 ### 验证服务端（可选，无手机自测）
 
@@ -116,7 +113,7 @@ padlinkctl uninstall --dry-run   # 先看会做什么，不实际执行
 | 配对失败：客户端已满 | 该电脑已配满 4 台 | 电脑 `padlinkctl clients` 后 `unpair` 一台 |
 | 连上了但光标不动（macOS） | 辅助功能未授权 | 系统设置 → 隐私与安全性 → 辅助功能，勾选 padlinkd 后重启它 |
 | 语音说完不上屏（Ubuntu） | 缺 wl-clipboard | `sudo apt install wl-clipboard` |
-| 光标手感「发飘」 | GNOME 指针加速非 flat | 见一.5 的 gsettings 命令 |
+| 光标手感「发飘」 | GNOME 指针加速非 flat | 见一.3 的 gsettings 命令 |
 | 断线后连不上 | WiFi 切换/路由器丢包 | 等待自动重连（约 30 秒内），或回发现页重新连接 |
 | 操作没反应，页面顶部常驻「另一台设备正在控制 / N 秒后可接管」 | 同一台电脑同时连了多台手机，控制权在另一台 | 等倒计时结束且另一台停下后再操作（会自动接管），或让另一台断开 |
 | 双击打不开文件 / 拖不动文件 | 旧版 padlinkd（合成事件缺点击序号与拖拽类型） | 电脑端升级到最新 Release 后重启 padlinkd |

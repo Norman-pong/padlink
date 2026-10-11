@@ -57,7 +57,7 @@ func (r *recorder) snapshot() []string {
 	return append([]string(nil), r.ops...)
 }
 
-// newInjector 钉住 wlClipboard：wl-* 命令序列断言与运行平台无关（darwin 宿主机同样覆盖 Linux 逻辑）。
+// newInjector 钉住 wlClipboard：New 的默认后端随宿主机平台变化，不钉住则 wl-* 断言在 darwin 上失效。
 func newInjector(fr *fakeRunner, rec *recorder, delay time.Duration) *Injector {
 	in := New(fr, func() error { rec.add("ctrlv"); return nil }, delay)
 	in.clip = wlClipboard
@@ -83,7 +83,6 @@ func TestInjectCommandSequence(t *testing.T) {
 		t.Fatalf("Inject: %v", err)
 	}
 
-	// 命令序列与参数逐项断言（7 步：list-types → 备份 → 写入 → CtrlV → 延迟 → 恢复）
 	calls := fr.recorded()
 	if len(calls) != 4 {
 		t.Fatalf("命令数 = %d, want 4:\n%+v", len(calls), calls)
@@ -105,7 +104,6 @@ func TestInjectCommandSequence(t *testing.T) {
 	if len(ops) != 1 || ops[0] != "ctrlv" {
 		t.Fatalf("CtrlV 调用 = %v, want 恰一次", ops)
 	}
-	// 顺序：run[2]（写入）→ ctrlv → run[3]（恢复）由上断言覆盖次序约束：
 	if len(calls) == 4 && calls[3].name != "wl-copy" {
 		t.Fatal("恢复命令缺失")
 	}
@@ -202,8 +200,7 @@ func TestInjectRestoreFail(t *testing.T) {
 	}
 }
 
-// 空剪贴板（无选择内容）不是工具故障：wl-paste --list-types 退出 1 打印 "Nothing is copied"，
-// 注入必须照常完成，且收尾清空选择——否则中文/语音输入在空剪贴板下会全部静默失败。
+// 空剪贴板不是工具故障：注入必须照常完成并收尾清空选择，否则中文/语音输入会静默失败。
 func TestInjectProceedsWhenClipboardEmpty(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		if i == 0 {
@@ -238,7 +235,7 @@ func TestInjectProceedsWhenClipboardEmpty(t *testing.T) {
 	}
 }
 
-// 备份间隙选择消失（list-types 成功但备份报无内容）同样按空剪贴板收尾，不能降级掉整次注入。
+// 备份间隙选择消失同样按空剪贴板收尾，不能降级掉整次注入。
 func TestInjectTreatedEmptyWhenBackupLosesSelection(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		switch i {
@@ -296,9 +293,8 @@ func TestInjectTimeoutContext(t *testing.T) {
 	}
 }
 
-// ExecRunner 不得被孙进程持有的输出管道挂住：wl-copy 写完剪贴板后 fork 常驻子进程并退出，
-// 孙进程继承 stderr；若 Stdout/Stderr 用 bytes.Buffer（os/exec 建管道 + 复制 goroutine），
-// Wait 会一直等 EOF，直接子进程的 3s 超时对其无效 → 注入 worker 卡死。
+// ExecRunner 不得被孙进程持有的输出管道挂住：用 bytes.Buffer 时 os/exec 建管道 + 复制
+// goroutine，Wait 要等 EOF，而 wl-copy fork 的常驻孙进程继承 stderr → 注入 worker 卡死。
 func TestExecRunnerNotBlockedByOrphanChild(t *testing.T) {
 	done := make(chan string, 1)
 	go func() {
@@ -347,10 +343,7 @@ func TestAvailable(t *testing.T) {
 	}
 }
 
-// ---- macOS pbcopy/pbpaste 后端 ----
-
-// darwin 命令序列：备份(pbpaste) → 写入(pbcopy) → CmdV → 延迟 → 恢复(pbcopy)。
-// darwin 无环境门槛：Env 全空也应可用。
+// darwin 命令序列：备份(pbpaste) → 写入(pbcopy) → CmdV → 延迟 → 恢复(pbcopy)；无环境门槛。
 func TestInjectDarwinSequence(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		if i == 0 { // 备份
@@ -410,11 +403,9 @@ func TestInjectDarwinDegradesOnBackupFail(t *testing.T) {
 	}
 }
 
-// ---- 两端共同契约：备份不到内容就取消注入、绝不覆盖剪贴板 ----
-// 实测依据（macOS 26 真机）：pbpaste 对"真·清空/只有图片/空串文本"三种状态一律退 0 输出空串，
-// 只能靠 osascript 的类型表区分；Linux 侧 wl-paste 读非文本内容退 1（推断输出类型不可用）。
+// 两端共同契约回归：备份不到内容就取消注入，绝不覆盖剪贴板。
 
-// darwin 空粘贴板（类型表为空 = 真·无内容）：照常注入，收尾写空。
+// darwin 真·空粘贴板：照常注入，收尾写空。
 func TestInjectDarwinProceedsWhenPasteboardEmpty(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		return nil, nil // pbpaste 空 + osascript 空
@@ -448,7 +439,7 @@ func TestInjectDarwinProceedsWhenPasteboardEmpty(t *testing.T) {
 	}
 }
 
-// darwin 空文本粘贴板（类型表有文本类型、内容为空串）：同"无内容"处理，照常注入。
+// darwin 空文本粘贴板（类型表有文本类型、内容为空串）：同"无内容"处理。
 func TestInjectDarwinProceedsWhenPasteboardHoldsEmptyText(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		if i == 1 {
@@ -479,7 +470,6 @@ func TestInjectDarwinProceedsWhenPasteboardHoldsEmptyText(t *testing.T) {
 }
 
 // darwin 非文本粘贴板（只有图片）：备份不到 → 取消注入，且一次 pbcopy 都不能有。
-// 这是"绝不覆盖用户剪贴板"的核心断言：旧实现会把图片抹成空文本。
 func TestInjectDarwinKeepsNonTextPasteboard(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		if c.name == "osascript" {
@@ -530,7 +520,7 @@ func TestInjectDarwinDegradesWhenTypeQueryFails(t *testing.T) {
 	}
 }
 
-// linux 非文本选择（图片）：list-types 有 MIME 但读取退 1 → 取消注入、不动剪贴板。
+// linux 非文本选择：list-types 有 MIME 但读取失败 → 取消注入、不动剪贴板。
 func TestInjectWlKeepsNonTextSelection(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		if i == 0 {
@@ -559,9 +549,7 @@ func TestInjectWlKeepsNonTextSelection(t *testing.T) {
 	}
 }
 
-// linux 非文本选择（图片）读取成功时：注入照常，且恢复必须按原 MIME 写回原字节。
-// 真机实测（Ubuntu 26.04）：image/png 剪贴板下 wl-paste 能按字节读到 193 字节，
-// 恢复后类型与 md5 均不变——这是常规路径，"取消注入"只是读取确实失败时的兜底。
+// linux 非文本选择读取成功时：注入照常，恢复必须按原 MIME 写回原字节。
 func TestInjectWlRestoresNonTextSelectionBytes(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02}
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
@@ -618,7 +606,7 @@ func TestIsNonTextMIME(t *testing.T) {
 	}
 }
 
-// macOS 类型表分类：用真机实测的类型串做回归（判定宁宽勿严）。
+// macOS 类型表分类回归（判定宁宽勿严）。
 func TestIsTextPasteboardType(t *testing.T) {
 	textTypes := []string{
 		"«class utf8»", "«class ut16»", "string", "unicode text",

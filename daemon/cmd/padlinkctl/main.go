@@ -1,7 +1,5 @@
-// padlinkctl 是 padlinkd 的控制 CLI：status / pair / clients / unpair，
-// 经 daemon 的 Unix socket 控制通道（行分隔 JSON）通信；
-// start / stop / restart / uninstall 由 internal/service 直接操作
-// systemd --user 或 launchd，不经控制 socket（padlinkd 未运行时也可用）。
+// padlinkctl 是 padlinkd 的控制 CLI：status / pair / clients / unpair 走 Unix socket 控制通道（行分隔 JSON）；
+// start / stop / restart / uninstall 由 internal/service 直接操作 systemd --user 或 launchd（daemon 未运行也可用）。
 package main
 
 import (
@@ -36,7 +34,7 @@ func usage() {
 `)
 }
 
-// parseUninstallArgs 解析 uninstall 的选项；未知选项报错（退出码 2）。
+// parseUninstallArgs 的未知选项由调用方按退出码 2 退出（CLI 契约）。
 func parseUninstallArgs(args []string) (service.UninstallOptions, error) {
 	var opts service.UninstallOptions
 	for _, arg := range args {
@@ -60,7 +58,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	// 服务管理与卸载不走控制 socket：padlinkd 未运行时也必须可用
 	switch os.Args[1] {
 	case "start", "stop", "restart":
 		if err := service.Control(service.ControlAction(os.Args[1]), os.Stdout); err != nil {
@@ -187,8 +184,6 @@ func printResult(req control.Request, resp control.Response) {
 				if name == "" {
 					name = "(未命名)"
 				}
-				// 设备指纹前缀：同一台手机重配会命中同一指纹（只轮换 token，不新增记录），
-				// 旧版手机未上报时显示 "-"。
 				dev := "-"
 				if len(c.DevID) >= 8 {
 					dev = c.DevID[:8]

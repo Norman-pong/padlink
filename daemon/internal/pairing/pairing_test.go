@@ -222,7 +222,7 @@ func TestStoreRoundTripAndPerm(t *testing.T) {
 		t.Errorf("存储文件权限 = %04o, want 0600", got)
 	}
 
-	// 往返：重载后 token 精确可用
+	// 重载后 token 精确可用
 	s2, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load(重载): %v", err)
@@ -390,7 +390,7 @@ func TestIssueDistinctDevices(t *testing.T) {
 	}
 }
 
-// 满额时：新设备拒绝、同设备重配放行（StartPairing 与 Issue 两级都要放行）。
+// 满额时：新设备拒绝、同设备重配放行（StartPairing 与 Issue 两级）。
 func TestSameDeviceAllowedWhenFull(t *testing.T) {
 	store := newTestStore(t)
 	m, _ := newTestManager(t, store)
@@ -433,7 +433,7 @@ func TestSameDeviceAllowedWhenFull(t *testing.T) {
 	}
 }
 
-// 端到端：同指纹两次配对轮换同一记录的 token（token 变化 + 记录数不变）。
+// 同指纹两次配对轮换同一记录的 token（记录数不变）。
 func TestPairingSameDeviceRotates(t *testing.T) {
 	store := newTestStore(t)
 	m, _ := newTestManager(t, store)

@@ -1,6 +1,6 @@
 // 共享 .ets 加载库：把 ArkTS 源码目录树复制到 os.tmpdir() 下 mkdtemp 的临时目录，
-// 供 node（type-stripping）直接运行。复制时 .ets 改名为 .ts，相对导入补 .ts 扩展名。
-// 零第三方依赖。调用方用 try/finally 调 unloadEtsTree 清理，不残留。
+// 供 node（type-stripping）直接运行——node 无法加载 .ets 后缀，且要求相对导入带显式扩展名。
+// 调用方用 try/finally 调 unloadEtsTree 清理，不残留。
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
@@ -11,8 +11,7 @@ const TEXT_EXTS = new Set(['.ets', '.ts', '.mjs']);
 // 匹配静态 `from '...'` 与动态 `import('...')` 中的相对路径导入。
 const REL_IMPORT_RE = /(from\s+|import\s*\(\s*)(')(\.[^']*)(')/g;
 
-// 相对导入补 .ts：'.ets' 后缀一律改 '.ts'（测试文件的写法）；
-// 无扩展名的相对导入仅在 .ets 源内补全（ArkTS 风格），其余文件原样保留。
+// 相对导入补 .ts：'.ets' 后缀一律改 '.ts'；无扩展名者仅在 .ets 源内补全（ArkTS 风格）。
 function rewriteImports(code, isEtsSource) {
   return code.replace(REL_IMPORT_RE, (_m, lead, q1, spec, q2) => {
     if (spec.endsWith('.ets')) {

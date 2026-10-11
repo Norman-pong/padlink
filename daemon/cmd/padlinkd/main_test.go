@@ -25,7 +25,7 @@ type event struct {
 	value int32
 }
 
-// fakeWriter 记录事件流，供 runTest 序列断言（darwin 可跑，无需 uinput）。
+// fakeWriter 记录事件流，供 runTest 序列断言（不依赖 uinput，darwin 可跑）。
 type fakeWriter struct {
 	mu     sync.Mutex
 	events []event
@@ -68,7 +68,6 @@ func (f *fakeWriter) count(kind eventKind, code uint16, value int32) int {
 	return n
 }
 
-// sumRel 对指定 REL 轴求位移代数和（画圆闭合检查用）。
 func (f *fakeWriter) sumRel(code uint16) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -81,7 +80,6 @@ func (f *fakeWriter) sumRel(code uint16) int {
 	return int(total)
 }
 
-// captureStdout 捕获期间的标准输出。
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -108,7 +106,6 @@ func TestRunTestSequence(t *testing.T) {
 		}
 	})
 
-	// PROBE-LINUX §4 期望的输出行
 	for _, want := range []string{
 		"drawing 2 circles (r=200px, 120 segments each)…",
 		"left click…",
@@ -123,12 +120,11 @@ func TestRunTestSequence(t *testing.T) {
 		t.Errorf("非 verbose 模式不应输出 [verbose] 行:\n%s", out)
 	}
 
-	// 画圆：REL_X(0)/REL_Y(1) 位移代数和为 0（两圆各自精确闭合）
+	// 每圆必须精确闭合：REL_X/REL_Y 位移代数和为 0
 	if x, y := fw.sumRel(0), fw.sumRel(1); x != 0 || y != 0 {
 		t.Errorf("圆未闭合: ΣREL_X=%d ΣREL_Y=%d, want 0/0", x, y)
 	}
 
-	// 左键一次按下/抬起（BTN_LEFT=272）
 	if got := fw.count(kindKey, 272, 1); got != 1 {
 		t.Errorf("BTN_LEFT down = %d 次, want 1", got)
 	}
@@ -136,7 +132,6 @@ func TestRunTestSequence(t *testing.T) {
 		t.Errorf("BTN_LEFT up = %d 次, want 1", got)
 	}
 
-	// 敲击 'pl'（KEY_P=25, KEY_L=38）
 	if got := fw.count(kindKey, 25, 1); got != 1 {
 		t.Errorf("KEY_P down = %d 次, want 1", got)
 	}
@@ -144,7 +139,7 @@ func TestRunTestSequence(t *testing.T) {
 		t.Errorf("KEY_L down = %d 次, want 1", got)
 	}
 
-	// 滚动：HI_RES(11) +240 / -120；legacy REL_WHEEL(8) 帧内取整 +2 / -1
+	// 滚动：hi-res 直通；legacy REL_WHEEL 帧内取整（+2 / -1）
 	if got := fw.count(kindRel, 11, 240); got != 1 {
 		t.Errorf("REL_WHEEL_HI_RES +240 = %d 次, want 1", got)
 	}
@@ -172,11 +167,9 @@ func TestRunTestVerbose(t *testing.T) {
 	}
 }
 
-// 编译期确认 fakeWriter 满足 DeviceWriter。
 var _ inject.DeviceWriter = (*fakeWriter)(nil)
 
-// ensureUTF8Locale 只在 macOS 生效：launchd 环境没有 locale 时要把子进程
-// （pbcopy/pbpaste）拉到 UTF-8，否则 CJK 会被写成空内容。
+// ensureUTF8Locale 仅 macOS 生效，且不得覆盖已有的 UTF-8 locale。
 func TestEnsureUTF8Locale(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Linux 侧 wl-clipboard 不依赖 locale")

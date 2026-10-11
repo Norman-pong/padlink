@@ -5,9 +5,8 @@ import { Protocol, PacketType } from './PacketType';
 import type { Packet } from './Packet';
 import { utf8DecodeStrict } from './Utf8';
 
-// 解码失败类别，语义与 Go 哨兵错误一一对应：
-// BadMagic↔ErrBadMagic BadVersion↔ErrBadVersion LenRange↔ErrLenRange Truncated↔ErrTruncated
-// UnknownType↔ErrUnknownType PayloadLen↔ErrPayloadLen BadUTF8↔ErrBadUTF8 BadHMAC↔ErrBadHMAC
+// 解码失败类别，与 daemon 端 Go 哨兵错误一一对应：
+// BadMagic/BadVersion/LenRange/Truncated/UnknownType/PayloadLen/BadUTF8/BadHMAC ↔ Err* 同名。
 export class DecodeError {
   public static readonly BadMagic: number = 1;
   public static readonly BadVersion: number = 2;
@@ -19,8 +18,7 @@ export class DecodeError {
   public static readonly BadHMAC: number = 8;
 }
 
-// 解码结果：ok=true 时 packet 有效；ok=false 时 kind 指明失败类别。
-// BadHMAC 不由 decode 产生（本层不持有 key），供会话层处理 verifyHmac 失败时归类。
+// ok=true 时 packet 有效，否则 kind 指明失败类别；BadHMAC 不由 decode 产生（本层无 key）。
 export class DecodeResult {
   public ok: boolean = false;
   public packet: Packet | null = null;
@@ -39,7 +37,7 @@ function fail(kind: number, message: string): DecodeResult {
   return r;
 }
 
-// 序列化为线格式：reserved 置 0，hmac 字段原样写入。payload 超限直接抛错（fail fast）。
+// 序列化为线格式；payload 超限直接抛错（fail fast）。
 export function encode(pkt: Packet): ArrayBuffer {
   const plen: number = pkt.payload.byteLength;
   if (plen > Protocol.MAX_PAYLOAD) {

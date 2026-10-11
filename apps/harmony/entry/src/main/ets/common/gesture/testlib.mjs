@@ -42,7 +42,6 @@ export function cancel(id, x, y, t) {
   return { pointerId: id, x: x, y: y, kind: TouchKind.CANCEL, tMs: t };
 }
 
-// 依次喂样本，收集全部命令。
 export function feedAll(engine, samples) {
   const out = [];
   for (const s of samples) {

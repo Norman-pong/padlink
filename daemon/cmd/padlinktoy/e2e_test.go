@@ -1,8 +1,7 @@
 package main
 
-// 端到端用例：在测试内装配真实 session.Server（fake writer + 已知 token，
-// 起在 127.0.0.1 随机端口，装配法与 session_test.go 一致），跑
-// record→replay 闭环、fuzz 活性、latency 统计。仅回环，跑完即退。
+// 端到端用例：测试内装配真实 session.Server（fake writer + 已知 token，回环随机端口），
+// 跑 record→replay 闭环、fuzz 活性、latency 统计。
 
 import (
 	"bytes"
@@ -21,8 +20,6 @@ import (
 	"padlink/daemon/internal/proto"
 	"padlink/daemon/internal/session"
 )
-
-// ---- 事件捕获 DeviceWriter ----
 
 type capKind uint8
 
@@ -57,7 +54,7 @@ func (w *capWriter) RelEvent(code uint16, value int32) error {
 	return nil
 }
 
-// SetPointerState 指针状态（本 harness 只关心事件序，不消费多击序号）。
+// SetPointerState 空实现：本 harness 只断言事件序，不消费多击序号。
 func (w *capWriter) SetPointerState(st inject.PointerState) {}
 
 func (w *capWriter) Sync() error {
@@ -107,8 +104,6 @@ func (w *capWriter) syncCount() int {
 
 var _ inject.DeviceWriter = (*capWriter)(nil)
 
-// ---- 测试服务器装具 ----
-
 type toyServer struct {
 	srv   *session.Server
 	store *pairing.Store
@@ -116,9 +111,8 @@ type toyServer struct {
 	texts chan string
 }
 
-// pickFreePort 先向内核要一个空闲 TCP 端口再交还。session.New 会把 Port=0
-// 归一成默认端口 53021（并非临时端口），固定端口会让本包与 internal/session
-// 的测试二进制并行跑时互相撞端口。
+// pickFreePort 先向内核要一个空闲 TCP 端口再交还：session.New 会把 Port=0 归一成默认端口
+// 53021（不是临时端口），固定端口会与本包及 internal/session 的并行测试二进制互相撞端口。
 func pickFreePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -175,7 +169,7 @@ func addToken(t *testing.T, ts *toyServer) []byte {
 	return tok
 }
 
-// waitFor 轮询断言注入事件到达（异步管道，最终一致）。
+// waitFor 轮询断言异步注入事件到达。
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -187,8 +181,6 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 	t.Fatalf("等待 %s 超时", what)
 }
-
-// ---- record → replay 闭环 ----
 
 func TestRecordReplayClosedLoop(t *testing.T) {
 	t.Run("raw 录制 + 回放封签", func(t *testing.T) { closedLoop(t, false) })
@@ -242,22 +234,20 @@ func closedLoop(t *testing.T, sealed bool) {
 		t.Errorf("回放统计: sent=%d failed=%d, want %d/0", st.Sent, st.Failed, total)
 	}
 
-	// 全部注入完成：Sync 数 = MOVE 段数 + SCROLL 格数 + 按键 4 次（TEXT 无注入事件）
+	// TEXT 不产生注入事件：Sync 数 = MOVE + SCROLL + 按键 4 次
 	wantSync := segs + notches + 4
 	waitFor(t, "注入完成", func() bool { return ts.cap.syncCount() == wantSync })
 
-	// 圆周净位移为零
 	if x, y := ts.cap.sumRel(inject.RelX), ts.cap.sumRel(inject.RelY); x != 0 || y != 0 {
 		t.Errorf("圆周净位移 ΣX=%d ΣY=%d, want 0/0", x, y)
 	}
-	// 滚动：notches 格 +120（legacy REL_WHEEL 帧内向零取整补发 +1）
+	// legacy REL_WHEEL 帧内向零取整补发 +1
 	if got := ts.cap.count(capRel, inject.RelWheelHiRes, 120); got != notches {
 		t.Errorf("REL_WHEEL_HI_RES +120 = %d 次, want %d", got, notches)
 	}
 	if got := ts.cap.count(capRel, inject.RelWheel, 1); got != notches {
 		t.Errorf("legacy REL_WHEEL +1 = %d 次, want %d", got, notches)
 	}
-	// 点击对：左右键各 down/up 一次
 	if got := ts.cap.count(capKey, inject.BtnLeft, 1); got != 1 {
 		t.Errorf("BTN_LEFT down = %d 次, want 1", got)
 	}
@@ -270,7 +260,6 @@ func closedLoop(t *testing.T, sealed bool) {
 	if got := ts.cap.count(capKey, inject.BtnRight, 0); got != 1 {
 		t.Errorf("BTN_RIGHT up = %d 次, want 1", got)
 	}
-	// 文本送达
 	select {
 	case got := <-ts.texts:
 		if got != spec.Text {
@@ -280,8 +269,6 @@ func closedLoop(t *testing.T, sealed bool) {
 		t.Fatal("TEXT 未送达")
 	}
 }
-
-// ---- fuzz 活性 ----
 
 func TestFuzzKeepsDaemonAlive(t *testing.T) {
 	t.Run("带 token（含认证路径变异）", func(t *testing.T) {
@@ -309,8 +296,6 @@ func TestFuzzKeepsDaemonAlive(t *testing.T) {
 		}
 	})
 }
-
-// ---- latency ----
 
 func TestLatencySmoke(t *testing.T) {
 	ts := newToyServer(t)

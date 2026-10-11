@@ -85,8 +85,8 @@ func TestHIDToKeySpotChecks(t *testing.T) {
 }
 
 func TestHIDToKeyCompleteness(t *testing.T) {
-	// 26 字母 + 10 数字 + 5 控制 + 11 符号 + CapsLock + 12 F 键
-	// + 3 屏幕/锁定 + 6 导航 + 4 方向 + 6 小键盘锁定/运算符 + 11 小键盘数字/点 + 8 修饰键
+	// 26 字母 + 10 数字 + 5 控制 + 11 符号 + CapsLock + 12 F 键 + 3 屏幕/锁定 + 6 导航 + 4 方向
+	// + 6 小键盘锁定/运算符 + 11 小键盘数字/点 + 8 修饰键
 	const wantCount = 103
 	if len(HIDToKey) != wantCount {
 		t.Fatalf("映射表条目 = %d, want %d（出现意外增删请同步更新本断言）", len(HIDToKey), wantCount)

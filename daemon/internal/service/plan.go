@@ -67,9 +67,8 @@ type Plan struct {
 	Steps  []Step
 }
 
-// CheckRemovable 校验删除目标：path 必须是与 prefix 同为绝对路径、已规范化（Clean 后不变）、
-// 位于 prefix 之下（或等于 prefix），且路径中含 "padlink" 关键字。
-// 目的是即使路径拼接出错也不会删到无关目录。
+// CheckRemovable 校验删除目标：与 prefix 同为绝对路径、已规范化、位于 prefix 之下（或等于），
+// 且路径中含 "padlink" 关键字——即使路径拼接出错也不会删到无关目录。
 func CheckRemovable(path, prefix string) error {
 	if path == "" || prefix == "" {
 		return errors.New("删除目标或允许前缀为空，拒绝删除")
@@ -95,9 +94,8 @@ func CheckRemovable(path, prefix string) error {
 	return nil
 }
 
-// BuildControl 构造 start/stop/restart 计划：Linux 走 systemctl --user，
-// macOS 走 launchctl（stop = bootout 卸载 job，start/restart = bootstrap + kickstart）。
-// 服务定义不存在、uid 不可用或平台不支持时返回错误（错误消息含安装提示）。
+// BuildControl 构造 start/stop/restart 计划：Linux 走 systemctl --user，macOS 走 launchctl
+// （stop = bootout 卸载 job，start/restart = bootstrap + kickstart）。
 func BuildControl(p Probe, action ControlAction) (Plan, error) {
 	switch action {
 	case ActionStart, ActionStop, ActionRestart:
@@ -128,9 +126,8 @@ func BuildControl(p Probe, action ControlAction) (Plan, error) {
 			return Plan{}, err
 		}
 		if action == ActionStop {
-			// plist 为 KeepAlive=true：kill 会被 launchd 立刻拉起，必须 bootout 卸载 job 才算停住。
-			// plist 文件保留——下次登录 launchd 会重新加载，padlinkctl start 也可立即恢复。
-			// 未注册时 bootout 报「Could not find service」，对 stop 而言等价于已停止：记警告不中断。
+			// plist 为 KeepAlive=true：kill 会被 launchd 立刻拉起，必须 bootout 才算停住；plist 保留，
+			// 下次登录或 padlinkctl start 即恢复。未注册时 bootout 报错，对 stop 等价于已停止。
 			plan.Steps = append(plan.Steps, Step{
 				Kind:     StepRunCommand,
 				Cmd:      "launchctl",
@@ -139,8 +136,7 @@ func BuildControl(p Probe, action ControlAction) (Plan, error) {
 			})
 			return plan, nil
 		}
-		// bootstrap 保证 job 已注册（已注册时该步失败无害，故 optional），kickstart 拉起；
-		// restart 用 -k 先杀后拉，start 不带 -k（已在运行则原样保持）。
+		// bootstrap 保证 job 已注册（已注册时该步失败无害，故 optional），kickstart 拉起；restart 用 -k。
 		args := []string{"kickstart", target}
 		if action == ActionRestart {
 			args = []string{"kickstart", "-k", target}
@@ -156,10 +152,8 @@ func BuildControl(p Probe, action ControlAction) (Plan, error) {
 	return plan, nil
 }
 
-// BuildUninstall 构造 uninstall 计划，按探测到的安装形态编排：
-// 停服务 → 移除服务定义 → 删除用户级二进制 →（purge）删除配置与 token
-// → 输出需手动处理的项（udev 规则 / 包管理器卸载）与刻意保留的项。
-// deb/rpm 形态不产生任何删除 /usr 下文件的步骤。purge 由调用方在二次确认后决定。
+// BuildUninstall 构造 uninstall 计划：停服务 → 移除服务定义 → 删除用户级二进制 →
+// （purge）删除配置与 token → 输出需手动处理与刻意保留的项；deb/rpm 形态不删 /usr 下文件。
 func BuildUninstall(p Probe, purge bool) (Plan, error) {
 	plan := Plan{Action: "uninstall", Kind: p.Kind, Purge: purge}
 	add := func(steps ...Step) { plan.Steps = append(plan.Steps, steps...) }
@@ -257,9 +251,8 @@ func BuildUninstall(p Probe, purge bool) (Plan, error) {
 	return plan, nil
 }
 
-// ConfirmPurge 处理 --purge 的二次确认：assumeYes（--yes）直接通过；
-// 否则向 out 打印提示并从 in 读一行，仅 y/yes（去空白、忽略大小写）视为确认；
-// 非交互 stdin（EOF 且无内容）视为拒绝。
+// ConfirmPurge 处理 --purge 的二次确认：assumeYes（--yes）直接通过，否则向 out 打印提示并
+// 从 in 读一行，仅 y/yes（去空白、忽略大小写）视为确认；非交互 stdin（EOF）视为拒绝。
 func ConfirmPurge(in io.Reader, out io.Writer, assumeYes bool) (bool, error) {
 	if assumeYes {
 		return true, nil

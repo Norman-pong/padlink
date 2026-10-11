@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // PadLink ArkTS 协议层对拍 harness（零依赖，node >= 26 直接运行）。
-// 流程：用共享库 tools/etsrun/load.mjs 把 apps/harmony/entry/src/main/ets/common/proto/
-// 复制到临时目录（.ets→.ts、相对导入补 .ts 扩展名），动态 import 后跑
-// protocol/testvectors.json 全量黄金向量 + 追加负例。全过退出码 0，任一失败退出码 1。
+// 加载 common/proto/ 后跑 protocol/testvectors.json 全量黄金向量 + 追加负例；
+// 全过退出码 0，任一失败退出码 1。用法见 tools/README.md。
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -36,7 +35,7 @@ function hexFromBytes(ab) {
 
 const tmpRoot = loadEtsTree(protoDir, 'padlink-prototest-');
 try {
-  // 动态加载编解码模块与 node:crypto HMAC 实现（.ets 已由共享库转为 .ts）
+  // 动态加载编解码模块与 node:crypto HMAC 实现
   const mod = async (name) => import(pathToFileURL(join(tmpRoot, `${name}.ts`)).href);
   const PacketType = (await mod('PacketType')).PacketType;
   const Packet = await mod('Packet');

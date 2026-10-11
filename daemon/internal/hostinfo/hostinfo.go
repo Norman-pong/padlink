@@ -1,5 +1,4 @@
-// Package hostinfo 实现 daemon 启动时的主机环境自检：
-// Wayland 会话缺失与 GNOME 指针加速 profile（PRD §4.2 基线 / RESEARCH-WAYLAND.md §3-§4）。
+// Package hostinfo 实现 daemon 启动时的主机环境自检：Wayland 会话与 GNOME 指针加速 profile。
 package hostinfo
 
 import (
@@ -13,19 +12,17 @@ import (
 	"time"
 )
 
-// Severity 发现项严重级别。
 type Severity string
 
 const SevWarn Severity = "warning"
 
-// Finding 是一条自检结论。
 type Finding struct {
 	Severity Severity
 	Check    string
 	Message  string
 }
 
-// Report 汇总自检结果；AccelProfile 为空表示未检测到（gsettings 不可用，跳过不打扰）。
+// Report 汇总自检结果；AccelProfile 为空表示未检测到（gsettings 不可用）。
 type Report struct {
 	Findings     []Finding
 	AccelProfile string
@@ -37,7 +34,6 @@ type Options struct {
 	Run func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-// accelCheckTimeout gsettings 查询超时。
 const accelCheckTimeout = 3 * time.Second
 
 // FlatHint 设置 flat 加速基线的建议命令。
@@ -74,7 +70,7 @@ func Check(opts Options) Report {
 	return rep
 }
 
-// accelProfile 读取 GNOME 全局鼠标加速 profile；命令不存在等错误由调用方跳过。
+// accelProfile 读取 GNOME 鼠标加速 profile；命令不存在等错误由调用方跳过。
 func accelProfile(run func(ctx context.Context, name string, args ...string) ([]byte, error)) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), accelCheckTimeout)
 	defer cancel()

@@ -1,6 +1,4 @@
-// 静默自动重连（FR-6）：App 启动（主控页为首页，Index 建立时）lastHost 有 token 且当前空闲
-// → 后台 connect(autoRetry=true)，首连失败也进 RECONNECTING 退避循环，失败不弹窗——
-// 浮层展示状态与原因（RECONNECTING 显示 lastError，LOST 给手动重连入口）。
+// 静默自动重连：启动时默认主机有 token 且当前 IDLE → 后台 connect(autoRetry=true)，失败不弹窗。
 import { ConnState } from '../net/ConnectionManager';
 import type { ConnectionManager } from '../net/ConnectionManager';
 import { hexToBytes } from '../net/HexCodec';
@@ -9,7 +7,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const TAG: string = 'PadLink.AutoConn';
 const DOMAIN: number = 0x5050;
-// 触发冷却：防止重复进入主控页时连发（连接进行中快照仍为 IDLE，靠时间窗去重）。
+// 冷却时间窗：连接进行中快照仍为 IDLE，靠它防重复触发。
 const KICK_COOLDOWN_MS: number = 5000;
 
 let lastKickMs: number = 0;
@@ -33,7 +31,7 @@ export function tryAutoReconnect(conn: ConnectionManager, settings: SettingsMode
       return;
     }
     hilog.info(DOMAIN, TAG, '自动重连目标: %{public}s:%{public}d', h.ip, h.port);
-    // autoRetry：首连失败转入 RECONNECTING 退避重试（内部不 reject）；catch 仅为未捕获兜底
+    // autoRetry：首连失败转 RECONNECTING 退避（内部不 reject）；catch 仅为未捕获兜底
     conn.connect(h.ip, h.port, h.port, token, true).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'auto reconnect kick fail: %{public}s', err.message);
     });

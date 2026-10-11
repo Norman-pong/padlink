@@ -14,19 +14,16 @@ import (
 	"time"
 )
 
-// storeVersion 便于后续格式迁移。
 const storeVersion = 1
 
-// Client 是一台已配对手机：token 签发时绑定名称与时间戳。
 type Client struct {
 	ID       string    `json:"id"`        // 8 位 hex，ctl unpair 定位用
 	Name     string    `json:"name"`      // 手机显示名（配对时上报，可为空）
 	DevID    string    `json:"dev_id"`    // 设备指纹：手机首次运行生成的 16B 随机值 hex（空 = 旧版手机未上报）
-	TokenHex string    `json:"token_hex"` // 32B token 的 hex（文件权限 0600 保护）
+	TokenHex string    `json:"token_hex"` // 32B token 的 hex（文件 0600 保护）
 	PairedAt time.Time `json:"paired_at"`
 }
 
-// Token 返回解码后的 token 字节。
 func (c Client) Token() ([]byte, error) {
 	return hex.DecodeString(c.TokenHex)
 }
@@ -38,7 +35,7 @@ type storeFile struct {
 
 // Store 是 clients.json 的内存视图（并发安全）。
 type Store struct {
-	// MaxClients 已配对客户端上限（默认 4，Add 时强制）。
+	// MaxClients 已配对客户端上限（默认 4）。
 	MaxClients int
 
 	path         string
@@ -47,8 +44,7 @@ type Store struct {
 	permWarnings []string
 }
 
-// DefaultPath 返回默认存储路径：$XDG_CONFIG_HOME/padlink/clients.json，
-// 无 XDG_CONFIG_HOME 时 ~/.config/padlink/clients.json。
+// DefaultPath 返回默认存储路径（遵循 XDG_CONFIG_HOME，回落 ~/.config）。
 func DefaultPath() (string, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "padlink", "clients.json"), nil
@@ -60,7 +56,7 @@ func DefaultPath() (string, error) {
 	return filepath.Join(home, ".config", "padlink", "clients.json"), nil
 }
 
-// Load 加载（或初始化）token 存储。文件不存在视为空存储；
+// Load 加载（或初始化）token 存储；文件不存在视为空存储。
 // 既有文件权限宽于 0600 时记入告警（经 Warnings 取出）。
 func Load(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -100,7 +96,6 @@ func (s *Store) Warnings() []string {
 	return append([]string(nil), s.permWarnings...)
 }
 
-// Count 返回已配对客户端数。
 func (s *Store) Count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,10 +111,9 @@ func (s *Store) Clients() []Client {
 	return out
 }
 
-// Issue 签发客户端凭据（配对成功的唯一写入路径）：
-// devID 命中既有记录 → 复用该记录（id 不变）并轮换 token（同一台手机重新配对，不占新名额）；
-// 未命中或 devID 为空 → 新增（超上限返回 ErrClientsFull）。
-// rotated 报告本次是否为同设备轮换。name 为空时不覆盖既有名称（手机未上报展示名）。
+// Issue 签发客户端凭据（配对成功的唯一写入路径）：devID 命中既有记录则复用该记录
+// （id 不变）并轮换 token（不占新名额），否则新增；超上限返回 ErrClientsFull。
+// rotated 报告本次是否为同设备轮换；name 为空时不覆盖既有名称。
 func (s *Store) Issue(name, devID string) (client Client, rotated bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -184,8 +178,8 @@ func (s *Store) Remove(id string) (Client, bool, error) {
 	return Client{}, false, nil
 }
 
-// HasDevID 报告是否存在该设备指纹的已配对记录（空指纹恒 false）。
-// 用于满额时仍放行同设备重配（Issue 走轮换路径，不占新名额）。
+// HasDevID 报告是否存在该设备指纹的已配对记录（空指纹恒 false）；
+// 满额时据此仍放行同设备重配（Issue 走轮换路径，不占新名额）。
 func (s *Store) HasDevID(devID string) bool {
 	if devID == "" {
 		return false
@@ -216,8 +210,8 @@ func (s *Store) LookupToken(token []byte) (Client, bool) {
 	return Client{}, false
 }
 
-// saveLocked 以 0600 权限重写存储文件；调用方须已持锁。
-// 显式 Chmod 防宽松 umask 导致落盘权限过宽。
+// saveLocked 以 0600 重写存储文件，调用方须已持锁；
+// 显式 Chmod 防宽松 umask 使落盘权限过宽。
 func (s *Store) saveLocked() error {
 	f, err := os.OpenFile(s.path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -253,7 +247,6 @@ func randHex(nBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// newTokenHex 生成 32B 随机 token 的 hex 形态。
 func newTokenHex() (string, error) {
 	token := make([]byte, TokenLen)
 	if _, err := rand.Read(token); err != nil {

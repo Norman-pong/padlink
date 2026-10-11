@@ -1,9 +1,7 @@
-// speechRecognizer 会话封装（PRD §4.5）：生命周期严格按 createEngine → setListener →
-// startListening → finish/cancel → shutdown（hms-ai-speechrecognizer 各接口“为了确保事件回调，
-// 请优先调用 setListener”约束）。引擎实例跨按住复用（错误码 1002200001 官方处理步骤：
-// 相同创建参数复用引擎，避免用完立即销毁），仅页面最终离开时 shutdown 释放。
-// 麦克风仅按住期间占用：recognitionMode=0 实时录音模式，finish/cancel 即停止录音。
-// 错误经 asrErrorKey（AsrConfig 纯函数）映射为文案键后上抛，本文件不做 UI 语义决策。
+// speechRecognizer 会话封装：生命周期严格按 createEngine → setListener → startListening →
+// finish/cancel → shutdown（setListener 必须先于 startListening，否则收不到回调）。
+// 引擎跨按住复用（1002200001 官方处理步骤：同创建参数复用，不用完立即销毁），仅页面离开时 shutdown。
+// 麦克风仅按住期间占用；错误经 asrErrorKey 映射为文案键上抛，本文件不做 UI 语义决策。
 import { speechRecognizer } from '@kit.CoreSpeechKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -13,9 +11,8 @@ import { buildCreateEngineParams, buildStartParams } from './AsrParamBuilder';
 const TAG: string = 'PadLink.Asr';
 const DOMAIN: number = 0x5050;
 
-// 识别事件回调（text 为本拍最优结果；isFinal=子句最终，isLast=整轮最后一句，均现查文档字段名）。
-// 回调走函数字段（同 Transport.onPacket 风格），null = 未挂接。
-// 单实例会话：一次 begin → （finish | cancel）为一轮按住；begin 可多轮复用同一引擎。
+// text 为本拍最优结果；isFinal = 子句最终，isLast = 整轮最后一句（发送判定用）。
+// 一次 begin →（finish | cancel）为一轮按住；begin 可多轮复用同一引擎。
 export class AsrSession {
   public onStarted: (() => void) | null = null;
   public onResult: ((text: string, isFinal: boolean, isLast: boolean) => void) | null = null;
@@ -63,7 +60,6 @@ export class AsrSession {
     };
   }
 
-  // 开始一轮识别：确保引擎就绪后 startListening。已在识别中时幂等返回。
   public async begin(): Promise<void> {
     if (this.listening) {
       return;
@@ -88,7 +84,6 @@ export class AsrSession {
     engine.startListening(params); // 启动失败经 onError（1002200002 等）回调上抛
   }
 
-  // 松手：结束录音并等待最终结果（isLast 经 onResult 回来）。
   public finish(): void {
     if (!this.listening) {
       return;
@@ -101,7 +96,6 @@ export class AsrSession {
     engine.finish(this.sessionId);
   }
 
-  // 取消本轮：丢弃在途识别（幂等，未在识别中为 no-op）。
   public cancel(): void {
     if (!this.listening) {
       return;
@@ -114,7 +108,7 @@ export class AsrSession {
     engine.cancel(this.sessionId);
   }
 
-  // 最终释放（页面离开/应用收尾）：shutdown 后引擎引用清空，下次 begin 自动重建。
+  // 最终释放（页面离开）：shutdown 后引擎引用清空，下次 begin 自动重建。
   public shutdown(): void {
     this.cancel();
     const engine: speechRecognizer.SpeechRecognitionEngine | null = this.engine;
@@ -124,7 +118,7 @@ export class AsrSession {
     }
   }
 
-  // 引擎懒创建 + setListener（顺序：createEngine → setListener，均先于任何 startListening）。
+  // 引擎懒创建 + setListener（两者均必须先于任何 startListening）。
   private ensureEngine(): Promise<void> {
     if (this.engine !== null) {
       return Promise.resolve();

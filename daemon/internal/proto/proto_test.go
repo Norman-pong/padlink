@@ -18,7 +18,6 @@ func vectorsPath(t *testing.T) string {
 	if !ok {
 		t.Fatal("无法定位源文件路径")
 	}
-	// 本包位于 <repo>/daemon/internal/proto，向上三级即仓库根
 	root := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 	return filepath.Join(root, "protocol", "testvectors.json")
 }
@@ -79,7 +78,7 @@ func num(t *testing.T, m map[string]any, key string) float64 {
 	return v
 }
 
-// TestGoldenVectors 对 protocol/testvectors.json 全量对拍（正/负用例）。
+// TestGoldenVectors 对 testvectors.json 全量对拍（正/负用例）。
 func TestGoldenVectors(t *testing.T) {
 	vf, _ := loadVectors(t)
 	token, err := hex.DecodeString(vf.TokenHex)
@@ -136,7 +135,6 @@ func TestGoldenVectors(t *testing.T) {
 				}
 			}
 
-			// 语义字段断言
 			switch pkt.Type {
 			case TypeMove:
 				wantDX := int16(num(t, v.Semantics, "dx"))
@@ -201,13 +199,13 @@ func TestGoldenVectors(t *testing.T) {
 				t.Errorf("重编码不一致\n got  %x\n want %x", re, raw)
 			}
 
-			// 向量 2：HMAC 对拍（校验 / 篡改 / 重签）
+			// 向量 2：HMAC 对拍（校验/篡改/重签）
 			if v.ID == 2 {
 				if !VerifyHMAC(&pkt, token) {
 					t.Errorf("VerifyHMAC(合法 token) = false, want true")
 				}
 				tampered := append([]byte(nil), raw...)
-				tampered[len(tampered)-1] ^= 0x01 // 篡改 payload 末字节
+				tampered[len(tampered)-1] ^= 0x01
 				tp, err := Decode(tampered)
 				if err != nil {
 					t.Fatalf("Decode(篡改包): %v", err)
@@ -215,7 +213,7 @@ func TestGoldenVectors(t *testing.T) {
 				if VerifyHMAC(&tp, token) {
 					t.Errorf("篡改后 VerifyHMAC = true, want false")
 				}
-				// Seal 重签：hmac 字段必须与向量一致，整包字节级还原
+				// Seal 重签后整包必须与向量字节一致
 				fresh := NewMove(*v.Seq, pkt.Move.DX, pkt.Move.DY)
 				Seal(&fresh, token)
 				if fresh.HMAC != pkt.HMAC {
@@ -233,7 +231,7 @@ func TestGoldenVectors(t *testing.T) {
 	}
 }
 
-// build 构造一段任意报文字节（不校验），供负例使用。
+// build 构造任意报文字节（不校验），供负例使用。
 func build(t Type, flags byte, seq uint16, plen uint16, payload []byte) []byte {
 	b := make([]byte, HeaderSize+len(payload))
 	b[0], b[1] = 'P', 'L'
@@ -270,7 +268,7 @@ func TestDecodeNegative(t *testing.T) {
 		}
 	})
 	t.Run("声明长度大于剩余字节", func(t *testing.T) {
-		raw := build(TypeMove, 0, 1, 8, []byte{0, 0, 0, 0}) // plen=8 实际 4
+		raw := build(TypeMove, 0, 1, 8, []byte{0, 0, 0, 0})
 		if _, err := Decode(raw); !errors.Is(err, ErrTruncated) {
 			t.Errorf("got %v, want ErrTruncated", err)
 		}
@@ -286,11 +284,11 @@ func TestDecodeNegative(t *testing.T) {
 			typ     Type
 			payload []byte
 		}{
-			{TypeMove, []byte{0, 0, 0}},         // 3B
-			{TypeScroll, []byte{0, 0, 0, 0, 0}}, // 5B
-			{TypeButton, []byte{1}},             // 1B
-			{TypeKey, []byte{0, 4}},             // 2B
-			{TypeEcho, make([]byte, 7)},         // 7B
+			{TypeMove, []byte{0, 0, 0}},
+			{TypeScroll, []byte{0, 0, 0, 0, 0}},
+			{TypeButton, []byte{1}},
+			{TypeKey, []byte{0, 4}},
+			{TypeEcho, make([]byte, 7)},
 		}
 		for _, c := range cases {
 			_, err := Decode(build(c.typ, 0, 1, uint16(len(c.payload)), c.payload))
@@ -328,13 +326,12 @@ func TestHMACRoundTrip(t *testing.T) {
 		t.Fatal("VerifyHMAC(错误 token) = true")
 	}
 
-	// 未认证包直接判 false
 	unsigned := NewEcho(7, 123)
 	if VerifyHMAC(&unsigned, token) {
 		t.Fatal("未置 FlagAuth 的包 VerifyHMAC = true")
 	}
 
-	// FlagAuth 置位但 hmac 全零（无 key 情况的防御）必须失败
+	// FlagAuth 置位但 hmac 全零必须失败（无 key 的防御分支）
 	zeroed := NewMove(1, 1, 1)
 	Seal(&zeroed, token)
 	for i := range zeroed.HMAC {
@@ -344,7 +341,6 @@ func TestHMACRoundTrip(t *testing.T) {
 		t.Fatal("hmac 全零 VerifyHMAC = true")
 	}
 
-	// 逐字节篡改 payload 都必须失败
 	big := NewText(9, string(make([]byte, 256)))
 	Seal(&big, token)
 	for i := range big.Payload {
@@ -360,7 +356,7 @@ func TestHMACRoundTrip(t *testing.T) {
 }
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	// 会话层类型 payload 透传往返
+	// 会话层 payload 透传往返
 	raw := NewRaw(TypePairOK, 3, []byte{1, 2, 3, 4, 5})
 	enc, err := Encode(&raw)
 	if err != nil {

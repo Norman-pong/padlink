@@ -95,7 +95,6 @@ func TestSocketRoundTripFourCommands(t *testing.T) {
 	}
 	t.Cleanup(srv.Stop)
 
-	// status
 	resp := request(t, srv.Path(), Request{Cmd: "status"})
 	if !resp.OK {
 		t.Fatalf("status: %v", resp.Error)
@@ -116,7 +115,6 @@ func TestSocketRoundTripFourCommands(t *testing.T) {
 		t.Errorf("pairing 数据不符: %+v", st.Pairing)
 	}
 
-	// pair
 	resp = request(t, srv.Path(), Request{Cmd: "pair"})
 	if !resp.OK {
 		t.Fatalf("pair: %v", resp.Error)
@@ -129,7 +127,6 @@ func TestSocketRoundTripFourCommands(t *testing.T) {
 		t.Errorf("pair data = %s (%v)", data, err)
 	}
 
-	// clients
 	resp = request(t, srv.Path(), Request{Cmd: "clients"})
 	if !resp.OK {
 		t.Fatalf("clients: %v", resp.Error)
@@ -143,7 +140,6 @@ func TestSocketRoundTripFourCommands(t *testing.T) {
 		t.Errorf("clients 内容不符: %+v", clients)
 	}
 
-	// unpair
 	resp = request(t, srv.Path(), Request{Cmd: "unpair", Arg: "aa1"})
 	if !resp.OK {
 		t.Fatalf("unpair: %v", resp.Error)

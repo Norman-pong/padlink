@@ -1,10 +1,7 @@
-// 设置持久化（FR-5）：@ohos.data.preferences 用户首选项。
-// 文档依据：js-apis-data-preferences——getPreferences(context, options): Promise<Preferences>；
-// put(key,value) 后必须 flush() 才落盘（faqs-local-database-management-28）；读用 getSync（实例加载后为内存读）。
-// 对外读写一律 Promise 封装（任务口径），实例在 init() 完成前拒绝写入（fail fast 不静默丢）。
-// 已配对主机（FR-5 主机管理）：列表存单键 JSON（hosts_json，上限 4 与 daemon 一致）+ default_ip，
-// 列表操作抽纯类 HostsStore（本类注入 preferences 存取回调组合之）；旧版 lastHost_* 单档案在
-// init 时一次性迁移进 hosts_json 后清理，getLastHost/saveLastHost 对外签名不变。
+// 设置持久化：@ohos.data.preferences 用户首选项。
+// put 后必须 flush() 才落盘；读用 getSync（实例加载后为内存读）。
+// 对外读写一律 Promise 封装，实例在 init() 完成前拒绝写入（fail fast 不静默丢）。
+// 主机列表存单键 JSON（hosts_json + default_ip），操作抽纯类 HostsStore；getLastHost/saveLastHost 签名不变。
 import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import type { common } from '@kit.AbilityKit';
@@ -16,15 +13,14 @@ import { ResError } from '../ResError';
 
 // 旧版单档案键（迁移源；迁移成功后删除）。
 const LEGACY_KEYS: string[] = ['lastHost_ip', 'lastHost_port', 'lastHost_tokenHex', 'lastHost_name'];
-// 设备指纹键：首次使用生成并持久化（手机卸载重装即换新指纹，届时按新设备配对，符合预期）。
+// 设备指纹：首次使用生成并持久化；卸载重装换新指纹按新设备配对属预期。
 const KEY_DEVICE_ID: string = 'dev_id';
 
 const TAG: string = 'PadLink.Settings';
 const DOMAIN: number = 0x5050;
 const STORE_NAME: string = 'padlink_settings';
 
-// HostsStore 的 preferences 存取适配：读走 getSync（实例加载后为内存读），
-// 写 put 后排队，由 flush() 统一落盘（任一失败上抛，fail fast 不静默丢）。
+// 读走 getSync；写 put 后排队，由 flush() 统一落盘（任一失败上抛）。
 class PreferencesKv implements HostsKVStore {
   private store: preferences.Preferences | null = null;
   private pending: Promise<void>[] = [];
@@ -50,7 +46,6 @@ class PreferencesKv implements HostsKVStore {
     this.pending.push(store.put(key, value));
   }
 
-  // 等待本批 put 完成并 flush 落盘；失败上抛由调用方处理。
   public async flush(): Promise<void> {
     const store = this.store;
     if (store === null) {
@@ -63,21 +58,18 @@ class PreferencesKv implements HostsKVStore {
   }
 }
 
-// HostInfo 自 HostsStore 再导出：既有调用方（PairingModel/DebugPanelPage）导入路径不变。
+// HostInfo 自 HostsStore 再导出：既有调用方导入路径不变。
 export { HostInfo, HostsFullError } from './HostsStore';
 
 export class SettingsModel {
   private context: common.Context | undefined = undefined;
   private store: preferences.Preferences | null = null;
-  // 主机列表纯逻辑（init 后可用）；写经 PreferencesKv 排队，flushPending 统一落盘。
   private kv: PreferencesKv = new PreferencesKv();
   private hostsStore: HostsStore | null = null;
 
-  // 灵敏度（0.5–2.0，默认 1.2，与 GestureDefaults.SENSITIVITY 一致）。
+  // 范围 0.5–2.0，与 GestureDefaults.SENSITIVITY 一致。
   public sensitivity: number = 1.2;
-  // 自然滚动（默认开）。
   public naturalScroll: boolean = true;
-  // 调试面板开关（控制设置页版本号连点入口显隐，FR-7）。
   public debugEnabled: boolean = false;
 
   public init(context: common.Context): Promise<void> {
@@ -122,21 +114,18 @@ export class SettingsModel {
   public async getLastHost(): Promise<HostInfo | null> {
     const hs = this.hostsStore;
     if (hs === null) {
-      return null; // 未初始化：与既有口径一致按无档案处理
+      return null; // 未初始化：按无档案处理
     }
     return hs.getDefault();
   }
 
-  // 设备指纹（daemon 据此区分"同一台手机重新配对"与"新手机"）：
-  // 本机 preferences 持久化；缺失/非法时用加密安全随机 UUID 生成并落盘。
-  // 生成失败（存储未就绪/异常）返回 ''——配对不因此中断，daemon 按新设备处理。
-  // 依据：@ohos.util util.generateRandomUUID（RFC 4122 v4，加密安全随机源，API 9+）。
+  // 设备指纹（daemon 据此区分同一台手机重配与新手机）：缺失/非法时用 util.generateRandomUUID
+  // 生成并落盘；生成失败返回 ''（配对不中断，daemon 按新设备处理）。
   public async getDeviceId(): Promise<string> {
     const store = this.store;
     if (store === null) {
       return '';
     }
-    // getSync 可能抛（存储异常）：读失败按"无指纹"处理，继续走生成分支
     let cached: string = '';
     try {
       const v = store.getSync(KEY_DEVICE_ID, '');
@@ -168,7 +157,7 @@ export class SettingsModel {
     return id;
   }
 
-  // 保存主机（upsert：按 ip+port 去重插入/更新并置为默认；满 4 台新增抛 HostsFullError）。
+  // upsert：按 ip+port 去重插入/更新并置默认；满 4 台新增抛 HostsFullError。
   public async saveLastHost(h: HostInfo): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {
@@ -198,7 +187,7 @@ export class SettingsModel {
     await this.flushPending();
   }
 
-  // 删除主机档案：只动本机偏好，不触碰连接（若删的是当前连接主机，连接保持，仅不再自动重连）。
+  // 删除档案只动本机偏好，不触碰连接（连接保持，仅不再自动重连）。
   public async removeHost(ip: string, port: number): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {
@@ -258,7 +247,6 @@ export class SettingsModel {
     }
   }
 
-  // 等待本批 put 完成并统一 flush 落盘；任一失败即抛（fail fast，不静默丢）。
   private async flushPending(): Promise<void> {
     try {
       await this.kv.flush();

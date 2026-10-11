@@ -16,8 +16,7 @@ const (
 )
 
 // 与 linux/uinput.h 对齐的 ioctl 请求号（asm-generic _IOC 布局，amd64/arm64 通用）：
-// UI_DEV_CREATE/DESTROY 为 _IO('U',1/2)；UI_SET_* 为 _IOW('U',100+nr,int)；
-// UI_DEV_SETUP 为 _IOW('U',3,struct uinput_setup)，size=92=0x5C。
+// UI_DEV_CREATE/DESTROY 为 _IO('U',1/2)；UI_SET_* 为 _IOW('U',100+nr,int)；UI_DEV_SETUP size=92。
 const (
 	ioctlUISetEvbit   = 0x40045564 // _IOW('U', 100, int)
 	ioctlUISetKeybit  = 0x40045565 // _IOW('U', 101, int)
@@ -27,9 +26,8 @@ const (
 	ioctlUIDevDestroy = 0x5502     // _IO('U', 2)
 )
 
-// 内核结构体尺寸（64 位 amd64/arm64）：
-// input_event = timeval(16) + u16 type + u16 code + s32 value = 24；
-// uinput_setup = input_id(8) + name[80] + u32 ff_effects_max = 92。
+// 内核结构体尺寸（64 位 amd64/arm64）：input_event = timeval(16) + type/code(4) + value(4) = 24；
+// uinput_setup = input_id(8) + name[80] + ff_effects_max(4) = 92。
 const (
 	sizeofInputEvent  = 24
 	sizeofUinputSetup = 92
@@ -45,9 +43,8 @@ const (
 	devUinputPath = "/dev/uinput"
 )
 
-// RelBits 注册的相对轴。REL_WHEEL 与 REL_WHEEL_HI_RES 同时注册：
-// mutter 只消费 HI_RES 路径；legacy 轴由 inject 层按帧内取整补发
-// （若只注册 HI_RES 却不发、或反之，会触发 libinput 告警回退，见 RESEARCH-WAYLAND.md §1）。
+// RelBits 注册的相对轴。REL_WHEEL 与 REL_WHEEL_HI_RES 必须同时注册：mutter 只消费 HI_RES
+// 路径，legacy 轴由 inject 层按帧内取整补发；注册位与事件流不一致会触发 libinput 告警回退。
 func RelBits() []uint16 {
 	return []uint16{
 		inject.RelX,

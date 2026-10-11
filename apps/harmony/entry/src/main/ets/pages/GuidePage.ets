@@ -1,8 +1,5 @@
-// 服务端安装向导（GuidePage）：把「手机装了 APP、电脑没装服务端」的用户一步步带到可配对——
-// 电脑终端执行一行安装命令 → 按系统收尾（Ubuntu 注销重登 / macOS 两项授权）→ 回手机重扫配对；
-// 附「装好了还搜不到」排查。手动分步安装不进 APP（完整版在 docs/SETUP.md，两处同步演进）。
+// 服务端安装向导：一行安装命令 → 按系统收尾 → 回手机重扫配对，附「装好了还搜不到」排查。
 // 纯展示页：无状态、无权限、无网络依赖（安装发生在电脑上，指南必须离线可读）。
-// 骨架与 DebugPanelPage 同构：HdsNavDestination + 滚动模糊标题栏（单源 HdsTitleBar.ets）。
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
@@ -22,7 +19,7 @@ export struct GuidePage {
     return pageResStr(this.getUIContext(), name);
   }
 
-  // 复制命令到系统剪贴板：写粘贴板无需权限，用户可转发到电脑后粘贴执行
+  // 写系统粘贴板无需权限。
   private copyCmd(): void {
     const data: pasteboard.PasteData =
       pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.resStr('guide_install_cmd'));
@@ -36,7 +33,6 @@ export struct GuidePage {
     });
   }
 
-  // 说明行
   @Builder
   bodyText(res: Resource) {
     Text(res)
@@ -45,7 +41,6 @@ export struct GuidePage {
       .width('100%')
   }
 
-  // 命令块（在电脑上敲的命令，等宽观感由底色块承担，不引入字体依赖）
   @Builder
   codeBlock(res: Resource) {
     Text(res)
@@ -61,7 +56,6 @@ export struct GuidePage {
     HdsNavDestination() {
       Scroll(this.scroller) {
         Column({ space: 16 }) {
-          // ---- 第 1 步：电脑终端执行安装命令 ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.guide_step1_title'))
             GroupCard() {
@@ -81,7 +75,6 @@ export struct GuidePage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // ---- 第 2 步：按电脑系统收尾（安装/启动已由一行命令完成） ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.guide_step2_title'))
             GroupCard() {
@@ -106,7 +99,6 @@ export struct GuidePage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // ---- 第 3 步：回手机连接 ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.guide_step3_title'))
             GroupCard() {
@@ -116,7 +108,6 @@ export struct GuidePage {
           .alignItems(HorizontalAlign.Start)
           .width('100%')
 
-          // ---- 排查：装好了还是搜不到 ----
           Column({ space: 8 }) {
             GroupHeader($r('app.string.guide_trouble_title'))
             GroupCard() {
@@ -135,14 +126,13 @@ export struct GuidePage {
       .width('100%')
       .height('100%')
       .scrollBar(BarState.Off)
-      // 内容短于视口时顶对齐：Scroll 默认居中会让顶部悬空一段空白
+      // 顶对齐：Scroll 默认居中会让短内容顶部悬空。
       .align(Alignment.Top)
-      // 穿透到标题栏下方显影滚动模糊（ui-design-navigation-dynamic-blur 官方模式）
+      // 穿透到标题栏下方显影滚动模糊。
       .clip(false)
     }
     .titleBar({
-      // 主控页常驻 layoutFullScreen，子页窗口实为全屏形态；两开关分别管标题栏避让状态栏
-      // 与内容避让标题栏，缺一不可（MateX7 实测）。
+      // 仅 avoidLayoutSafeArea 内容会钻栏下、仅 enableComponentSafeArea 栏高塌陷，双开缺一不可。
       style: scrollBlurTitleBarStyle(),
       content: {
         title: { mainTitle: $r('app.string.page_guide') }

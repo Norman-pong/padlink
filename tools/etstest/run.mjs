@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // PadLink ArkTS 纯逻辑层单测 harness（零依赖，node >= 26 直接运行）。
-// 用共享库 tools/etsrun/load.mjs 把 apps/harmony/entry/src/main/ets/common/<目录>
-// 复制到临时目录（.ets→.ts、相对导入补 .ts 扩展名），自动发现树内 *.test.mjs / *.test.ts，
-// 逐个用 node 子进程执行（相互隔离）。全过退出码 0，任一失败退出码 1。
+// 自动发现 common/<目录> 树内的 *.test.mjs / *.test.ts，逐个用 node 子进程执行（相互隔离）；
+// 全过退出码 0，任一失败退出码 1。
 // 用法：node tools/etstest/run.mjs [common 下子目录名，默认 gesture]
 import { spawnSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
@@ -27,8 +26,8 @@ function findTestFiles(dir, out) {
   return out;
 }
 
-// 整树复制 common/ 再聚焦目标子目录：跨子目录导入（如 viewmodel → ../ResError）
-// 需保持层级才能解析；测试发现范围仍限定 dirArg。
+// 整树复制 common/ 再聚焦目标子目录：跨子目录导入需保持层级才能解析；
+// 测试发现范围仍限定 dirArg。
 const tmpRoot = loadEtsTree(commonDir, 'padlink-etstest-');
 try {
   const tests = findTestFiles(join(tmpRoot, dirArg), []).sort();

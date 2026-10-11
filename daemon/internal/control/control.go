@@ -1,6 +1,5 @@
-// Package control 实现 padlinkctl ↔ padlinkd 的本机控制通道：
-// Unix socket（Linux $XDG_RUNTIME_DIR/padlinkd/control.sock；
-// macOS $TMPDIR/padlinkd/control.sock）上的行分隔 JSON 协议。
+// Package control 实现 padlinkctl ↔ padlinkd 的本机控制通道：Unix socket 上的行分隔 JSON 协议
+// （Linux $XDG_RUNTIME_DIR/padlinkd/control.sock，macOS $TMPDIR/padlinkd/control.sock）。
 package control
 
 import (
@@ -17,7 +16,6 @@ import (
 	"time"
 )
 
-// 控制通道参数。
 const (
 	sockDir      = "padlinkd"
 	sockName     = "control.sock"
@@ -25,12 +23,11 @@ const (
 	maxLineBytes = 64 * 1024
 )
 
-// ErrDisabled 表示无可用运行目录（Linux 上 XDG_RUNTIME_DIR 未设置）：控制通道禁用（调用方告警后继续）。
+// ErrDisabled 表示无可用运行目录（XDG_RUNTIME_DIR 未设置）：控制通道禁用（调用方告警后继续）。
 var ErrDisabled = errors.New("无运行目录（XDG_RUNTIME_DIR 未设置），控制通道禁用（ctl 与配对终端展示不可用）")
 
 // SocketPath 返回控制 socket 路径。Linux 用 $XDG_RUNTIME_DIR（缺失即 ErrDisabled）；
-// macOS 无 XDG 概念，回落 os.TempDir()（launchd 代理与终端同用户共享 TMPDIR，
-// 两侧各自计算可收敛到同一路径）。
+// macOS 无 XDG 概念，回落 os.TempDir()（launchd 代理与终端同用户共享 TMPDIR）。
 func SocketPath() (string, error) {
 	rd := os.Getenv("XDG_RUNTIME_DIR")
 	if rd == "" {
@@ -43,34 +40,29 @@ func SocketPath() (string, error) {
 	return filepath.Join(rd, sockDir, sockName), nil
 }
 
-// Request 是 ctl → daemon 的请求。
 type Request struct {
 	Cmd string `json:"cmd"` // status | pair | clients | unpair
 	Arg string `json:"arg,omitempty"`
 }
 
-// Response 是 daemon → ctl 的响应。
 type Response struct {
 	OK    bool   `json:"ok"`
 	Data  any    `json:"data,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
-// PairingInfo 进行中的配对（ctl status 展示）。
 type PairingInfo struct {
 	Active       bool   `json:"active"`
 	Code         string `json:"code,omitempty"`
 	ExpiresInSec int    `json:"expires_in_sec,omitempty"`
 }
 
-// StatsInfo 丢包/认证失败/控制权抢占计数。
 type StatsInfo struct {
 	HMACFail  uint64 `json:"hmac_fail"`
 	Dropped   uint64 `json:"dropped"`
 	Preempted uint64 `json:"preempted"` // 多设备控制权裁决拒绝的控制事件数
 }
 
-// StatusData 是 status 命令的 data。
 type StatusData struct {
 	Version        string      `json:"version"`
 	UptimeSec      float64     `json:"uptime_sec"`
@@ -81,7 +73,6 @@ type StatusData struct {
 	AccelProfile   string      `json:"accel_profile"`
 }
 
-// ClientInfo 是 clients 命令的单行。
 type ClientInfo struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
@@ -98,7 +89,6 @@ type Backend interface {
 	Unpair(id string) error
 }
 
-// Server 是控制通道服务端。经 Start 创建。
 type Server struct {
 	path    string
 	ln      net.Listener
@@ -127,7 +117,6 @@ func Start(backend Backend) (*Server, error) {
 	return s, nil
 }
 
-// Path 返回 socket 路径（测试用）。
 func (s *Server) Path() string { return s.path }
 
 // Stop 关闭 socket 并等待全部连接处理完毕。

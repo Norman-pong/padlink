@@ -1,11 +1,8 @@
 // Package service 提供 padlinkd 的服务启停与卸载能力：探测本机安装形态
 // （Linux systemd user 单元 / macOS LaunchAgent / 未安装）并编排有序动作（Plan）。
 //
-// 分两层：
-//   - 纯逻辑层（service.go、plan.go）：只按显式输入（goos、home、xdgConfigHome、uid、
-//     「路径是否存在」探测函数）构造 Plan，不读环境变量、不触碰文件系统，可在任意平台单测；
-//   - 执行层（exec.go）：读环境变量与文件系统完成真实探测，执行 Plan 中的命令与删除。
-//
+// 分两层：纯逻辑层（service.go、plan.go）只按显式输入构造 Plan，不读环境变量、不触碰
+// 文件系统，可在任意平台单测；执行层（exec.go）读环境变量与文件系统，执行 Plan。
 // 启停与卸载都不经控制 socket，padlinkd 未运行时也可用。
 package service
 
@@ -106,8 +103,7 @@ type Probe struct {
 	ConfigFiles []string // 存在的配置/token 文件：clients.json
 }
 
-// unitPath 返回 Linux 生效的 systemd user 单元：systemd 用户单元优先级为
-// ~/.config > /usr/lib，因此 tar.gz 单元存在时它生效；未安装返回空串。
+// unitPath 返回 Linux 生效的 systemd user 单元：~/.config 优先于 /usr/lib；未安装返回空串。
 func (p Probe) unitPath() string {
 	if p.UserUnit != "" {
 		return p.UserUnit
@@ -123,8 +119,7 @@ func (p Probe) agentTarget() (string, error) {
 	return "gui/" + strconv.Itoa(p.UID) + "/" + AgentLabel, nil
 }
 
-// BuildInstallProbe 按显式输入探测安装形态；exists 用于判断路径是否存在，
-// 不读环境变量、不触碰真实文件系统（因此可在任意平台单测）。
+// BuildInstallProbe 按显式输入探测安装形态；exists 判断路径是否存在，不读环境变量与文件系统。
 func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(string) bool) Probe {
 	if exists == nil {
 		exists = func(string) bool { return false }
@@ -155,8 +150,7 @@ func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(st
 	}
 	switch goos {
 	case "linux":
-		// systemd 用户单元搜索路径含 $XDG_CONFIG_HOME/systemd/user 与 ~/.config/systemd/user，
-		// 两者都查；packaging/install.sh 装的是后者。
+		// systemd 用户单元的搜索路径含 $XDG_CONFIG_HOME/systemd/user 与 ~/.config/systemd/user，两者都查。
 		p.UserUnit = firstExisting(exists,
 			filepath.Join(configRoot, "systemd", "user", UnitName+".service"),
 			filepath.Join(home, ".config", "systemd", "user", UnitName+".service"))
@@ -191,8 +185,7 @@ func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(st
 	return p
 }
 
-// firstExisting 返回第一个存在的绝对路径；都不存在（或路径为空/相对）返回空串。
-// 相对路径一律忽略：探测结果不应受当前工作目录影响。
+// firstExisting 返回第一个存在的绝对路径；空串与相对路径一律忽略（探测结果不应受当前工作目录影响）。
 func firstExisting(exists func(string) bool, paths ...string) string {
 	for _, path := range paths {
 		if path == "" || !filepath.IsAbs(path) {
