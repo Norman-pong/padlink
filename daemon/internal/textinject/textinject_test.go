@@ -202,6 +202,87 @@ func TestInjectRestoreFail(t *testing.T) {
 	}
 }
 
+// 空剪贴板（无选择内容）不是工具故障：wl-paste --list-types 退出 1 打印 "Nothing is copied"，
+// 注入必须照常完成，且收尾清空选择——否则中文/语音输入在空剪贴板下会全部静默失败。
+func TestInjectProceedsWhenClipboardEmpty(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if i == 0 {
+			return nil, errors.New("exit status 1: Nothing is copied")
+		}
+		return nil, nil
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.Env = func(string) string { return "wayland-0" }
+
+	if err := in.Inject("注入文本"); err != nil {
+		t.Fatalf("空剪贴板下 Inject = %v, want nil", err)
+	}
+
+	calls := fr.recorded()
+	want := []call{
+		{"wl-paste", []string{"--list-types"}, nil},
+		{"wl-copy", []string{"--type", "text/plain;charset=utf-8"}, []byte("注入文本")},
+		{"wl-copy", []string{"--clear"}, nil},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("命令数 = %d, want %d:\n%+v", len(calls), len(want), calls)
+	}
+	for i, w := range want {
+		if calls[i].name != w.name || strings.Join(calls[i].args, " ") != strings.Join(w.args, " ") || string(calls[i].stdin) != string(w.stdin) {
+			t.Errorf("call[%d] = %+v, want %+v", i, calls[i], w)
+		}
+	}
+	if ops := rec.snapshot(); len(ops) != 1 || ops[0] != "ctrlv" {
+		t.Fatalf("CtrlV 调用 = %v, want 恰一次", ops)
+	}
+}
+
+// 备份间隙选择消失（list-types 成功但备份报无内容）同样按空剪贴板收尾，不能降级掉整次注入。
+func TestInjectTreatedEmptyWhenBackupLosesSelection(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		switch i {
+		case 0:
+			return []byte("text/plain\n"), nil
+		case 1:
+			return nil, errors.New("exit status 1: Nothing is copied")
+		default:
+			return nil, nil
+		}
+	}}
+	in := newInjector(fr, &recorder{}, time.Millisecond)
+	in.Env = func(string) string { return "wayland-0" }
+
+	if err := in.Inject("注入文本"); err != nil {
+		t.Fatalf("Inject = %v, want nil", err)
+	}
+	calls := fr.recorded()
+	last := calls[len(calls)-1]
+	if last.name != "wl-copy" || strings.Join(last.args, " ") != "--clear" {
+		t.Errorf("收尾命令 = %+v, want wl-copy --clear", last)
+	}
+}
+
+// 清空失败必须可见（不得静默把注入文本留在剪贴板）。
+func TestInjectClearFail(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if i == 0 {
+			return nil, errors.New("exit status 1: Nothing is copied")
+		}
+		if i == 2 { // 清空失败
+			return nil, errors.New("display closed")
+		}
+		return nil, nil
+	}}
+	in := newInjector(fr, &recorder{}, time.Millisecond)
+	in.Env = func(string) string { return "wayland-0" }
+
+	err := in.Inject("x")
+	if err == nil || !strings.Contains(err.Error(), "恢复剪贴板失败") {
+		t.Fatalf("got %v, want 恢复剪贴板失败", err)
+	}
+}
+
 func TestInjectTimeoutContext(t *testing.T) {
 	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
 		return nil, context.DeadlineExceeded
@@ -212,6 +293,36 @@ func TestInjectTimeoutContext(t *testing.T) {
 	err := in.Inject("x")
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("超时应降级为 ErrUnavailable, got %v", err)
+	}
+}
+
+// ExecRunner 不得被孙进程持有的输出管道挂住：wl-copy 写完剪贴板后 fork 常驻子进程并退出，
+// 孙进程继承 stderr；若 Stdout/Stderr 用 bytes.Buffer（os/exec 建管道 + 复制 goroutine），
+// Wait 会一直等 EOF，直接子进程的 3s 超时对其无效 → 注入 worker 卡死。
+func TestExecRunnerNotBlockedByOrphanChild(t *testing.T) {
+	done := make(chan string, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, err := ExecRunner{}.Run(ctx, "sh", []string{"-c", "sleep 10 & echo ok"}, nil)
+		if err != nil {
+			done <- "Run 失败: " + err.Error()
+			return
+		}
+		if got := strings.TrimSpace(string(out)); got != "ok" {
+			done <- "stdout = " + got + ", want ok"
+			return
+		}
+		done <- ""
+	}()
+
+	select {
+	case msg := <-done:
+		if msg != "" {
+			t.Fatal(msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run 被孙进程持有的管道挂住（应随直接子进程退出立即返回）")
 	}
 }
 
