@@ -108,10 +108,34 @@ PoC 已验证：未授权时事件被静默丢弃，因此该门控不是可选�
 ### 2.5 文本注入：pbcopy/pbpaste
 
 textinject 的 wl-copy/wl-paste 命令名/参数按平台参数化（Runner 抽象已就绪）；
-darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。
-已知限制：CLI 只能备份纯文本剪贴板（图片/文件剪贴板备份不了），v1 接受并在日志声明；
-后续如需要再走 quartz 包补 NSPasteboard 全保真备份。Cmd+V 由 main.go 按平台注入
+darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 main.go 按平台注入
 （inject 接口不动）。
+
+**两端共同契约**（2026-10-11 真机对齐，textinject 包注释同步声明，改动须同时满足）：
+
+> 能备份到内容 → 注入后精确恢复；备份不到内容（原剪贴板只有非文本、或读取失败）→ 取消本次注入
+> 并给出可见错误。任何情况下都不把注入文本留在剪贴板，也不覆盖备份不到的原内容。
+
+真机实测（macOS 26；`pbpaste` 对"真·清空 / 只有图片 / 空串文本"三种状态一律退 0 且输出空串，
+无法自行区分，故取空时补查类型表）：
+
+| 粘贴板状态 | `pbpaste` | `osascript -e 'clipboard info'` | daemon 行为 |
+| --- | --- | --- | --- |
+| 有文本 | 文本 | 含 `«class utf8»`/`string`/`Unicode text` | 备份文本 → 注入 → 写回文本 |
+| 真·清空 | 空 | （无输出） | 照常注入 → 收尾写空 |
+| 空串文本 | 空 | 有文本类型、长度为 0 | 照常注入 → 收尾写空 |
+| 只有非文本（图片/文件） | 空 | 只有 `TIFF picture`/`«class PNGf»` 等 | **取消注入**（`errNonText`），粘贴板不动 |
+
+`osascript` 为系统自带、纯本地粘贴板查询，不需要辅助功能/自动化授权，且只在 `pbpaste` 取空的
+少数路径上调用；类型表查询失败按备份失败降级，同样不写剪贴板。对照 Linux：`wl-paste` 读非文本
+选择退 1（`Clipboard content is not available as inferred output type`），由已记录的 MIME 判定为
+非文本 → 同样是"取消注入、剪贴板未改动"，两端语义一致（不再出现"macOS 把用户的图片抹成空文本"
+这类单端行为）。
+
+已知限制（v1 接受，日志声明）：CLI 只有纯文本面，恢复只写回纯文本，富文本类型（RTF/HTML/图片）
+不保真——粘贴板含文本时文本内容仍能备份/恢复，只有非文本时取消注入；后续如需要再走 quartz 包
+补 NSPasteboard 全保真备份。`pbcopy` 空输入用于收尾：macOS 无 `wl-copy --clear` 对应的 CLI，
+对粘贴方等价于"粘不出内容"，但类型表仍留有文本类型。
 
 ### 2.6 常驻与分发
 
@@ -129,7 +153,7 @@ darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。
 | 阶段 | 内容 | 验收（本机真机） |
 | --- | --- | --- |
 | M-macOS-1 | internal/quartz + uinput_darwin + KEY_*→CGKeyCode 表 + AX 首启流 | 本机授权后 `padlinkd --test` 注入自测：光标按脚本轨迹移动、滚轮/按键生效 |
-| M-macOS-2 | textinject pbcopy 后端 + Cmd+V 平台化 | TextEdit 焦点下语音文本注入上屏，剪贴板按延迟恢复 |
+| M-macOS-2 | textinject pbcopy 后端 + Cmd+V 平台化 | TextEdit 焦点下语音文本注入上屏，剪贴板按延迟恢复；图片型剪贴板下取消注入且粘贴板内容不变（两端契约，见 §2.5） |
 | M-macOS-3 | hostinfo darwin 分支 + control socket 路径回落 + launchd 安装物 | install.sh 一键安装，重启会话后自启，padlinkctl 连通 |
 | M-macOS-4 | CI 迁移 + 文档 + 端到端联调 | tag 构建出 darwin/linux 全部产物；模拟器手动 IP 连本机 Mac 触控板/键盘/语音全链路 |
 

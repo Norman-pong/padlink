@@ -409,3 +409,198 @@ func TestInjectDarwinDegradesOnBackupFail(t *testing.T) {
 		t.Errorf("备份失败后不应继续写剪贴板，命令数 = %d", len(fr.recorded()))
 	}
 }
+
+// ---- 两端共同契约：备份不到内容就取消注入、绝不覆盖剪贴板 ----
+// 实测依据（macOS 26 真机）：pbpaste 对"真·清空/只有图片/空串文本"三种状态一律退 0 输出空串，
+// 只能靠 osascript 的类型表区分；Linux 侧 wl-paste 读非文本内容退 1（推断输出类型不可用）。
+
+// darwin 空粘贴板（类型表为空 = 真·无内容）：照常注入，收尾写空。
+func TestInjectDarwinProceedsWhenPasteboardEmpty(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		return nil, nil // pbpaste 空 + osascript 空
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+
+	if err := in.Inject("空粘贴板注入"); err != nil {
+		t.Fatalf("Inject: %v", err)
+	}
+	want := []call{
+		{"pbpaste", nil, nil},
+		{"osascript", []string{"-e", "clipboard info"}, nil},
+		{"pbcopy", nil, []byte("空粘贴板注入")},
+		{"pbcopy", nil, nil}, // 收尾：原无内容 → 不把注入文本留在剪贴板
+	}
+	calls := fr.recorded()
+	if len(calls) != len(want) {
+		t.Fatalf("命令数 = %d, want %d:\n%+v", len(calls), len(want), calls)
+	}
+	for i, w := range want {
+		if calls[i].name != w.name || strings.Join(calls[i].args, " ") != strings.Join(w.args, " ") ||
+			string(calls[i].stdin) != string(w.stdin) {
+			t.Errorf("call[%d] = %+v, want %+v", i, calls[i], w)
+		}
+	}
+	if ops := rec.snapshot(); len(ops) != 1 {
+		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
+	}
+}
+
+// darwin 空文本粘贴板（类型表有文本类型、内容为空串）：同"无内容"处理，照常注入。
+func TestInjectDarwinProceedsWhenPasteboardHoldsEmptyText(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if i == 1 {
+			return []byte("«class utf8», 0, string, 0, Unicode text, 0\n"), nil
+		}
+		return nil, nil
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+
+	if err := in.Inject("空文本注入"); err != nil {
+		t.Fatalf("Inject: %v", err)
+	}
+	var writes int
+	for _, c := range fr.recorded() {
+		if c.name == "pbcopy" {
+			writes++
+		}
+	}
+	if writes != 2 { // 写入注入文本 + 收尾写空
+		t.Errorf("pbcopy 次数 = %d, want 2", writes)
+	}
+	if ops := rec.snapshot(); len(ops) != 1 {
+		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
+	}
+}
+
+// darwin 非文本粘贴板（只有图片）：备份不到 → 取消注入，且一次 pbcopy 都不能有。
+// 这是"绝不覆盖用户剪贴板"的核心断言：旧实现会把图片抹成空文本。
+func TestInjectDarwinKeepsNonTextPasteboard(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if c.name == "osascript" {
+			return []byte("TIFF picture, 6386, «class PNGf», 4077, JPEG picture, 4934\n"), nil
+		}
+		return nil, nil // pbpaste 空
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+
+	err := in.Inject("这段字不该注入")
+	if !errors.Is(err, errNonText) {
+		t.Fatalf("got %v, want errNonText", err)
+	}
+	if !strings.Contains(err.Error(), "不是文本") || !strings.Contains(err.Error(), "剪贴板未改动") {
+		t.Errorf("错误文案未说明剪贴板未改动: %v", err)
+	}
+	for _, c := range fr.recorded() {
+		if c.name == "pbcopy" {
+			t.Fatalf("非文本剪贴板不得被覆盖，却调用了 pbcopy: %+v", c)
+		}
+	}
+	if ops := rec.snapshot(); len(ops) != 0 {
+		t.Fatalf("取消注入时不得发粘贴组合键，实际 %v", ops)
+	}
+}
+
+// darwin 类型表查询失败：保守按备份失败降级（同样不写剪贴板）。
+func TestInjectDarwinDegradesWhenTypeQueryFails(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if c.name == "osascript" {
+			return nil, errors.New("osascript: 执行失败")
+		}
+		return nil, nil
+	}}
+	in := newInjector(fr, &recorder{}, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+
+	err := in.Inject("x")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("got %v, want ErrUnavailable", err)
+	}
+	if len(fr.recorded()) != 2 {
+		t.Errorf("类型表查询失败后不应写剪贴板，命令数 = %d", len(fr.recorded()))
+	}
+}
+
+// linux 非文本选择（图片）：list-types 有 MIME 但读取退 1 → 取消注入、不动剪贴板。
+func TestInjectWlKeepsNonTextSelection(t *testing.T) {
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		if i == 0 {
+			return []byte("image/png\n"), nil
+		}
+		return nil, errors.New("exit status 1: Clipboard content is not available as inferred output type")
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.Env = func(string) string { return "wayland-0" }
+
+	err := in.Inject("这段字不该注入")
+	if !errors.Is(err, errNonText) {
+		t.Fatalf("got %v, want errNonText", err)
+	}
+	if !strings.Contains(err.Error(), "image/png") {
+		t.Errorf("错误文案应带上原类型: %v", err)
+	}
+	for _, c := range fr.recorded() {
+		if c.name == "wl-copy" {
+			t.Fatalf("非文本剪贴板不得被覆盖，却调用了 wl-copy: %+v", c)
+		}
+	}
+	if ops := rec.snapshot(); len(ops) != 0 {
+		t.Fatalf("取消注入时不得发粘贴组合键，实际 %v", ops)
+	}
+}
+
+// 文本类 MIME 判定：wl-paste 读失败时用它区分"能力边界"与"工具故障"。
+func TestIsNonTextMIME(t *testing.T) {
+	cases := map[string]bool{
+		"":                             false,
+		"text/plain":                   false,
+		"text/plain;charset=utf-8":     false,
+		"text/html":                    false,
+		"UTF8_STRING":                  false,
+		"STRING":                       false,
+		"image/png":                    true,
+		"image/tiff":                   true,
+		"application/pdf":              true,
+		"application/octet-stream":     true,
+		"x-special/gnome-copied-files": true,
+	}
+	for mime, want := range cases {
+		if got := isNonTextMIME(mime); got != want {
+			t.Errorf("isNonTextMIME(%q) = %v, want %v", mime, got, want)
+		}
+	}
+}
+
+// macOS 类型表分类：用真机实测的类型串做回归（判定宁宽勿严）。
+func TestIsTextPasteboardType(t *testing.T) {
+	textTypes := []string{
+		"«class utf8»", "«class ut16»", "string", "unicode text",
+		"public.utf8-plain-text", "public.utf16-external-plain-text",
+		"nsstringpboardtype", "next rich text format v1.0 pasteboard type",
+	}
+	nonTextTypes := []string{
+		"tiff picture", "«class pngf»", "«class 8bps»", "gif picture", "jpeg picture",
+		"«class avif»", "«class jp2 »", "«class tpic»", "«class furl»", "public.file-url",
+		"«class weba»", "next smart paste pasteboard type",
+	}
+	for _, s := range textTypes {
+		if !isTextPasteboardType(s) {
+			t.Errorf("isTextPasteboardType(%q) = false, want true", s)
+		}
+	}
+	for _, s := range nonTextTypes {
+		if isTextPasteboardType(s) {
+			t.Errorf("isTextPasteboardType(%q) = true, want false", s)
+		}
+	}
+}
