@@ -80,7 +80,7 @@
 
 ## 3. wl-clipboard 在 systemd user service 中运行
 
-### 结论：**可行，有 4 个可规避的坑**（环境变量时序、wl-copy 后台驻留进程生命周期、wl-paste 默认追加换行、恢复时机竞态）；GNOME 内置剪贴板管理器提供了系统性兜底
+### 结论：**可行，有 6 个可规避的坑**（环境变量时序、wl-copy 后台驻留进程生命周期、wl-paste 默认追加换行、恢复时机竞态、空剪贴板被判成工具故障、驻留子进程继承 stderr 导致 Go `os/exec` 的 Wait 永久阻塞）；GNOME 内置剪贴板管理器提供了系统性兜底
 
 ### 依据
 
@@ -95,8 +95,10 @@
 | systemd 官方模式：依赖图形会话的 user service 应 `PartOf=graphical-session.target` 并 `WantedBy=graphical-session.target`（官方示例即 GNOME 场景）；graphical-session.target 由 gnome-session.target 以 BindsTo 启停 | systemd.special(7) https://www.freedesktop.org/software/systemd/man/latest/systemd.special.html | ★★★★★ |
 | `wl-clipboard` 无法同时提供/恢复多 MIME 类型（官方已知限制） | man page BUGS 节 + https://github.com/bugaevc/wl-clipboard/issues/71 | ★★★★★ |
 | GTK3 应用复制文本带 CRLF（\r\n）；wl-clipboard 不做转换（备份-恢复按字节原样往返则不受影响） | man page BUGS 节 | ★★★★★ |
+| 剪贴板为空（无选择内容）时 `wl-paste --list-types` 以**退出码 1** 打印 `Nothing is copied`（固定英文串，wl-clipboard 无本地化）；而 `CommandContext` 超时同样表现为 `*exec.ExitError`（`signal: killed`）——两者不能用错误类型区分 | 本项目真机实测（Ubuntu 26.04、wl-clipboard 2.2.1-2build1；`strings $(which wl-paste)` 可验该文案） | ★★★★★ |
+| `wl-copy` 写完剪贴板后 fork 的驻留子进程**继承其 stderr**：实测 `PPid=1`、`fd 0/1 → /dev/null`、`fd 2 → pipe`，且 daemon 收到 SIGTERM 后该进程仍存活（systemd 只能 `stop-sigterm timed out` → SIGKILL） | 本项目真机实测（/proc 现场取证 + journal） | ★★★★★ |
 
-### 四个坑与规避
+### 六个坑与规避
 
 1. **环境变量时序**：`XDG_RUNTIME_DIR` 对 user manager 恒有（logind/PAM 注入）；`WAYLAND_DISPLAY` 只在图形会话启动后才被 gnome-session 导入。daemon 挂 `default.target` 可能在变量就绪前启动。
    **规避**：unit 写 `PartOf=graphical-session.target` + `[Install] WantedBy=graphical-session.target`（并 `After=graphical-session.target`）；daemon 启动时校验 `WAYLAND_DISPLAY` 缺失则给出明确错误。不要用 environment.d（它管不了运行时动态变量）。
@@ -106,15 +108,20 @@
    **规避**：备份一律 `wl-paste --no-newline`（并建议先 `wl-paste --list-types` 记录原 MIME）；恢复 `wl-copy --type <原MIME>` 原样写回（不要用 `wl-copy -n`，它会裁掉合法的尾部换行）。注入文本用 `wl-copy --type 'text/plain;charset=utf-8'`（规避 man BUGS 所述文本类型推断失灵问题）。
 4. **恢复时机竞态**：Ctrl+V 后应用异步向合成器请求数据；若 300ms 内恢复已替换数据源，慢应用可能粘到旧内容。另注意：mutter 在每次 owner 变化时立即自读一份（缓存），因此 `wl-copy -o/--paste-once` 的"服务一次即退出"在 GNOME 上不等价于"应用已粘贴"（第一次请求往往是 mutter 自己）。
    **规避**：维持固定延迟但做成可配置（默认 300ms、可调 500ms+）；不要依赖 `--paste-once` 作为粘贴完成信号；不要在恢复前提前退出注入用 wl-copy。
+5. **空剪贴板被判成工具故障**（真机实测，中文/语音注入全废的直接原因之一）：剪贴板为空时 `wl-paste --list-types` 退出码 1，若按普通失败走"工具不可用"降级，则每次 TEXT 注入都失败——用户表现就是"手机能连上但打不进中文/语音"，日志里是一句误导性的 `记录原 MIME 失败（处置：sudo apt install wl-clipboard）`，而工具其实装得好好的。
+   **规避**：把"无选择内容"与"工具故障/超时"分开判定——空剪贴板**不是错误**：跳过备份、注入照常进行、收尾改用 `wl-copy --clear` 清空选择（注入文本不得留在剪贴板）。判定不能靠 `*exec.ExitError`（超时同样是 ExitError），只能用 `Nothing is copied` 这一定文案（见上表；wl-clipboard 无本地化，2.2.1 实测存在）。备份步骤同样要按此判定兜底：`--list-types` 与备份之间选择可能消失。
+6. **驻留子进程继承 stderr ⇒ Go `os/exec` 的 `Wait` 永久阻塞**（真机实测，整机输入失效的直接原因）：`wl-copy` fork 出驻留子进程后直接子进程立即退出；若 Go 侧把 `cmd.Stdout/Stderr` 设成 `*bytes.Buffer`（或任何非 `*os.File`），`os/exec` 会建管道并起复制 goroutine，`Wait` 必须等管道 **EOF**——而 EOF 要等持有 fd 2 的孙进程退出，永远不会来。`context.WithTimeout(3s)` 救不了：它只杀早已退出的直接子进程。
+   **后果链**：单条注入 worker 卡死 → TCP 仍连着但所有输入失效（用户看到"连接态却操作不了电脑"）→ SIGTERM 关闭也卡住 → systemd `stop-sigterm timed out` → SIGKILL。
+   **规避**：`Stdout/Stderr` 落**临时文件**（无复制 goroutine，直接子进程退出即返回），并设 `cmd.WaitDelay` 兜底 stdin 管道的极端情况。注意探测陷阱：孙进程 `fd 0/1 → /dev/null`，只有 `fd 2` 是管道——用 bash `$(...)` 计时（等的是 stdout）会看到"一切正常"，从而误判。
 
 补充：GNOME 无 wlr-data-control ⇒ 每次 wl-paste 理论上都有一次隐形弹窗往返，实测通常无感；建议 daemon 对 wl-paste/wl-copy 均设 2–3s 超时，超时按"剪贴板功能降级"处理（与缺 wl-clipboard 同一降级路径）。
 
 ### 给 PRD 的修正建议
 
-- §4.5 注入流程细化为：`wl-paste --list-types`（记 MIME）→ `wl-paste --no-newline`（备份，仅驻内存）→ `wl-copy --type text/plain;charset=utf-8` → 注入 Ctrl+V → 可配延迟（默认 300ms）→ `wl-copy --type <原MIME>` 恢复。
+- §4.5 注入流程细化为：`wl-paste --list-types`（记 MIME）→ `wl-paste --no-newline`（备份，仅驻内存）→ `wl-copy --type text/plain;charset=utf-8` → 注入 Ctrl+V → 可配延迟（默认 300ms）→ `wl-copy --type <原MIME>` 恢复；**空剪贴板分支**：记 MIME 若为"无选择内容"（`Nothing is copied`）则跳过备份、注入照常，收尾改 `wl-copy --clear`。
 - §7.1 unit 挂载目标从 user service 泛述改为明确 `graphical-session.target` 模式。
-- §11.4 验收口径补充："剪贴板内容不变"指**内容字节**不变；owner 在 daemon 停止后可能变为 mutter 内置管理器（内存源），属正常。
-- §13 风险表增加两行：wl-copy 驻留进程随服务重启被杀（缓解：mutter 内存接管 / systemd-run scope）；wl-paste 弹窗 hack 个别情况挂起（缓解：超时+降级）。
+- §11.4 验收口径补充："剪贴板内容不变"指**内容字节**不变；owner 在 daemon 停止后可能变为 mutter 内置管理器（内存源），属正常；空剪贴板注入后应回到"无内容"而非残留注入文本。
+- §13 风险表增加四行：wl-copy 驻留进程随服务重启被杀（缓解：mutter 内存接管 / systemd-run scope）；wl-paste 弹窗 hack 个别情况挂起（缓解：超时+降级）；空剪贴板被误判为工具故障致中文/语音注入全废（缓解：按 `Nothing is copied` 分流为"无内容"）；驻留子进程持有继承 stderr 致注入 worker 永久阻塞、服务无法优雅停止（缓解：子进程输出落临时文件 + `WaitDelay`）。
 
 ---
 
@@ -193,7 +200,7 @@
 | --- | --- | --- | --- |
 | 1 | REL_WHEEL_HI_RES | 可行 | 注册 HI_RES bit 就必须发 HI_RES 事件，否则 libinput 告警回退 |
 | 2 | udev uaccess | 可行且必要 | 上游/Ubuntu 无默认授权；需 canonical 规则 + reload/trigger；ACL 依赖活跃图形会话时序 |
-| 3 | wl-clipboard | 可行（4 个坑） | wl-paste 默认尾加换行；wl-copy 驻留进程随服务重启被杀（mutter 兜底）；恢复时机竞态 |
+| 3 | wl-clipboard | 可行（6 个坑） | wl-paste 默认尾加换行；wl-copy 驻留进程随服务重启被杀（mutter 兜底）；恢复时机竞态；空剪贴板被判工具故障致中文/语音注入全废；驻留子进程持有 stderr 致 Go 侧 Wait 挂死、输入失效且无法优雅退出 |
 | 4 | 指针加速 | 有坑（可控） | GNOME adaptive 与手机曲线双重加速；无 env/udev 手段，需主机 flat profile 基线 |
 | 5 | Ubuntu 26.04 | 全部假设成立 | 无（universe 需启用，Desktop 默认有） |
 | 6 | Ctrl+V 替代 | 无替代 | ydotool 仅 ASCII、wtype 无 GNOME 协议支持（源码实锤） |
