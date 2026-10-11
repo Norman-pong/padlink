@@ -9,13 +9,13 @@ PadLink 的桌面守护进程（Go，零第三方依赖单二进制；Linux 无 
 | 路径 | 职责 |
 | --- | --- |
 | `internal/proto` | 线协议 v1 编解码（19B 头 + payload，大端）、HMAC-SHA256 截断认证；以 `protocol/testvectors.json` 为对拍单源 |
-| `internal/inject` | 平台无关注入编排：MOVE/SCROLL/BUTTON/KEY → 事件序列、修饰键组合（CtrlV）、daemon 侧 key repeat（250ms + 33ms）、HID usage → Linux KEY_* 映射、多击点击序号合成（`click.go`：同键限时限距连续按下 → clickCount 1/2/3，仅 darwin 消费） |
+| `internal/inject` | 平台无关注入编排：MOVE/SCROLL/BUTTON/KEY → 事件序列、修饰键组合（CtrlV）、daemon 侧 key repeat（250ms + 33ms）、HID usage → Linux KEY_* 映射、多击点击序号合成（`click.go`：同键限时限距连续按下 → clickCount 1/2/3，仅 darwin 消费）、**CapsLock 补偿**（主机大写锁生效时按 XOR 改写字母键的 Shift 语义，见下） |
 | `internal/uinput` | 注入后端（`DeviceWriter` 实现）：Linux uinput + macOS CGEvent（darwin）；`caps.go` 为跨平台可测的能力位/ABI 纯逻辑，其余平台由 stub 保证可编译 |
 | `internal/quartz` | macOS Quartz CGEvent 薄 cgo 封装（仅 darwin 构建）：绝对定位位移（按住按钮时投 `mouseDragged`）/像素滚轮/键鼠 post（按钮写 `kCGMouseEventClickState`，否则应用侧 clickCount 恒为 1、双击失效）与 TCC 辅助功能权限检测；`interval_darwin.m` 取系统双击间隔 |
 | `internal/pairing` | 4 位确认码生命周期（60s/最多 5 次/常数时间比较/同时最多一轮）、token 签发与 `clients.json`（0600）持久化、客户端上限 4、同设备指纹复用记录并轮换 token、`notify-send` 展示 |
 | `internal/session` | TCP 会话（HELLO 协商、配对路径、逐包 token 认证、心跳超时、速率限制、会话结束按键兜底）、UDP 数据面（发现应答、MOVE/SCROLL/ECHO）与多设备控制权裁决（`priority.go`：15s 冷静期 + 无操作接管 + NOTICE 下发）；所有注入经单一 goroutine 串行化 |
 | `internal/service` | `padlinkctl` 的启停与卸载编排：安装形态探测（Linux tar.gz / deb-rpm / macOS LaunchAgent）→ 有序 Plan（命令/删除/提示）→ 执行层（路径守卫 + 逐个 `os.Remove`） |
-| `internal/textinject` | TEXT → 剪贴板备份/写入/粘贴组合键/延迟恢复：Linux 走 wl-clipboard（`--no-newline`、显式 `--type`、可配恢复延迟），macOS 走 pbcopy/pbpaste（Cmd+V）；缺失/超时结构化降级 |
+| `internal/textinject` | TEXT → 剪贴板备份/写入/粘贴组合键/延迟恢复：Linux 走 wl-clipboard（`--no-newline`、显式 `--type`、300ms 恢复），macOS 走 pbcopy/pbpaste（Cmd+V、800ms 恢复、启动时兜底 UTF-8 locale，见下）；缺失/超时结构化降级 |
 | `internal/hostinfo` | Linux 启动自检：WAYLAND_DISPLAY 缺失、gsettings accel-profile 非 flat（双重加速警告）；macOS 由调用方跳过（绝对定位注入不经过加速曲线） |
 | `internal/control` | `padlinkctl` ↔ daemon 的 Unix socket 控制通道（行分隔 JSON；Linux 取 `$XDG_RUNTIME_DIR`，macOS 回落 `$TMPDIR`） |
 | `cmd/padlinkd` | 守护进程入口（`--test` 自测 + 常驻模式） |
@@ -120,7 +120,7 @@ padlinkd --test -v        # 无手机注入自测（调试分层第一层）
 padlinkd -v               # 前台 verbose（逐包调试行）
 ```
 
-flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 token 存储目录）、`--restore-delay-ms`（恢复剪贴板延迟，默认 300）。日志走 stdout（systemd 接管进 journald）。SIGINT/SIGTERM 优雅退出：关全部会话（补发未释放按键）、控制 socket、uinput 设备。
+flags：`--port`（默认 53021）、`-v`（verbose）、`--state-dir`（覆盖 token 存储目录）、`--restore-delay-ms`（恢复剪贴板延迟，默认 Linux 300 / macOS 800，见下）。日志走 stdout（systemd 接管进 journald）。SIGINT/SIGTERM 优雅退出：关全部会话（补发未释放按键）、控制 socket、uinput 设备。
 
 ## 协议 v1 约定（daemon 侧文档化；`protocol/` 为字节级单源，不改）
 
@@ -201,6 +201,28 @@ padlinkctl uninstall --dry-run           # 只打印将执行的命令与将删�
 # Linux 主机上（需 udev uaccess 已授权 /dev/uinput）
 ./dist/bin/padlinkd-linux-$(dpkg --print-architecture) --test -v
 ```
+
+### CapsLock 补偿（两端）
+
+手机端的 Shift 表达的是"这个字母要大写"，而**主机的 CapsLock 会在注入侧再反转一次**：
+实测 Linux 上开着大写锁时，手机打小写、主机出大写（用户报障原话"英文大小写锁定是相反的"）。
+因此 `internal/inject` 对字母键按 **XOR** 改写 Shift 语义：需要大写而手机没按 Shift 就临时补 Shift，
+需要小写而手机按着 Shift 就临时松开（字母抬起后恢复手机原状态）。判定用 `Config.CapsLockActive`
+钩子：Linux 读 `/sys/class/leds/input*::capslock/brightness`（输入子系统在锁状态变化时统一同步各键盘 LED），
+读不到时按"未生效"处理——补偿失败只会退化成主机侧反转，不丢按键；macOS 恒 false，因为合成 CGEvent
+携带显式 flags、不经系统大写锁改写（实测：注入 CapsLock 开锁后注入 a/b/c 仍得 `abc`）。
+
+大写字义的最终裁决在 `Config.CapsLockActive` 为真的平台，`keyWithCaps` 用 `shiftHeld`（手机 Shift 状态）
+与本层临时状态区分"补 Shift"和"屏蔽 Shift"两条路径，处理手机中途松开 Shift 的情况（不得残留按住不放的修饰键）。
+
+### 文本注入的两个平台差异（macOS 实测）
+
+- **必须兜底 UTF-8 locale**：`pbcopy/pbpaste` 按 locale 解释输入输出，launchd 启动的 daemon 环境里
+  没有任何 locale，此时写 CJK 会得到**空内容**——表现为手机注入中文/语音"发送成功但不上屏"，
+  更糟的是备份非 ASCII 剪贴板会读成空、还原时写回空（等于清空用户剪贴板）。`cmd/padlinkd` 启动时调
+  `ensureUTF8Locale()`（已有 UTF-8 的 `LC_ALL/LC_CTYPE/LANG` 则不动）。
+- **恢复延迟要够长**：实测 300ms 时目标应用还没读完粘贴板就被还原，中文同样不上屏；400–500ms 起可用，
+  macOS 默认取 800ms 给非原生应用留余量（Linux 300ms 实测够用，保持不变）。
 
 序列对齐 `docs/PROBE-LINUX.md` §4：光标画 2 个 r=200px 圆（各 120 段精确闭合）→ 左键点击 → 敲出 `pl`（走 HID→KEY 映射）→ hi-res 滚动 +2 格 / -1 格；成功打印 `padlinkd --test PASSED`（退出码 0），任何错误非零退出并输出原因。
 

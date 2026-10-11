@@ -49,6 +49,12 @@ type Config struct {
 	DoubleClickInterval time.Duration
 	// DoubleClickDistance 多击合成的最大指针位移（计数，默认 8，仅 darwin 消费）。
 	DoubleClickDistance int32
+	// CapsLockActive 报告主机大写锁定当前是否生效；nil 或恒 false 表示无需补偿。
+	// 手机端的 Shift 表达的是"这个字母要大写"，而主机 CapsLock 会在注入侧再反转一次
+	// （实测 Linux uinput 注入同样受影响：开锁后手机打小写、主机出大写），
+	// 因此字母键需按 XOR 语义改写 Shift，保证"手机显示什么、主机就打什么"。
+	// macOS 传恒 false：合成 CGEvent 带显式 flags，实测开锁后注入 a/b/c 仍得 abc。
+	CapsLockActive func() bool
 }
 
 type repeatHandle struct {
@@ -65,6 +71,11 @@ type Injector struct {
 
 	mu      sync.Mutex
 	repeats map[uint16]*repeatHandle // KEY_* code → 活跃连发
+
+	// CapsLock 补偿状态（都在 mu 下读写）：
+	shiftHeld   bool // 手机端是否按住 Shift（大写意图的唯一依据）
+	capsAdded   bool // 本层为补偿临时按下 Shift，字母抬起时释放
+	capsBlocked bool // 本层为补偿临时松开手机按住的 Shift，字母抬起后按需恢复
 }
 
 func NewInjector(w DeviceWriter, cfg Config) *Injector {
@@ -128,11 +139,26 @@ func (in *Injector) Button(btn uint8, down bool) error {
 
 // Key 注入键盘事件（HID usage → Linux KEY_*），down 时启动连发，
 // 收到同键 up 或 Close 停止。未知 usage 丢弃并报错。
+// 字母键在主机 CapsLock 生效时按 XOR 语义改写 Shift（见 keyWithCaps）。
 func (in *Injector) Key(hidUsage uint16, down bool) error {
 	code, ok := HIDToKey[hidUsage]
 	if !ok {
 		return fmt.Errorf("inject: 未映射的 HID usage 0x%04X", hidUsage)
 	}
+	if isShiftHID(hidUsage) {
+		in.setShiftHeld(down) // 先记账：补偿判定只认手机端意图
+		return in.keyRaw(code, down)
+	}
+	if isLetterHID(hidUsage) {
+		if wantUpper, need := in.capsAdjust(); need {
+			return in.keyWithCaps(code, down, wantUpper)
+		}
+	}
+	return in.keyRaw(code, down)
+}
+
+// keyRaw 是原始投递路径：down 时启动连发，up 时停止。
+func (in *Injector) keyRaw(code uint16, down bool) error {
 	if !down {
 		in.stopRepeat(code)
 		return in.tapKey(code, 0)
@@ -144,6 +170,87 @@ func (in *Injector) Key(hidUsage uint16, down bool) error {
 	in.startRepeat(code)
 	return nil
 }
+
+// keyWithCaps 按 CapsLock 补偿语义投递字母键：
+// 需要大写而手机没按 Shift 时临时按下 Shift；需要小写而手机按着 Shift 时临时松开，
+// 字母抬起后恢复手机的原状态。wantUpper 已由 capsAdjust 按 XOR 算好。
+func (in *Injector) keyWithCaps(code uint16, down, wantUpper bool) error {
+	shiftCode, ok := HIDToKey[HIDLeftShift]
+	if !ok {
+		return in.keyRaw(code, down) // 映射表缺 Shift：退化为不补偿，不阻断输入
+	}
+	in.mu.Lock()
+	shiftHeld := in.shiftHeld
+	in.mu.Unlock()
+	if wantUpper == shiftHeld {
+		return in.keyRaw(code, down) // 语义一致，无需改写
+	}
+	if wantUpper { // 补 Shift：按下 → 字母 → 抬起
+		in.mu.Lock()
+		added := in.capsAdded
+		in.capsAdded = true
+		in.mu.Unlock()
+		if down && !added {
+			if err := in.tapKey(shiftCode, 1); err != nil {
+				return err
+			}
+		}
+		if err := in.keyRaw(code, down); err != nil {
+			return err
+		}
+		if down {
+			return nil
+		}
+		in.mu.Lock()
+		in.capsAdded = false
+		in.mu.Unlock()
+		return in.tapKey(shiftCode, 0)
+	}
+	// 屏蔽 Shift：松开 → 字母 → 按需恢复
+	if down {
+		if err := in.tapKey(shiftCode, 0); err != nil {
+			return err
+		}
+		in.mu.Lock()
+		in.capsBlocked = true
+		in.mu.Unlock()
+		return in.keyRaw(code, down)
+	}
+	if err := in.keyRaw(code, down); err != nil {
+		return err
+	}
+	in.mu.Lock()
+	blocked, stillHeld := in.capsBlocked, in.shiftHeld
+	in.capsBlocked = false
+	in.mu.Unlock()
+	if blocked && stillHeld { // 手机中途松开 Shift 就不再恢复，避免留下按住的修饰键
+		return in.tapKey(shiftCode, 1)
+	}
+	return nil
+}
+
+// capsAdjust 给出字母键应达到的大写状态（XOR：手机意图 ⊕ 主机大写锁）。
+// need=false 表示本平台不需要补偿。
+func (in *Injector) capsAdjust() (wantUpper, need bool) {
+	if in.cfg.CapsLockActive == nil || !in.cfg.CapsLockActive() {
+		return false, false
+	}
+	in.mu.Lock()
+	shift := in.shiftHeld
+	in.mu.Unlock()
+	return !shift, true
+}
+
+func (in *Injector) setShiftHeld(down bool) {
+	in.mu.Lock()
+	in.shiftHeld = down
+	in.mu.Unlock()
+}
+
+// isLetterHID 判定字母键（HID 0x04-0x1D = A-Z）；大小写锁只影响字母。
+func isLetterHID(hid uint16) bool { return hid >= 0x04 && hid <= 0x1D }
+
+func isShiftHID(hid uint16) bool { return hid == HIDLeftShift || hid == HIDRightShift }
 
 // PressCombo 依次按下 mods、点击 key、逆序抬起 mods（每步 Sync）。
 // 组合键走原始按键路径，不触发 key repeat。

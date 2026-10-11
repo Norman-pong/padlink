@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -156,4 +158,25 @@ func (d *Device) Close() error {
 		return fmt.Errorf("uinput: UI_DEV_DESTROY: %w", errno)
 	}
 	return closeErr
+}
+
+// CapsLockActive 报告内核大写锁定当前是否生效：读 LED 状态（"1" 为生效）。
+// 输入子系统在锁状态变化时会统一同步各键盘（含本虚拟设备）的 LED，
+// 因此读任一 readable 的 capslock LED 等价；读不到（无节点/无权限）按未生效处理，
+// 不阻塞注入——大写锁补偿失败只会退化成"主机侧反转"，不会丢按键。
+func CapsLockActive() bool {
+	paths, err := filepath.Glob("/sys/class/leds/input*::capslock/brightness")
+	if err != nil {
+		return false
+	}
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(b)) == "1" {
+			return true
+		}
+	}
+	return false
 }

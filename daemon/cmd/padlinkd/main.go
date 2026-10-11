@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,11 +31,12 @@ import (
 var daemonVersion = "0.1.0-dev"
 
 func main() {
+	ensureUTF8Locale()
 	test := flag.Bool("test", false, "运行注入链路自测（画圆/点击/敲键/滚动，无手机）")
 	verbose := flag.Bool("v", false, "verbose 输出（逐包调试行）")
 	port := flag.Int("port", session.DefaultPort, "TCP/UDP 服务端口")
 	stateDir := flag.String("state-dir", "", "覆盖 token 存储目录（默认 $XDG_CONFIG_HOME/padlink 或 ~/.config/padlink）")
-	restoreDelayMs := flag.Int("restore-delay-ms", int(textinject.DefaultRestoreDelay/time.Millisecond), "文本注入后恢复剪贴板的延迟（ms，300–500）")
+	restoreDelayMs := flag.Int("restore-delay-ms", defaultRestoreDelayMs(), "文本注入后恢复剪贴板的延迟（ms，300–500）")
 	showVersion := flag.Bool("version", false, "打印版本号后退出（安装脚本据此写 app bundle 的 Info.plist）")
 	flag.Parse()
 
@@ -102,7 +104,10 @@ func run(cfg config) error {
 	}
 	// 多击间隔取平台系统设置（macOS NSEvent.doubleClickInterval；Linux 恒 0 回落默认值）：
 	// darwin 注入必须显式写 CGEvent 点击序号，阈值不一致会导致系统设置下的双击不生效。
-	inj := inject.NewInjector(dev, inject.Config{DoubleClickInterval: uinput.DoubleClickInterval()})
+	inj := inject.NewInjector(dev, inject.Config{
+		DoubleClickInterval: uinput.DoubleClickInterval(),
+		CapsLockActive:      uinput.CapsLockActive,
+	})
 
 	// ③ token 存储
 	storePath, err := storePath(cfg.stateDir)
@@ -185,8 +190,39 @@ func onOff(b bool) string {
 }
 
 // runTest 执行 PROBE-LINUX §4 的合成注入序列。
+// ensureUTF8Locale 保证本进程及其子进程使用 UTF-8 locale（仅 macOS 需要）。
+// 实测：launchd 启动的 daemon 环境里没有任何 locale，此时 pbcopy 无法表示 CJK 字节，
+// 会把中文写成**空内容**——表现为手机注入中文/语音「发送成功但不上屏」，而且备份
+// 非 ASCII 剪贴板会读成空、还原时再写回空（等于清空用户剪贴板）。Linux 侧的
+// wl-clipboard 是 UTF-8 原生、不依赖 locale，故不做处理。
+func ensureUTF8Locale() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if v := strings.ToUpper(os.Getenv(k)); strings.Contains(v, "UTF-8") || strings.Contains(v, "UTF8") {
+			return // 已有 UTF-8 locale，尊重用户环境
+		}
+	}
+	_ = os.Setenv("LC_CTYPE", "UTF-8")
+	if os.Getenv("LANG") == "" {
+		_ = os.Setenv("LANG", "en_US.UTF-8")
+	}
+}
+
+// defaultRestoreDelayMs 返回文本注入后还原剪贴板的默认延迟（毫秒）。
+// 必须够长到目标应用读完粘贴板：macOS 实测 300ms 时应用还没取走内容就被还原，
+// 表现为「中文/语音注入看起来成功但不上屏」，400–500ms 起可用，取 800ms 给
+// 非原生应用留余量（Linux 300ms 实测够用，保持不动）。
+func defaultRestoreDelayMs() int {
+	if runtime.GOOS == "darwin" {
+		return 800
+	}
+	return int(textinject.DefaultRestoreDelay / time.Millisecond)
+}
+
 func runTest(w inject.DeviceWriter, verbose bool) error {
-	inj := inject.NewInjector(w, inject.Config{})
+	inj := inject.NewInjector(w, inject.Config{CapsLockActive: uinput.CapsLockActive})
 
 	if err := drawCircles(inj, 2, 200, 120); err != nil {
 		return err

@@ -172,3 +172,9 @@ func hiResToPixels(hiRes int32) int32 {
 	}
 	return px
 }
+
+// CapsLockActive 恒 false：macOS 无需大写锁补偿。
+// 实测：注入 CapsLock 打开主机大写锁后，再注入 a/b/c（不带 Shift）仍得到 abc——
+// 合成 CGEvent 携带显式 flags，不经过系统的大写锁改写。保留函数是为了让
+// main 无需按平台分支装配 Config（两端接口一致）。
+func CapsLockActive() bool { return false }

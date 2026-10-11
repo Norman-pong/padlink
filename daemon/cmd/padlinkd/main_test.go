@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -173,3 +174,36 @@ func TestRunTestVerbose(t *testing.T) {
 
 // 编译期确认 fakeWriter 满足 DeviceWriter。
 var _ inject.DeviceWriter = (*fakeWriter)(nil)
+
+// ensureUTF8Locale 只在 macOS 生效：launchd 环境没有 locale 时要把子进程
+// （pbcopy/pbpaste）拉到 UTF-8，否则 CJK 会被写成空内容。
+func TestEnsureUTF8Locale(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Linux 侧 wl-clipboard 不依赖 locale")
+	}
+	cases := []struct {
+		name                          string
+		lcAll, lcCtype, lang          string
+		wantCtype, wantLang, whyShort string
+	}{
+		{"全空（launchd 现状）", "", "", "", "UTF-8", "en_US.UTF-8", "必须补上 UTF-8"},
+		{"LANG=C 非 UTF-8", "", "", "C", "UTF-8", "C", "不得覆盖用户 LANG"},
+		{"LC_CTYPE 已是 UTF-8", "", "UTF-8", "", "UTF-8", "", "尊重已有设置"},
+		{"LANG 已是 en_US.UTF-8", "", "", "en_US.UTF-8", "", "en_US.UTF-8", "LANG 已覆盖全部类别，无需改动"},
+		{"LC_ALL 已是 UTF-8", "en_US.UTF-8", "", "", "", "", "LC_ALL 已提供 UTF-8，不做任何改动"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("LC_ALL", c.lcAll)
+			t.Setenv("LC_CTYPE", c.lcCtype)
+			t.Setenv("LANG", c.lang)
+			ensureUTF8Locale()
+			if got := os.Getenv("LC_CTYPE"); got != c.wantCtype {
+				t.Fatalf("LC_CTYPE = %q，期望 %q（%s）", got, c.wantCtype, c.whyShort)
+			}
+			if got := os.Getenv("LANG"); got != c.wantLang {
+				t.Fatalf("LANG = %q，期望 %q（%s）", got, c.wantLang, c.whyShort)
+			}
+		})
+	}
+}

@@ -227,6 +227,20 @@ darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 
 不保真——粘贴板含文本时文本内容仍能备份/恢复，只有非文本时取消注入。`pbcopy` 空输入用于收尾：
 macOS 无 `wl-copy --clear` 对应的 CLI，对粘贴方等价于"粘不出内容"，但类型表仍留有文本类型。
 
+**两个必须在 daemon 侧兜底的平台差异（2026-10-11 真机定位，此前表现为"中文与语音注入不上屏"）**：
+
+- **UTF-8 locale**：`pbcopy/pbpaste` 按 locale 解释输入输出。launchd 启动的 daemon 环境里
+  **没有任何 locale**，此时写 CJK 得到的是**空内容**——手机侧显示"发送成功"、daemon 无失败行、
+  剪贴板里却是空的（实测注入窗口内轮询 `pbpaste`：基线 → 空 → 基线）。更严重的是备份非 ASCII
+  剪贴板会读成空、还原时再写回空，**等于清空用户剪贴板**。直接对照：`env -i HOME=$HOME pbcopy`
+  写入中文后 `pbpaste` 为空，加上 `LANG=en_US.UTF-8 LC_CTYPE=UTF-8` 则正常。修复在 `cmd/padlinkd`
+  启动时 `ensureUTF8Locale()`（已存在 UTF-8 的 `LC_ALL/LC_CTYPE/LANG` 则完全不改）。
+  注意：从终端手跑 daemon 时 shell 自带 locale，**这个缺陷不会复现**，排查时别被误导。
+- **恢复延迟**：300ms 时目标应用还没读完粘贴板就被还原，同样表现为"注入成功但不上屏"（用
+  CGEventTap 抓原始事件可见 Cmd+V 完全正确：`flag 55 CMD → down 9 CMD → up 9 CMD → flag 55`，
+  问题不在按键而在剪贴板被过早收回）。逐档实测：300ms 失败、500ms 与 800ms 均成功；macOS 默认取
+  **800ms**（给非原生应用留余量），Linux 维持 300ms（`wl-paste` 路径实测够用）。
+
 ### 2.6 常驻与分发
 
 - launchd LaunchAgent：`~/Library/LaunchAgents/com.zhimingcool.padlink.plist`
