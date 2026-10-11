@@ -97,17 +97,47 @@ REL_WHEEL_HI_RES（1/120 格）→ CGEventCreateScrollWheelEvent(kCGScrollEventU
 macOS 原生支持像素级平滑滚动，体验上限高于 Linux 的 hi-res 转换；映射系数 M-1 实测校准。
 自然滚动方向由系统按当前设备设置处理，App 侧 natural_scroll 开关语义保持一致（默认开）。
 
-### 2.4 TCC 辅助功能权限首启流
+### 2.4 TCC 辅助功能权限首启流与稳定签名身份
 
 `uinput.Open()`（darwin）内封装：`AXIsProcessTrusted()` 未授权 →
 `AXIsProcessTrustedWithOptions(prompt=true)` 弹系统授权框 → 轮询等待授权（日志提示用户去
-系统设置勾选）→ 授权后继续初始化；超时退出并给出手动指引。
-授权对象是"责任进程"：LaunchAgent 直挂二进制时，TCC 记的是该二进制的**代码签名（cdhash）**，
-不是路径——Go 构建出的二进制是 ad-hoc（linker-signed）签名，**每次重新构建/替换二进制后授权都会
-失效，必须重新勾选**（2026-10-11 实测：替换同路径二进制后 daemon 停在"仍在等待辅助功能授权"
-轮询上，重新授权后自动继续，无需重启）。处置：换二进制后到「系统设置 → 隐私与安全性 → 辅助功能」
-重新勾选 padlinkd；若想免去反复授权，需用固定证书签名（自签证书 + 信任设置，留待需要时再做）。
+系统设置勾选）→ 授权后继续初始化。轮询**不设超时**：launchd 场景下超时会导致退出/重启反复
+弹窗；前台运行可由用户 Ctrl+C 中断。
 PoC 已验证：未授权时事件被静默丢弃，因此该门控不是可选优化而是正确性前提。
+
+**问题（2026-10-11 实测）**：TCC 对"责任进程"的记账粒度取决于代码签名。Go 产出的二进制默认是
+ad-hoc（linker-signed）签名，TCC 记的是 **cdhash**（代码哈希）——每次重新构建 cdhash 都变，
+**替换二进制后授权立即失效**（实测：换掉同路径二进制后 daemon 停在「仍在等待辅助功能授权」
+轮询上；按"按路径记账"的旧认知去重新勾选列表里的同名条目同样无效，那是旧 cdhash 的残留条目）。
+
+**解决：本机稳定签名身份**（`packaging/macos/signing-identity.sh`，install.sh 自动调用）。
+首次安装时在本机生成一张自签代码签名证书（**不碰登录钥匙串、不需要管理员、不需要信任设置、
+不联网**），此后每次安装/更新都用它签名，二进制的授权要求变成：
+
+```
+identifier "com.zhimingcool.padlink" and certificate leaf = H"<证书 SHA-1>"
+```
+
+与代码内容无关 ⇒ **辅助功能只需授权一次，后续更新二进制不再重新授权**。
+
+关键实现细节（均有实测依据）：
+
+| 细节 | 结论 |
+| --- | --- |
+| 自签证书是否需要"信任" | **不需要**。`codesign -s <证书 SHA-1>` 按哈希选身份即可签名；`codesign --verify` 报 `valid on disk` + `satisfies its Designated Requirement`，未信任状态（CSSMERR_TP_NOT_TRUSTED）不影响签名与要求求值 |
+| 幂等判定不能只看 `find-identity -v -p codesigning` | 未信任身份被判 invalid → 会误判"身份缺失"而重复创建同名证书，随后 `-s <名字>` 报 ambiguous。改为 `find-certificate -c <CN> -Z` 取证书 SHA-1，一律按哈希签名 |
+| "更新免授权"的可验证判据 | `signing-identity.sh check <旧二进制> <新二进制>`：读旧二进制的指定要求，用 `codesign --verify -R "=<要求>"` 校验新二进制。实测两个不同构建（cdhash 各异、授权要求逐字节相同）→ 正向 exit 0；反向对照（换一个证书哈希）exit 3 失败 |
+| 签名后二进制能否正常运行 | 能。`install -m 0755` + 就地签名保留权限，launchd 正常拉起 |
+| 身份文件位置与生命周期 | 钥匙串 `~/Library/Keychains/padlink-signing.keychain-db` + 口令 `~/.config/padlink/signing-keychain.pass`（0600）。二者跨更新保留 ⇒ 一次授权长期有效；被删除或换机则需重新授权一次 |
+| 回滚 | `signing-identity.sh remove` 删除本机身份（不影响已安装二进制，只是后续更新会重新要求授权） |
+
+首次授权步骤（install.sh 结尾会打印）：系统设置 → 隐私与安全性 → 辅助功能 → 若列表里有旧的
+padlinkd 条目先按 `−` 删除 → 用 `+` 按路径添加 `~/.local/bin/padlinkd` → 勾选。daemon 在轮询
+授权状态，授权后自动继续，无需重启。
+
+**发版说明**：darwin 归档需带 `packaging/macos/signing-identity.sh`（.goreleaser.yaml 已加），
+安装时在**用户机器上**生成/复用本机身份并签名 ⇒ 终端用户同样是"授权一次，更新免授权"。若将来
+要连首次授权弹窗都免掉（并让 Gatekeeper/公证通过），再换 Apple Developer ID 证书（见 §2.6 v2 项）。
 
 ### 2.5 文本注入：pbcopy/pbpaste
 
