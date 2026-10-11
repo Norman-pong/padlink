@@ -159,9 +159,11 @@ var wlClipboard = clipboard{
 		}
 		return firstLine(out), nil
 	},
-	// --no-newline 防尾部多出换行；备份恰逢选择消失同样按无内容处理；
-	// 已记录类型非文本时读取必然失败（wl-paste 无 --type 会按推断类型拒绝），
-	// 这不是工具故障而是能力边界——按 errNonText 取消注入，不动剪贴板。
+	// --no-newline 防尾部多出换行；备份恰逢选择消失同样按无内容处理。
+	// 非文本选择（图片/文件）通常能按字节读到（实测 image/png 193 字节往返无损），
+	// 恢复时按记录的 MIME 写回即完整还原，注入照常进行；
+	// 只有读取确实失败时才是能力边界而非工具故障，此时按 errNonText 取消注入，
+	// 绝不用空备份覆盖原内容。
 	read: func(r Runner, mime string) ([]byte, error) {
 		out, err := runCmd(r, "wl-paste", nil, "--no-newline")
 		if err != nil {
@@ -320,7 +322,7 @@ func (in *Injector) Inject(text string) error {
 		case errors.Is(err, errNoSelection):
 			noSelection = true // 备份间隙选择消失：等同空剪贴板
 		case errors.Is(err, errNonText):
-			// 原剪贴板只有非文本内容（图片/文件）：CLI 备份不到 → 取消本次注入。
+			// 备份读不到内容（原剪贴板为非文本且 CLI 读不出，或类型表查询失败）→ 取消本次注入。
 			// 绝不"用空备份覆盖回去"——那会把用户的图片静默抹掉（两端共同契约）。
 			return fmt.Errorf("%w（本次注入已取消，剪贴板未改动）", err)
 		case err != nil:

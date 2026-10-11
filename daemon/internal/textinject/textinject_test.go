@@ -559,6 +559,43 @@ func TestInjectWlKeepsNonTextSelection(t *testing.T) {
 	}
 }
 
+// linux 非文本选择（图片）读取成功时：注入照常，且恢复必须按原 MIME 写回原字节。
+// 真机实测（Ubuntu 26.04）：image/png 剪贴板下 wl-paste 能按字节读到 193 字节，
+// 恢复后类型与 md5 均不变——这是常规路径，"取消注入"只是读取确实失败时的兜底。
+func TestInjectWlRestoresNonTextSelectionBytes(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02}
+	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
+		switch i {
+		case 0: // list-types
+			return []byte("image/png\n"), nil
+		case 1: // 备份：原样读到图片字节
+			return png, nil
+		default:
+			return nil, nil
+		}
+	}}
+	rec := &recorder{}
+	in := newInjector(fr, rec, time.Millisecond)
+	in.Env = func(string) string { return "wayland-0" }
+
+	if err := in.Inject("图片剪贴板下也能注入"); err != nil {
+		t.Fatalf("Inject: %v", err)
+	}
+	calls := fr.recorded()
+	if len(calls) != 4 {
+		t.Fatalf("命令数 = %d, want 4:\n%+v", len(calls), calls)
+	}
+	// 写入注入文本后，恢复必须带原 MIME 且字节与原备份完全一致
+	restore := calls[3]
+	if restore.name != "wl-copy" || strings.Join(restore.args, " ") != "--type image/png" ||
+		string(restore.stdin) != string(png) {
+		t.Errorf("恢复调用 = %+v，want wl-copy --type image/png + 原图片字节", restore)
+	}
+	if ops := rec.snapshot(); len(ops) != 1 {
+		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
+	}
+}
+
 // 文本类 MIME 判定：wl-paste 读失败时用它区分"能力边界"与"工具故障"。
 func TestIsNonTextMIME(t *testing.T) {
 	cases := map[string]bool{

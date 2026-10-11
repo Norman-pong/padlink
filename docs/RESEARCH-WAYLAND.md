@@ -97,7 +97,7 @@
 | GTK3 应用复制文本带 CRLF（\r\n）；wl-clipboard 不做转换（备份-恢复按字节原样往返则不受影响） | man page BUGS 节 | ★★★★★ |
 | 剪贴板为空（无选择内容）时 `wl-paste --list-types` 以**退出码 1** 打印 `Nothing is copied`（固定英文串，wl-clipboard 无本地化）；而 `CommandContext` 超时同样表现为 `*exec.ExitError`（`signal: killed`）——两者不能用错误类型区分 | 本项目真机实测（Ubuntu 26.04、wl-clipboard 2.2.1-2build1；`strings $(which wl-paste)` 可验该文案） | ★★★★★ |
 | `wl-copy` 写完剪贴板后 fork 的驻留子进程**继承其 stderr**：实测 `PPid=1`、`fd 0/1 → /dev/null`、`fd 2 → pipe`，且 daemon 收到 SIGTERM 后该进程仍存活（systemd 只能 `stop-sigterm timed out` → SIGKILL） | 本项目真机实测（/proc 现场取证 + journal） | ★★★★★ |
-| 剪贴板只有非文本内容（实测放 `image/png`）时：`wl-paste --list-types` 退 0 给出 `image/png`，而 `wl-paste --no-newline`（无 `--type`）**退 1** 并报 `Clipboard content is not available as inferred output type "application/octet-stream"`；此时原选择内容未被破坏 | 本项目真机实测（Ubuntu 26.04、wl-clipboard 2.2.1） | ★★★★★ |
+| 剪贴板只有非文本内容（实测放 `image/png`）：`wl-paste --no-newline`（无 `--type`）**通常能按字节读到原始数据**（实测 193 字节 image/png 原样往返，恢复后类型与 md5 均不变）；但在某些时机（如 owner 刚切换、内容尚未就绪）会**退 1** 并报 `Clipboard content is not available as inferred output type "application/octet-stream"`，此时原选择内容同样未被破坏 | 本项目真机实测（Ubuntu 26.04、wl-clipboard 2.2.1；两种时机分别复现） | ★★★★★ |
 
 ### 六个坑与规避
 
@@ -119,7 +119,7 @@
 
 ### 给 PRD 的修正建议
 
-- §4.5 注入流程细化为：`wl-paste --list-types`（记 MIME）→ `wl-paste --no-newline`（备份，仅驻内存）→ `wl-copy --type text/plain;charset=utf-8` → 注入 Ctrl+V → 可配延迟（默认 300ms）→ `wl-copy --type <原MIME>` 恢复；**空剪贴板分支**：记 MIME 若为"无选择内容"（`Nothing is copied`）则跳过备份、注入照常，收尾改 `wl-copy --clear`；**非文本分支**：若记到的 MIME 非 `text/*`（图片/文件等），备份读取必然失败——按能力边界处理：**取消本次注入**并报可见错误，绝不写回空备份覆盖原内容（与 macOS 端同一契约，见 docs/PLAN-MACOS.md §2.5）。
+- §4.5 注入流程细化为：`wl-paste --list-types`（记 MIME）→ `wl-paste --no-newline`（备份，仅驻内存）→ `wl-copy --type text/plain;charset=utf-8` → 注入 Ctrl+V → 可配延迟（默认 300ms）→ `wl-copy --type <原MIME>` 恢复；**空剪贴板分支**：记 MIME 若为"无选择内容"（`Nothing is copied`）则跳过备份、注入照常，收尾改 `wl-copy --clear`；**非文本分支**：记到的 MIME 非 `text/*`（图片/文件等）时 `wl-paste` 通常仍能按字节读到原数据，恢复按原 MIME 写回即完整还原（注入照常，实测 image/png 往返无损）；只有读取确实失败（`inferred output type` 报错）才按能力边界处理：**取消本次注入**并报可见错误，绝不写回空备份覆盖原内容（与 macOS 端同一契约，见 docs/PLAN-MACOS.md §2.5）。
 - §7.1 unit 挂载目标从 user service 泛述改为明确 `graphical-session.target` 模式。
 - §11.4 验收口径补充："剪贴板内容不变"指**内容字节**不变；owner 在 daemon 停止后可能变为 mutter 内置管理器（内存源），属正常；空剪贴板注入后应回到"无内容"而非残留注入文本。
 - §13 风险表增加四行：wl-copy 驻留进程随服务重启被杀（缓解：mutter 内存接管 / systemd-run scope）；wl-paste 弹窗 hack 个别情况挂起（缓解：超时+降级）；空剪贴板被误判为工具故障致中文/语音注入全废（缓解：按 `Nothing is copied` 分流为"无内容"）；驻留子进程持有继承 stderr 致注入 worker 永久阻塞、服务无法优雅停止（缓解：子进程输出落临时文件 + `WaitDelay`）。
