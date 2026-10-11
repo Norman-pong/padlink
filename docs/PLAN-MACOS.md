@@ -133,6 +133,20 @@ darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 
 `osascript` 为系统自带、纯本地粘贴板查询，不需要辅助功能/自动化授权，且只在 `pbpaste` 取空的
 少数路径上调用；类型表查询失败按备份失败降级，同样不写剪贴板。
 
+**真机验收（2026-10-11，macOS 26 / arm64）**：测试实例 `padlinkd -v -port 53099
+-restore-delay-ms 4000`，粘贴落点用 TextEdit 打开 `/tmp/mac-accept.txt`（避免把注入文本粘进用户
+正在用的窗口）：
+
+| 场景 | 操作 | 结果 |
+| --- | --- | --- |
+| A 文本恢复 | 粘贴板置 `baseline-mac-clean-*` → 注入 1 条 TEXT → 等 6s | 内容字节不变，RESTORE OK，失败行 0 |
+| B 空粘贴板 | `clearContents` → 注入 → 1.5s 窗口内读一次 | 窗口内读到注入文本；收尾后 `pbpaste` 为空、类型表为 0 长文本，失败行 0 |
+| C 只有图片 | 写入 NSImage → 注入 → 等 6s | 类型表前后一致（`TIFF picture`/`«class AVIF»`/`«class 8BPS»`… 仍在），恰好新增 1 条失败行：`注入 TEXT 失败: 剪贴板内容不是文本（本次注入已取消，剪贴板未改动）` |
+| D 实际上屏 | A/B 两次注入落到 TextEdit | 落盘文件内容为 `空粘贴板注入验收乙macOS 注入上屏验收甲`（daemon → pbcopy → Cmd+V → TextEdit 自动保存） |
+
+测量时机必须晚于恢复延迟（本例 4s）：早期两次「RESTORE FAIL / 图片被破坏」的判定，都是在注入
+窗口内读剪贴板得到的中间态（其中一次还叠加了用户同期复制内容），不是缺陷。
+
 **与 Linux 端的差异（同为"不破坏剪贴板"，结果因能力不同而不同）**：Linux 侧 `wl-paste` 通常
 能按字节读到非文本内容（真机实测 `image/png` 193 字节原样往返、类型不变），因此**注入照常进行**
 且剪贴板保真；只有读取确实失败（`inferred output type` 报错）时才取消注入。macOS 的 CLI 只有
