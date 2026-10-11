@@ -18,10 +18,33 @@ LABEL=com.zhimingcool.padlink
 PLIST="$AGENT_DIR/$LABEL.plist"
 LOG="$HOME/Library/Logs/padlinkd.log"
 
-mkdir -p "$MACOS_DIR" "$AGENT_DIR" "$HOME/Library/Logs"
+mkdir -p "$MACOS_DIR" "$APP/Contents/Resources" "$AGENT_DIR" "$HOME/Library/Logs"
 install -m 0755 "$SRC/padlinkd" "$MACOS_DIR/padlinkd"
 install -m 0755 "$SRC/padlinkctl" "$BIN_DIR/padlinkctl"
-echo "已安装 PadLink.app（daemon）到 ${APP}，padlinkctl 到 $BIN_DIR"
+echo "已安装 PadLink.app（daemon）到 ${APP}，padlinkctl 到 ${BIN_DIR}"
+
+# 应用图标：源图是鸿蒙端图标（apps/harmony/AppScope/resources/base/media/background.png）经
+# make-appicon.m 处理成 macOS 形态（824/1024 内容区 + 圆角 + 透明边距）后的成品。
+# 这里只用系统自带的 sips + iconutil 生成 .icns，用户机器不需要 clang。
+# 必须在签名之前完成：bundle 签名封套覆盖 Resources/，签完再改会让签名失效。
+ICON_SRC="$SRC/packaging/macos/PadLink.app.icon.png"
+if [ -f "$ICON_SRC" ] && command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
+  ICONSET_DIR=$(mktemp -d)/PadLink.iconset
+  mkdir -p "$ICONSET_DIR"
+  for spec in 16:16x16 32:16x16@2x 32:32x32 64:32x32@2x 128:128x128 256:128x128@2x 256:256x256 512:256x256@2x 512:512x512 1024:512x512@2x; do
+    px=${spec%%:*}
+    name=${spec##*:}
+    sips -z "$px" "$px" "$ICON_SRC" --out "$ICONSET_DIR/icon_$name.png" >/dev/null 2>&1
+  done
+  if iconutil -c icns "$ICONSET_DIR" -o "$APP/Contents/Resources/PadLink.icns" 2>/dev/null; then
+    echo "已生成应用图标 Contents/Resources/PadLink.icns"
+  else
+    echo "警告：iconutil 生成 .icns 失败，bundle 将使用系统默认图标。" >&2
+  fi
+  rm -rf "$(dirname "$ICONSET_DIR")"
+else
+  echo "提示：跳过图标（缺 ${ICON_SRC} 或系统无 sips/iconutil）。" >&2
+fi
 
 # Info.plist：按本机取到的 daemon 版本落盘（缺 -version 支持时回落 1.0.0）
 VERSION=$("$MACOS_DIR/padlinkd" -version 2>/dev/null || echo 1.0.0)
@@ -48,6 +71,11 @@ sed -e "s|__PADLINKD_PATH__|$MACOS_DIR/padlinkd|" -e "s|__HOME__|$HOME|" \
 
 UID_NUM=$(id -u)
 launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
+# 先让 LaunchServices 登记（或刷新）本 bundle，再启动 daemon：
+# 实测 bundle 内容变化后若未登记，daemon 首次启动会停在等待辅助功能授权；登记后即通过
+# TCC 条目（授权要求本身没变，无需重新授权）。
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" 2>/dev/null || true
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart "gui/$UID_NUM/$LABEL"
 

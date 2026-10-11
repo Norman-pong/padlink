@@ -77,6 +77,10 @@ archives:
         dst: packaging/macos/signing-identity.sh
       - src: daemon/packaging/macos/PadLink.app.Info.plist
         dst: packaging/macos/PadLink.app.Info.plist
+      - src: daemon/packaging/macos/PadLink.app.icon.png
+        dst: packaging/macos/PadLink.app.icon.png
+      - src: daemon/packaging/macos/make-appicon.m
+        dst: packaging/macos/make-appicon.m
       - src: daemon/packaging/macos/com.zhimingcool.padlink.plist
         dst: packaging/macos/com.zhimingcool.padlink.plist
 

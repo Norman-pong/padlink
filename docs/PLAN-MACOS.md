@@ -129,6 +129,7 @@ identifier "com.zhimingcool.padlink" and certificate leaf = H"<证书 SHA-1>"
 | "更新免授权"的可验证判据 | `signing-identity.sh check <旧二进制> <新二进制>`：读旧二进制的指定要求，用 `codesign --verify -R "=<要求>"` 校验新二进制。实测两个不同构建（cdhash 各异、授权要求逐字节相同）→ 正向 exit 0；反向对照（换一个证书哈希）exit 3 失败 |
 | 签名后二进制能否正常运行 | 能。`install -m 0755` + 就地签名保留权限，launchd 正常拉起 |
 | 身份文件位置与生命周期 | 钥匙串 `~/Library/Keychains/padlink-signing.keychain-db` + 口令 `~/.config/padlink/signing-keychain.pass`（0600）。二者跨更新保留 ⇒ 一次授权长期有效；被删除或换机则需重新授权一次 |
+| 更新后首启必须先登记 bundle | 实测 bundle 内容变化（如加图标）后，若未向 LaunchServices 登记，daemon 首启会停在等待授权；install.sh 因此先 `lsregister -f "$APP"` 再 bootstrap/kickstart，登记后即通过（授权要求本身未变，无需重新授权）。注：手工改 bundle 后遇到"又要授权"，先重启一次 daemon 再看 |
 | 回滚 | `signing-identity.sh remove` 删除本机身份（不影响已安装二进制，只是后续更新会重新要求授权） |
 
 **形态：daemon 装进 `~/Applications/PadLink.app`（app bundle）**。原因是实测发现「裸 CLI 二进制」
@@ -149,6 +150,8 @@ ProgramArguments 指向 `PadLink.app/Contents/MacOS/padlinkd`（保持 launchd �
 | 一次授权 | 用户在辅助功能里开启 PadLink 后，launchd 实例立即通过门控并监听 53021 |
 | **更新免授权** | 用新版本串重建（cdhash `aebfb321…`，与旧构建不同）→ 重签（同证书哈希）→ 重装 → 重启：**未要求任何授权**，日志直接 `padlinkd 1.1.0+bundle3 已启动（端口 53021…）` |
 | 事件真的能投递 | `txtprobe -moves 40:40` 打给生产 bundle 实例后，用 `CGEventGetLocation` 读光标：1157.7,576.3 → 1197.7,616.3（**精确 +40/+40**）。注意别拿"文本是否出现在某编辑器文件里"当判据——TextEdit 不会即时落盘，会误判成"注入没生效" |
+| 带图标的更新同样免授权 | 装了应用图标后再走一次完整更新（新版本串 `1.1.0+icon1` → `+icon2`）：install.sh 全程自动（组装 bundle → 生成 .icns → 签名 → `lsregister` → 重启），**未弹授权、未等待**，直接 `padlinkd 1.1.0+icon2 已启动（端口 53021…）` |
+| 图标本身可用 | `Contents/Resources/PadLink.icns` 可由 `iconutil -c iconset` 反向解出全部 10 个尺寸，其中 512@2x 为 1024×1024 且带 alpha；Info.plist `CFBundleIconFile=PadLink`；bundle `codesign --verify` 报 valid on disk + satisfies its DR |
 | 剪贴板契约 | 文本型粘贴板注入后原样恢复；图片型粘贴板取消注入且类型表前后一致；两处均无失败行（详见 §2.5） |
 | 签名身份不需要信任设置 | 曾把自签证书加进用户信任设置做对照实验：`find-identity -v -p codesigning` 仍报 0 valid，行为无变化；随后已 `security remove-trusted-cert` 撤销，daemon 依然免授权启动 ⇒ 该信任设置不是必要条件，不应留在用户机器上 |
 
@@ -214,6 +217,12 @@ macOS 无 `wl-copy --clear` 对应的 CLI，对粘贴方等价于"粘不出内�
   `LSUIElement`，带本机稳定签名身份，见 §2.4），`padlinkctl` 落 `~/.local/bin/`；LaunchAgent 的
   ProgramArguments 指向 bundle 内可执行文件。旧版裸二进制 `~/.local/bin/padlinkd` 不再安装，
   install.sh 若检测到会提示删除，避免辅助功能列表里留下混淆条目。
+- 应用图标：源图取鸿蒙端 `apps/harmony/AppScope/resources/base/media/background.png`（该分层图标的
+  foreground 层为空白，实际构图全在 background 上），经 `packaging/macos/make-appicon.m` 处理成
+  macOS 规范形态（1024 画布、内容 824、圆角 185.4、透明边距）后提交为
+  `packaging/macos/PadLink.app.icon.png`；安装时由系统自带的 `sips` + `iconutil` 生成
+  `Contents/Resources/PadLink.icns`（**必须在签名之前**，否则破坏 bundle 签名封套），Info.plist
+  以 `CFBundleIconFile=PadLink` 指向它。用户机器无需 clang（生成器只在改图标时手动跑）。
 - 首次监听会触发 macOS 应用防火墙"接受传入连接"弹窗——install.sh 打印说明，
   或用 socketfilterfw 预登记（可选）。
 - CI：release.yml 迁移 `macos-latest`（仓库公开，macOS runner 免费额度无倍率问题）：
