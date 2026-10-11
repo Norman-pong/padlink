@@ -160,20 +160,14 @@ export class PairingModel {
     this.snapshot.code = '';
     const known: HostInfo | null = await this.findKnownHost(host);
     if (known !== null && known.tokenHex.length > 0) {
-      const token = hexToBytes(known.tokenHex);
-      if (token !== null) {
-        this.snapshot.phase = PairPhase.CONNECTING;
-        try {
-          await this.conn.connect(host.ip, host.port, DEFAULT_PORT, token, false);
-          this.enterPaired();
-          return;
-        } catch (err) {
-          // 档案失效：清掉错误提示，改走配对（PRD §4.1「token 失效走重新配对」）
-          hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对: %{public}s', (err as Error).message);
-          this.resetError();
-          this.snapshot.phase = PairPhase.CONNECTING;
-        }
+      // 已配对主机：token 直连；连接成功即记为默认主机（自动重连才跟随用户选择）
+      if (await this.connectKnown(known)) {
+        return;
       }
+      // 档案失效：清掉错误提示，改走配对（PRD §4.1「token 失效走重新配对」）
+      hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对');
+      this.resetError();
+      this.snapshot.phase = PairPhase.CONNECTING;
     }
     this.snapshot.phase = PairPhase.CONNECTING;
     try {
@@ -184,6 +178,50 @@ export class PairingModel {
       return;
     }
     await this.startPairing();
+  }
+
+  // 连接一台「已配对」主机（发现页选中、主机列表切换、快速连接三条路径共用）。
+  // 成功后把该主机写成默认主机：AutoConnect 与快速连接都按默认重连，
+  // 否则用户切到另一台后会被自动重连拽回上一台（一对多切换失效的根因）。
+  // 返回 true 表示已进入 CONNECTED；false 表示凭据不可用或连接失败（错误已写入快照）。
+  public async connectKnown(h: HostInfo): Promise<boolean> {
+    hilog.info(DOMAIN, TAG, 'connectKnown → %{public}s:%{public}d', h.ip, h.port);
+    const token = hexToBytes(h.tokenHex);
+    if (token === null || h.ip.length === 0) {
+      hilog.warn(DOMAIN, TAG, 'connectKnown 凭据不可用: %{public}s', h.ip);
+      return false;
+    }
+    this.resetError();
+    this.snapshot.hostLabel = h.name.length > 0 ? h.name : h.ip;
+    this.snapshot.code = '';
+    this.snapshot.phase = PairPhase.CONNECTING;
+    try {
+      await this.conn.connect(h.ip, h.port, h.port, token, false);
+    } catch (err) {
+      this.setConnError(err as Error);
+      this.snapshot.phase = PairPhase.FAILED;
+      return false;
+    }
+    await this.markActiveHost(h);
+    this.refreshQuickLabel();
+    this.enterPaired();
+    return true;
+  }
+
+  // 当前已连接主机 IP（未连接为空串）：发现页据此把对应行标注为「使用中」。
+  public currentHostIp(): string {
+    return this.conn.getHost();
+  }
+
+  // 把主机记为默认：写失败不影响本会话（连接已建立），仅记日志便于排查。
+  private async markActiveHost(h: HostInfo): Promise<void> {
+    try {
+      await this.settings.saveLastHost(h);
+      // 切换主机是低频但关键的状态变更：留一条可见日志，便于确认"默认主机已跟随"。
+      hilog.info(DOMAIN, TAG, 'active host saved: %{public}s', h.ip);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'markActiveHost saveLastHost fail: %{public}s', (err as Error).message);
+    }
   }
 
   // 发起（或重新发起）配对：PAIR_REQ JSON（成功无回包，确认码在主机屏幕展示）。
@@ -316,16 +354,10 @@ export class PairingModel {
       this.snapshot.phase = PairPhase.FAILED;
       return;
     }
-    this.snapshot.hostLabel = host.name.length > 0 ? host.name : host.ip;
-    try {
-      await this.conn.connect(host.ip, host.port, host.port, token, false);
-    } catch (err) {
-      this.setConnError(err as Error);
+    // 与发现页选中、主机列表切换共用同一条连接路径（含"记为默认主机"语义）
+    if (!await this.connectKnown(host)) {
       this.snapshot.errorHintKey = 'pair_hint_auto_reconnect';
-      this.snapshot.phase = PairPhase.FAILED;
-      return;
     }
-    this.enterPaired();
   }
 
   // ---- 内部 ----

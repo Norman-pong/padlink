@@ -37,6 +37,10 @@
       "value": "Nearby hosts"
     },
     {
+      "name": "discover_hosts_in_use",
+      "value": "In use"
+    },
+    {
       "name": "discover_refresh",
       "value": "Rescan"
     },
@@ -537,8 +541,8 @@
       "value": "Rename"
     },
     {
-      "name": "settings_host_set_default",
-      "value": "Set default"
+      "name": "settings_host_connect",
+      "value": "Connect to this computer"
     },
     {
       "name": "settings_host_save",
@@ -819,6 +823,10 @@
     {
       "name": "guide_copy_failed",
       "value": "Copy failed — please type the command manually"
+    },
+    {
+      "name": "settings_host_connect_fail",
+      "value": "Connection failed, please retry"
     }
   ]
 }

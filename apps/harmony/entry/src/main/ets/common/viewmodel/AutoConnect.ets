@@ -32,6 +32,7 @@ export function tryAutoReconnect(conn: ConnectionManager, settings: SettingsMode
       hilog.warn(DOMAIN, TAG, 'lastHost tokenHex 非法，跳过自动重连');
       return;
     }
+    hilog.info(DOMAIN, TAG, '自动重连目标: %{public}s:%{public}d', h.ip, h.port);
     // autoRetry：首连失败转入 RECONNECTING 退避重试（内部不 reject）；catch 仅为未捕获兜底
     conn.connect(h.ip, h.port, h.port, token, true).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'auto reconnect kick fail: %{public}s', err.message);

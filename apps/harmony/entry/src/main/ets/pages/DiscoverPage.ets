@@ -11,9 +11,12 @@ import { DEFAULT_PORT, PairPhase } from '../common/viewmodel/PairingModel';
 import type { PairingModel } from '../common/viewmodel/PairingModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { DiscoveredHost } from '../common/net/DiscoverCore';
-import { pageResStr, pageResFmt } from './Res';
+import { HostInfo } from '../common/viewmodel/HostsStore';
+import { pageResStr, pageResFmt, pageErrText } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { PressedRow } from './PressedRow';
+import { PairedHostsSection } from './PairedHostsSection';
+import { GroupHeader } from './GroupCard';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
@@ -26,6 +29,9 @@ export struct DiscoverPage {
   @Require @Param settings: SettingsModel;
 
   @Local manualIp: string = ''; // 调试手动配对的 IP 输入镜像
+  @Local pairedHosts: HostInfo[] = []; // 已配对主机（切换入口；空且无错时不渲染该段）
+  @Local pairedLoading: boolean = false;
+  @Local pairedError: string = '';
 
   private scroller: Scroller = new Scroller(); // 主机列表滚动器（标题栏滚动模糊联动）
   private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET; // 进入页面前避让模式（退出恢复）
@@ -45,6 +51,7 @@ export struct DiscoverPage {
       });
     };
     this.pairing.onPageEnter();
+    this.refreshPairedHosts();
   }
 
   aboutToDisappear(): void {
@@ -71,6 +78,81 @@ export struct DiscoverPage {
 
   private resStr(name: string): string {
     return pageResStr(this.getUIContext(), name);
+  }
+
+  // ---- 已配对主机（一对多切换） ----
+
+  // 读取本机已配对主机列表：加载/失败两态在页内呈现，空态整段不渲染（避免与"附近的主机"混淆）。
+  private refreshPairedHosts(): void {
+    this.pairedLoading = true;
+    this.pairedError = '';
+    this.settings.listHosts().then((list: HostInfo[]) => {
+      this.pairedHosts = list;
+      this.pairedLoading = false;
+    }).catch((err: Error) => {
+      this.pairedHosts = [];
+      this.pairedError = pageErrText(this.getUIContext(), err);
+      this.pairedLoading = false;
+    });
+  }
+
+  private hostLabel(h: HostInfo): string {
+    return h.name.length > 0 ? h.name : h.ip;
+  }
+
+  private isActive(h: HostInfo): boolean {
+    return h.ip === this.pairing.currentHostIp();
+  }
+
+  // 切换主机：已在用则直接回主控页；否则 token 直连（成功后 PairingModel 记为默认主机并触发回页）。
+  private switchTo(h: HostInfo): void {
+    if (this.isActive(h)) {
+      this.pathStack.pop();
+      return;
+    }
+    this.pairing.connectKnown(h).then((ok: boolean) => {
+      if (!ok) {
+        this.refreshPairedHosts(); // 失败原因在页面错误区展示，列表同步刷新
+      }
+    });
+  }
+
+  @Builder
+  hostRow(h: HostInfo) {
+    // 动作行（点击即切换）不挂 chevron：› 是导航语义
+    PressedRow({
+      a11yText: `${this.hostLabel(h)}，${h.ip}${this.isActive(h) ? '，' + this.resStr('discover_hosts_in_use') : ''}`,
+      onActivated: (): void => {
+        this.switchTo(h);
+      }
+    }) {
+      Row({ space: 8 }) {
+        Column({ space: 2 }) {
+          Text(this.hostLabel(h))
+            .fontSize($r('sys.float.ohos_id_text_size_body1'))
+            .fontColor($r('sys.color.font_primary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(h.ip)
+            .fontSize($r('sys.float.ohos_id_text_size_body3'))
+            .fontColor($r('sys.color.font_secondary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        if (this.isActive(h)) {
+          Text($r('app.string.discover_hosts_in_use'))
+            .fontSize($r('sys.float.ohos_id_text_size_caption1'))
+            .fontColor($r('sys.color.brand'))
+            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+            .borderRadius(10)
+            .border({ width: 1, color: $r('sys.color.brand') })
+        }
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
   }
 
   // 错误展示：静态键（PAIR_NAK 映射）优先，其次动态文案。
@@ -144,6 +226,10 @@ export struct DiscoverPage {
     })
     .bindToScrollable([this.scroller])
     .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // D3 分组列表页底色（覆盖标题栏区域，防上下拼色）
+    // 重新可见即刷新已配对主机（从设置页返回时页面未重建，否则切换列表是旧快照）。
+    .onShown(() => {
+      this.refreshPairedHosts();
+    })
   }
 
   @Builder
@@ -209,35 +295,26 @@ export struct DiscoverPage {
   @Builder
   listView() {
     Column({ space: 12 }) {
-      if (this.pairing.snapshot.quickLabel.length > 0) {
-        // 快速连接入口（lastHost 已有 token）：链接符号 + 标题 + 主机标签，点击直连（PressedRow 按压态 + a11y）
-        // 动作行不挂 chevron：› 是导航语义，点击发起连接是动作语义（设置页入口行才是真导航）
-        PressedRow({
-          a11yText: `${this.resStr('discover_quick')}，${this.pairing.snapshot.quickLabel}`,
-          onActivated: (): void => {
-            this.pairing.quickConnect();
-          }
-        }) {
-          Row({ space: 12 }) {
-            SymbolGlyph($r('sys.symbol.link'))
-              .fontSize(22)
-              .fontColor([$r('sys.color.brand')])
-            Column({ space: 4 }) {
-              Text($r('app.string.discover_quick'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontColor($r('sys.color.font_primary'))
-              Text(this.pairing.snapshot.quickLabel)
-                .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                .fontColor($r('sys.color.font_secondary'))
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
+      if (this.pairedLoading || this.pairedError.length > 0 || this.pairedHosts.length > 0) {
+        // 已配对主机：一对多切换入口（点行即切，切换成功后该主机成为默认主机，
+        // 自动重连与快速连接都跟随它，不会被拽回上一台）。
+        Column({ space: 8 }) {
+          GroupHeader($r('app.string.settings_hosts_section'))
+          PairedHostsSection({
+            hosts: this.pairedHosts,
+            loading: this.pairedLoading,
+            errorText: this.pairedError,
+            emptyLabel: $r('app.string.settings_hosts_empty'),
+            onRetry: (): void => {
+              this.refreshPairedHosts();
+            },
+            row: (h: HostInfo): void => {
+              this.hostRow(h);
             }
-            .alignItems(HorizontalAlign.Start)
-            .layoutWeight(1)
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Center)
+          })
         }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
       }
       if (this.pairing.snapshot.hosts.length > 0) {
         Row() {

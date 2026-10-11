@@ -60,6 +60,8 @@
 | UDP 广播 | bind `0.0.0.0` → `setExtraOptions({broadcast:true})` → `bindSocket(WiFi NetHandle)` | `faqs-network-96` |
 | 避让 | 底部手势条用 `TYPE_NAVIGATION_INDICATOR`（GESTURE 枚举恒空）；侧边留边真机校准 | `arkts-apis-window-e`、`faqs-arkui-824` |
 | 麦克风 | 权限声明必须带 `reason`+`usedScene`；拒绝走 onError 1002200012 | `speechrecognizer-guide`、`errorcode-corespeech` |
+| 切换主机被拉回 | `TcpChannel.connect()` 必须换新 socket 实例：上一次 `close()` 是异步的，复用实例会在 connect 之后落地、把新连接立刻关掉（实测新会话 ~17ms 被判「TCP 断开」→ 重连循环拉回旧主机）。另：TCP `close`/`error` 回调不能只在构造时挂一次，否则旧会话的断开会被误报给新会话；改按会话代次挂载 | 本项目实测 2026-10-11（真机双向切换 + 重启后仍连所选主机） |
+| 列表不刷新 | NavDestination 页从子页返回不会重建：主机列表必须在 `onShown` 重新加载，只靠 `aboutToAppear` 会一直显示旧快照（实测：配对成功却看不到新主机，被误判为「没配上」） | `faqs-arkui-403`、`faqs-arkui-1110` |
 
 完整 ID 索引：`docs/HARMONY-DOCIDS.md`（`devecocli docs read <完整路径>`；短 ID 搜不到，search 用内容关键词）。
 

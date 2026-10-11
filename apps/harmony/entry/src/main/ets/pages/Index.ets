@@ -69,7 +69,7 @@ struct Index {
     if (name === 'discover') {
       DiscoverPage({ pathStack: this.pathStack, pairing: this.pairing, settings: this.settings })
     } else if (name === 'settings') {
-      SettingsPage({ settings: this.settings, touchpad: this.touchpad, pathStack: this.pathStack })
+      SettingsPage({ settings: this.settings, pairing: this.pairing, touchpad: this.touchpad, pathStack: this.pathStack })
     } else if (name === 'debug') {
       DebugPanelPage({ conn: this.conn, touchpad: this.touchpad, settings: this.settings, pathStack: this.pathStack })
     } else if (name === 'guide') {

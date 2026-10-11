@@ -37,6 +37,10 @@
       "value": "附近的主机"
     },
     {
+      "name": "discover_hosts_in_use",
+      "value": "使用中"
+    },
+    {
       "name": "discover_refresh",
       "value": "重新扫描"
     },
@@ -537,8 +541,8 @@
       "value": "重命名"
     },
     {
-      "name": "settings_host_set_default",
-      "value": "设为默认"
+      "name": "settings_host_connect",
+      "value": "连接此主机"
     },
     {
       "name": "settings_host_save",
@@ -819,6 +823,10 @@
     {
       "name": "guide_copy_failed",
       "value": "复制失败，请手动输入命令"
+    },
+    {
+      "name": "settings_host_connect_fail",
+      "value": "连接失败，请重试"
     }
   ]
 }

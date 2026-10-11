@@ -129,6 +129,12 @@ export class TcpChannel {
   public onError: ((err: BusinessError) => void) | null = null;
 
   public connect(addr: string, port: number, timeoutMs: number): Promise<void> {
+    // 每次连接都换全新实例：上一次 close() 是异步的，复用同一实例会让它在 connect 之后落地，
+    // 把刚建立的连接立刻关掉——实测切换主机后新会话 ~17ms 就被判"TCP 断开"，随后被重连
+    // 循环拉回旧主机（表现为"切换不生效、始终连回原来那台"）。
+    this.sock = socket.constructTCPSocketInstance();
+    this.eventsBound = false;
+    this.rx = new Uint8Array(0);
     this.bindEvents();
     const address: socket.NetAddress = { address: addr, port: port, family: 1 };
     const opt: socket.TCPConnectOptions = { address: address, timeout: timeoutMs };
@@ -148,15 +154,28 @@ export class TcpChannel {
       return;
     }
     this.eventsBound = true;
-    this.sock.on('message', (info: socket.SocketMessageInfo) => {
+    // 事件按 socket 实例归属：reset() 换掉实例后，旧实例的 close/error 仍会异步到达，
+    // 若不校验归属就会把「上一会话的断开」误报给新会话（实测：切换主机后新会话 16ms 即被判
+    // TCP 断开 → 进重连退避 → 又被拉回旧主机，表现为"切换不生效、始终连回原来那台"）。
+    const mySock: socket.TCPSocket = this.sock;
+    mySock.on('message', (info: socket.SocketMessageInfo) => {
+      if (this.sock !== mySock) {
+        return;
+      }
       this.feed(new Uint8Array(info.message));
     });
-    this.sock.on('close', () => {
+    mySock.on('close', () => {
+      if (this.sock !== mySock) {
+        return;
+      }
       if (this.onClosed !== null) {
         this.onClosed();
       }
     });
-    this.sock.on('error', (err: BusinessError) => {
+    mySock.on('error', (err: BusinessError) => {
+      if (this.sock !== mySock) {
+        return;
+      }
       if (this.onError !== null) {
         this.onError(err);
       }

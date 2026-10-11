@@ -94,10 +94,24 @@ export class ConnectionManager {
     this.transport.onPacket = (pkt: Packet) => {
       this.handlePacket(pkt);
     };
+    // 注意：TCP 断开回调不在这里挂。旧 socket 的 close/error 是异步到达的，若回调只在
+    // 构造时挂一次，就会被当成"当前会话断开"——实测切换主机后新会话 20ms 内被判断开、
+    // 随后被重连循环拉回旧主机（表现为"切换不生效"）。改由 beginSession 后的 bindTcpEvents
+    // 按会话代次挂载，旧会话的事件一律丢弃。
+  }
+
+  // 按会话挂载 TCP 事件回调：闭包捕获本会话代次，代次不符即丢弃（旧会话残留事件）。
+  private bindTcpEvents(myEpoch: number): void {
     this.transport.tcp.onClosed = () => {
+      if (this.epoch !== myEpoch) {
+        return;
+      }
       this.onTcpDown('conn_tcp_closed');
     };
     this.transport.tcp.onError = (err: BusinessError) => {
+      if (this.epoch !== myEpoch) {
+        return;
+      }
       this.onTcpDown('conn_tcp_error_fmt', [String(err.code), errText(err)]);
     };
   }
@@ -157,6 +171,7 @@ export class ConnectionManager {
   public async connect(host: string, port: number, udpPort: number, token: Uint8Array,
     autoRetry: boolean = false): Promise<void> {
     const myEpoch: number = this.beginSession();
+    this.bindTcpEvents(myEpoch);
     this.transport.setToken(token);
     this.hostAddr = host;
     this.udpPortN = udpPort;
@@ -201,6 +216,7 @@ export class ConnectionManager {
   // ECHO 属认证语义，须待 completePairing 绑定新 token 后开始）。失败抛错回 IDLE。
   public async connectForPairing(host: string, port: number, udpPort: number): Promise<void> {
     const myEpoch: number = this.beginSession();
+    this.bindTcpEvents(myEpoch);
     this.transport.clearToken();
     this.hostAddr = host;
     this.udpPortN = udpPort;
@@ -263,6 +279,16 @@ export class ConnectionManager {
   // 开启新会话：清定时器/旧 socket，递增代次使在途回调失效。
   private beginSession(): number {
     this.epoch++;
+    hilog.info(DOMAIN, TAG, 'beginSession #%{public}d（旧会话定时器/套接字作废）', this.epoch);
+    // 旧会话的心跳与重连定时器必须随会话一起停：它们只有状态守卫、没有代次守卫，
+    // 继续运行会驱动/打断新会话（切换主机时的竞态来源之一）。
+    this.stopHeartbeat();
+    if (this.reconnectTimer >= 0) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = -1;
+    }
+    this.transport.tcp.onClosed = null; // 先摘回调：紧随其后的 teardown 会关旧 socket
+    this.transport.tcp.onError = null;
     this.manualClose = false;
     this.missed = 0;
     this.awaitingReply = false;
@@ -369,6 +395,8 @@ export class ConnectionManager {
 
   // 释放一切：心跳/重连定时器清空，两 socket 关闭（closeBoth=false 时保留连接供重连续用）。
   private teardown(closeBoth: boolean): void {
+    hilog.info(DOMAIN, TAG, 'teardown #%{public}d closeBoth=%{public}s state=%{public}d',
+      this.epoch, closeBoth ? 'true' : 'false', this.snapshot.state);
     this.stopHeartbeat();
     this.stopCtrlBusy(); // 会话结束：冷静期提示随之消失（控制权已与本机无关）
     if (this.reconnectTimer >= 0) {
@@ -410,6 +438,8 @@ export class ConnectionManager {
   }
 
   private onTcpDown(reasonKey: string, reasonParams: string[] = []): void {
+    hilog.info(DOMAIN, TAG, 'TCP 断开 #%{public}d reason=%{public}s state=%{public}d',
+      this.epoch, reasonKey, this.snapshot.state);
     if (this.snapshot.state === ConnState.CONNECTED) {
       this.enterReconnecting(reasonKey, reasonParams);
     }

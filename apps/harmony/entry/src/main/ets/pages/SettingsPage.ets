@@ -23,6 +23,8 @@ import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import { HostInfo, validateHostName } from '../common/viewmodel/HostsStore';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
+import { PairedHostsSection } from './PairedHostsSection';
+import type { PairingModel } from '../common/viewmodel/PairingModel';
 import { PressedRow } from './PressedRow';
 import { pageErrText } from './Res';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -40,6 +42,7 @@ const PRIVACY_FALLBACK_URL: string = 'https://github.com/Norman-pong/padlink/blo
 @ComponentV2
 export struct SettingsPage {
   @Require @Param settings: SettingsModel;
+  @Require @Param pairing: PairingModel;
   @Require @Param touchpad: TouchpadModel;
   @Require @Param pathStack: NavPathStack;
 
@@ -185,13 +188,18 @@ export struct SettingsPage {
     });
   }
 
-  // 设为默认：立即换档，AutoConnect 下次触发按新默认主机重连；当前连接不受影响。
-  private makeDefault(h: HostInfo): void {
-    this.settings.setDefault(h.ip, h.port).then(() => {
-      this.toast(this.resStr('settings_host_default_done'));
+  // 连接此主机（一对多切换）：token 直连，成功后 PairingModel 把该主机记为默认主机
+  //（AutoConnect 与快速连接随之跟随），轻提示并回主控页让用户直接开始操作。
+  private connectHost(h: HostInfo): void {
+    this.pairing.connectKnown(h).then((ok: boolean) => {
+      if (ok) {
+        this.toast(this.resStr('settings_host_default_done'));
+        this.pathStack.pop();
+        return;
+      }
+      // 失败原因由 PairingModel 写入快照（凭据失效时会自动回落配对流程）
+      this.toast(this.resStr('settings_host_connect_fail'));
       this.refreshHosts();
-    }).catch((err: Error) => {
-      this.toast(pageErrText(this.getUIContext(), err));
     });
   }
 
@@ -420,6 +428,11 @@ export struct SettingsPage {
     })
     .bindToScrollable([this.scroller])
     .backgroundColor($r('sys.color.ohos_id_color_sub_background')) // D3 分组列表页底色（覆盖标题栏区域，防上下拼色）
+    // 重新可见即刷新主机列表：从发现页配对/切换回来时页面并未重建，
+    // 只靠 aboutToAppear 会一直显示旧快照（实测：配对成功却在列表里看不到新主机）。
+    .onShown(() => {
+      this.refreshHosts();
+    })
     // 重命名弹层打开时系统返回先关弹层（自绘蒙层不自带返回行为），否则直接退出整页丢输入
     .onBackPressed((): boolean => {
       if (this.renameIp.length > 0) {
@@ -432,61 +445,20 @@ export struct SettingsPage {
 
   @Builder
   hostsSection() {
-    // 组头由调用处 GroupHeader 承担；这里只产四态内容（卡面规格与 GroupCard 同源：12 内边距/12 圆角/primary）。
-    Column({ space: 8 }) {
-      if (this.hostsLoading) {
-        // 加载态
-        Row({ space: 12 }) {
-          LoadingProgress()
-            .width(20)
-            .height(20)
-            .color($r('sys.color.brand'))
-          Text($r('app.string.settings_hosts_loading'))
-            .fontSize($r('sys.float.ohos_id_text_size_body2'))
-            .fontColor($r('sys.color.font_secondary'))
-        }
-        .width('100%')
-        .padding(12)
-        .borderRadius(12)
-        .backgroundColor($r('sys.color.comp_background_primary'))
-      } else if (this.hostsError.length > 0) {
-        // 失败态：给原因 + 重试
-        Column({ space: 8 }) {
-          Text($r('app.string.settings_hosts_load_fail'))
-            .fontSize($r('sys.float.ohos_id_text_size_body2'))
-            .fontColor($r('sys.color.warning'))
-          Text(this.hostsError)
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.font_secondary'))
-          Button($r('app.string.discover_retry'))
-            .buttonStyle(ButtonStyleMode.NORMAL)
-            .onClick(() => {
-              this.refreshHosts();
-            })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding(12)
-        .borderRadius(12)
-        .backgroundColor($r('sys.color.comp_background_primary'))
-      } else if (this.hosts.length === 0) {
-        // 空态
-        Text($r('app.string.settings_hosts_empty'))
-          .fontSize($r('sys.float.ohos_id_text_size_body2'))
-          .fontColor($r('sys.color.font_secondary'))
-          .width('100%')
-          .padding(12)
-          .borderRadius(12)
-          .backgroundColor($r('sys.color.comp_background_primary'))
-      } else {
-        // 列表态
-        Column({ space: 8 }) {
-          ForEach(this.hosts, (h: HostInfo) => {
-            this.hostItem(h)
-          }, (h: HostInfo) => `${h.ip}:${h.port}`)
-        }
-        .width('100%')
+    // 四态内容与发现页共用 PairedHostsSection（第二处重复即抽组件）；行内容仍是本页的操作单行。
+    PairedHostsSection({
+      hosts: this.hosts,
+      loading: this.hostsLoading,
+      errorText: this.hostsError,
+      emptyLabel: $r('app.string.settings_hosts_empty'),
+      onRetry: (): void => {
+        this.refreshHosts();
+      },
+      row: (h: HostInfo): void => {
+        this.hostItem(h);
       }
+    })
+    Column({ space: 8 }) {
       // 发现页入口行：连接态下配对第二台主机的唯一可达路径（发现页 menu 槽只通向设置）。
       PressedRow({
         a11yText: this.resStr('page_discover'),
@@ -575,18 +547,18 @@ export struct SettingsPage {
           .fontSize($r('sys.float.ohos_id_text_size_body1'))
           .fontColor($r('sys.color.font_primary'))
       }
-      if (this.actionHost !== null && !this.isDefault(this.actionHost)) {
+      if (this.actionHost !== null && this.actionHost.ip !== this.pairing.currentHostIp()) {
         PressedRow({
-          a11yText: this.resStr('settings_host_set_default'),
+          a11yText: this.resStr('settings_host_connect'),
           onActivated: (): void => {
             const h: HostInfo | null = this.actionHost;
             this.actionHost = null;
             if (h !== null) {
-              this.makeDefault(h);
+              this.connectHost(h);
             }
           }
         }) {
-          Text($r('app.string.settings_host_set_default'))
+          Text($r('app.string.settings_host_connect'))
             .fontSize($r('sys.float.ohos_id_text_size_body1'))
             .fontColor($r('sys.color.font_primary'))
         }
