@@ -80,15 +80,33 @@ ensure() {
 }
 
 sign() {
-  [ $# -gt 0 ] || { echo "用法: $0 sign <二进制>..." >&2; exit 2; }
+  [ $# -gt 0 ] || { echo "用法: $0 sign <二进制|app bundle>..." >&2; exit 2; }
   ensure_keychain
   H=$(cert_hash)
   [ -n "$H" ] || { echo "签名身份缺失，请先运行 $0 ensure" >&2; exit 1; }
   for f in "$@"; do
-    [ -f "$f" ] || { echo "文件不存在: $f" >&2; exit 1; }
-    codesign --force --sign "$H" --keychain "$KC" \
-      --identifier "$(ident_for "$f")" --timestamp=none "$f" >/dev/null
-    echo "已签名: ${f}（identifier=$(ident_for "$f")）"
+    case "$f" in
+      *.app)
+        # app bundle：先签内部可执行文件，再用同一 identifier 签 bundle 本体（封套）
+        plist="$f/Contents/Info.plist"
+        [ -f "$plist" ] || { echo "缺少 $plist" >&2; exit 1; }
+        bid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/dev/null) \
+          || { echo "读不到 CFBundleIdentifier: $plist" >&2; exit 1; }
+        exe=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist" 2>/dev/null) \
+          || { echo "读不到 CFBundleExecutable: $plist" >&2; exit 1; }
+        [ -f "$f/Contents/MacOS/$exe" ] || { echo "缺少 $f/Contents/MacOS/$exe" >&2; exit 1; }
+        codesign --force --sign "$H" --keychain "$KC" --identifier "$bid" --timestamp=none \
+          "$f/Contents/MacOS/$exe" >/dev/null
+        codesign --force --sign "$H" --keychain "$KC" --identifier "$bid" --timestamp=none "$f" >/dev/null
+        echo "已签名: ${f}（bundle id=${bid}）"
+        ;;
+      *)
+        [ -f "$f" ] || { echo "文件不存在: $f" >&2; exit 1; }
+        codesign --force --sign "$H" --keychain "$KC" \
+          --identifier "$(ident_for "$f")" --timestamp=none "$f" >/dev/null
+        echo "已签名: ${f}（identifier=$(ident_for "$f")）"
+        ;;
+    esac
   done
 }
 

@@ -33,13 +33,22 @@ const axPollInterval = 500 * time.Millisecond
 
 // Open 过 TCC 辅助功能门控后返回后端。未授权时 CGEvent 注入被系统静默丢弃
 // （PoC 实测），所以先弹系统授权框再驻留轮询授权，而不是带病启动。
+// 提示文案要可操作：app bundle 安装时列表里的条目名是 PadLink，开发/裸二进制运行时是二进制名；
+// 若条目已开仍停在此处，几乎都是旧签名（ad-hoc 时代）留下的同名残留条目在挡路。
 func Open() (*Device, error) {
 	if quartz.Trusted(false) {
 		return &Device{}, nil
 	}
-	fmt.Fprintln(os.Stderr, "padlinkd 需要「辅助功能」权限才能注入键鼠事件：")
-	fmt.Fprintln(os.Stderr, "  系统设置 → 隐私与安全性 → 辅助功能 → 勾选本终端（或 padlinkd）")
+	self, err := os.Executable()
+	if err != nil || self == "" {
+		self = "（本进程可执行文件）"
+	}
+	fmt.Fprintln(os.Stderr, "PadLink 需要「辅助功能」权限才能注入键鼠事件：")
+	fmt.Fprintln(os.Stderr, "  系统设置 → 隐私与安全性 → 辅助功能 → 开启 PadLink（bundle 安装）或本二进制：")
+	fmt.Fprintf(os.Stderr, "  %s\n", self)
 	quartz.Trusted(true) // 拉起系统授权弹窗
+	fmt.Fprintln(os.Stderr, "  列表里没有对应条目：点系统弹窗的「打开系统设置」，或用 + 添加上面这个路径")
+	fmt.Fprintln(os.Stderr, "  条目已开启却仍停在此处：多为旧签名残留条目，删除该条目后按上面路径重新添加")
 	fmt.Fprintln(os.Stderr, "等待授权中…（授权后自动继续；前台运行可按 Ctrl+C 取消）")
 	remind := time.NewTicker(30 * time.Second)
 	defer remind.Stop()

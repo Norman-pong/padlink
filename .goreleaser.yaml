@@ -75,6 +75,8 @@ archives:
         dst: install.sh
       - src: daemon/packaging/macos/signing-identity.sh
         dst: packaging/macos/signing-identity.sh
+      - src: daemon/packaging/macos/PadLink.app.Info.plist
+        dst: packaging/macos/PadLink.app.Info.plist
       - src: daemon/packaging/macos/com.zhimingcool.padlink.plist
         dst: packaging/macos/com.zhimingcool.padlink.plist
 

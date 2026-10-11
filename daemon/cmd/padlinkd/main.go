@@ -35,7 +35,13 @@ func main() {
 	port := flag.Int("port", session.DefaultPort, "TCP/UDP 服务端口")
 	stateDir := flag.String("state-dir", "", "覆盖 token 存储目录（默认 $XDG_CONFIG_HOME/padlink 或 ~/.config/padlink）")
 	restoreDelayMs := flag.Int("restore-delay-ms", int(textinject.DefaultRestoreDelay/time.Millisecond), "文本注入后恢复剪贴板的延迟（ms，300–500）")
+	showVersion := flag.Bool("version", false, "打印版本号后退出（安装脚本据此写 app bundle 的 Info.plist）")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(daemonVersion)
+		return
+	}
 
 	if !*test {
 		if err := run(config{

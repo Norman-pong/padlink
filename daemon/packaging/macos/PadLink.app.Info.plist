@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PadLink.app 的 Info.plist 模板：安装脚本按本机路径/版本落盘后给 bundle 签名。
+     做成 app bundle 的原因：macOS 的 TCC（辅助功能）对「裸 CLI 二进制」的授权条目不可靠——
+     手动 + 添加同名条目经常不生效，且条目与代码哈希纠缠；而 app bundle 是系统预期形态，
+     条目按 bundle id + 签名证书记账，天然跨版本更新稳定（一次授权，后续更新免授权）。
+     LSUIElement=true：无 Dock 图标、无菜单栏，纯后台常驻。 -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>PadLink</string>
+	<key>CFBundleDisplayName</key>
+	<string>PadLink</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.zhimingcool.padlink</string>
+	<key>CFBundleExecutable</key>
+	<string>padlinkd</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>PadLink — 用鸿蒙手机当无线触控板/键盘/语音输入</string>
+</dict>
+</plist>
