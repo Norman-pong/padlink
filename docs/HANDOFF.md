@@ -1,5 +1,7 @@
 # 口袋键鼠（padlink）执行交接
 
+> 时点快照（2026-10-12），里程碑状态以 git log / lore 为准。
+
 手机（HarmonyOS API26）→ 局域网 UDP/TCP → Go 守护进程 → uinput：**触摸板 + 全键盘 + 语音听写**，单页融合控制面（功能区切换归浮动按钮）。支持 Ubuntu 26.04 GNOME Wayland 与 macOS。
 
 本仓库为 Monorepo，daemon（`daemon/`）与鸿蒙工程（`apps/harmony/`）均已落地；macOS 侧方案与实测见 `docs/PLAN-MACOS.md`。**鸿蒙真机与 GNOME 桌面消费层验收待执行**（验收程序见 `docs/PROBE-LINUX.md`）。

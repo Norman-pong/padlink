@@ -1,6 +1,7 @@
 #!/bin/sh
 # PadLink 一行远程安装：解析最新 Release → 按平台下载 tar.gz → SHA-256 校验 → 执行包内 install.sh。
 # 用法：curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
+#       指定版本：curl -fsSL … | PADLINK_VERSION=v1.2.0 sh
 # 安装逻辑单源在 release 包内的 install.sh，本脚本只负责取包与验签，不复写安装步骤。
 set -eu
 
@@ -26,10 +27,13 @@ case "$(uname -m)" in
   *) die "不支持的架构：$(uname -m)" ;;
 esac
 
-# 版本号取自 releases/latest 的 302 Location 末段（不依赖 jq）
-tag=$(curl -fsSI --connect-timeout 15 --retry 2 "https://github.com/$REPO/releases/latest" |
-  sed -n 's/^[Ll]ocation: .*\/tag\/\([^[:space:]\r]*\).*/\1/p')
-[ -n "$tag" ] || die "无法解析最新版本号（releases/latest 跳转失败）"
+# 版本号：PADLINK_VERSION=vX.Y.Z 指定版本，默认取 releases/latest 的 302 Location 末段（不依赖 jq）
+tag="${PADLINK_VERSION:-}"
+if [ -z "$tag" ]; then
+  tag=$(curl -fsSI --connect-timeout 15 --retry 2 "https://github.com/$REPO/releases/latest" |
+    sed -n 's/^[Ll]ocation: .*\/tag\/\([^[:space:]\r]*\).*/\1/p')
+  [ -n "$tag" ] || die "无法解析最新版本号（releases/latest 跳转失败）"
+fi
 ver="${tag#v}"
 
 pkg="padlink_${ver}_${os}_${arch}.tar.gz"

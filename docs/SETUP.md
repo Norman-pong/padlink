@@ -37,6 +37,14 @@ curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/ins
 
 装好后 `padlinkctl status` 能看到版本号即安装成功。
 
+**升级 / 重装 / 装指定版本**：重复执行同一行命令即覆盖升级（配对记录保留）；装指定版本在命令前加 `PADLINK_VERSION=vX.Y.Z`：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | PADLINK_VERSION=v1.2.0 sh
+```
+
+升级后建议 `padlinkctl restart` 让服务用上新版本。deb/rpm 安装（`sudo apt install padlink`）请用包管理器升级，且首启需手动 `systemctl --user enable --now padlink`（tar.gz 安装会自动启用，两种形态的差异仅此一步与其后的路径）。
+
 ### 手动安装（备选）
 
 **Ubuntu 26.04**：从 GitHub Releases 下载对应包

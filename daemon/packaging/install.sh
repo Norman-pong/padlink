@@ -28,6 +28,10 @@ if [ ! -f "$RULE" ]; then
   fi
 fi
 
-systemctl --user daemon-reload
-systemctl --user enable --now padlink
-echo "padlink 服务已启用（systemctl --user status padlink 查看）。"
+# systemd 不可用（SSH 无 session bus / 容器）时给出手动命令，不留半安装无指引状态。
+if ! systemctl --user daemon-reload 2>/dev/null || ! systemctl --user enable --now padlink 2>/dev/null; then
+  echo "systemctl --user 不可用，二进制与 unit 已就位，请稍后在图形会话内手动执行：" >&2
+  echo "  systemctl --user daemon-reload && systemctl --user enable --now padlink" >&2
+else
+  echo "padlink 服务已启用（systemctl --user status padlink 查看）。"
+fi
