@@ -39,54 +39,60 @@ export struct RenameOverlay {
   }
 
   build() {
-    Column() {
+    // Stack 叠放：mask 全屏打底、卡片独立居中——Column 纵向排会将卡片挤到 mask 之下（出屏）。
+    Stack() {
       Column()
         .width('100%')
         .height('100%')
         .backgroundColor($r('sys.color.ohos_id_color_mask_regular'))
-      Column({ space: 12 }) {
-        Text($r('app.string.settings_host_rename'))
-          .fontSize($r('sys.float.ohos_id_text_size_body1'))
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('sys.color.font_primary'))
-        TextInput({ text: this.text, placeholder: pageResStr(this.getUIContext(), 'settings_host_name_hint') })
-          .height(40)
-          .maxLength(64)
-          .defaultFocus(true)
-          // 输入框必须用 tertiary：与弹层卡面同色会隐形。
-          .backgroundColor($r('sys.color.comp_background_tertiary'))
-          .onChange((v: string) => {
-            this.text = v;
-            this.error = '';
-          })
-        if (this.error.length > 0) {
-          Text(this.error)
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.warning'))
-            .width('100%')
-        }
-        Row({ space: 12 }) {
-          Button($r('app.string.pair_cancel'))
-            .buttonStyle(ButtonStyleMode.NORMAL)
-            .layoutWeight(1)
-            .onClick(() => {
-              this.onDone();
+      Column() {
+        Column({ space: 12 }) {
+          Text($r('app.string.settings_host_rename'))
+            .fontSize($r('sys.float.ohos_id_text_size_body1'))
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('sys.color.font_primary'))
+          TextInput({ text: this.text, placeholder: pageResStr(this.getUIContext(), 'settings_host_name_hint') })
+            .height(40)
+            .maxLength(64)
+            .defaultFocus(true)
+            // 输入框必须用 tertiary：与弹层卡面同色会隐形。
+            .backgroundColor($r('sys.color.comp_background_tertiary'))
+            .onChange((v: string) => {
+              this.text = v;
+              this.error = '';
             })
-          Button($r('app.string.settings_host_save'))
-            .layoutWeight(1)
-            .onClick(() => {
-              this.save();
-            })
+          if (this.error.length > 0) {
+            Text(this.error)
+              .fontSize($r('sys.float.ohos_id_text_size_body3'))
+              .fontColor($r('sys.color.warning'))
+              .width('100%')
+          }
+          Row({ space: 12 }) {
+            Button($r('app.string.pair_cancel'))
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .layoutWeight(1)
+              .onClick(() => {
+                this.onDone();
+              })
+            Button($r('app.string.settings_host_save'))
+              .layoutWeight(1)
+              .onClick(() => {
+                this.save();
+              })
+          }
+          .width('100%')
         }
         .width('100%')
+        .padding(20)
+        .borderRadius(16)
+        .backgroundColor($r('sys.color.comp_background_primary'))
       }
-      .padding(20)
-      .borderRadius(16)
-      .backgroundColor($r('sys.color.comp_background_primary'))
-      .margin({ left: 32, right: 32 })
+      .width('100%')
+      .height('100%')
+      .padding({ left: 32, right: 32 })
+      .justifyContent(FlexAlign.Center)
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
   }
 }

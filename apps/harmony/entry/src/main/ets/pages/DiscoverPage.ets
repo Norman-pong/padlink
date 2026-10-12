@@ -336,7 +336,7 @@ export struct DiscoverPage {
                 .alignItems(VerticalAlign.Center)
               }
             }
-          }, (h: DiscoveredHost) => h.ip)
+          }, (h: DiscoveredHost) => `${h.ip}:${h.name}`)
         }
         .width('100%')
         .layoutWeight(1)

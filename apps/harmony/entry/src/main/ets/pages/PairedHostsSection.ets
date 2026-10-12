@@ -61,9 +61,10 @@ export struct PairedHostsSection {
           .backgroundColor($r('sys.color.comp_background_primary'))
       } else {
         Column({ space: 8 }) {
+          // key 必须含 name：重命名后仅 name 变化，key 不变则 ForEach 复用旧节点、列表不刷新。
           ForEach(this.hosts, (h: HostInfo) => {
             this.row(h);
-          }, (h: HostInfo) => `${h.ip}:${h.port}`)
+          }, (h: HostInfo) => `${h.ip}:${h.port}:${h.name}`)
         }
         .width('100%')
       }
