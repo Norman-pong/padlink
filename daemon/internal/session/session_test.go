@@ -78,6 +78,19 @@ func (c *capture) count(kind evKind, code uint16, value int32) int {
 	return n
 }
 
+// keySeq 按注入顺序返回某键的全部 value（断言 down/up 次序用）。
+func (c *capture) keySeq(code uint16) []int32 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]int32, 0, 8)
+	for _, e := range c.events {
+		if e.kind == evKey && e.code == code {
+			out = append(out, e.value)
+		}
+	}
+	return out
+}
+
 // waitFor 轮询断言注入事件到达（异步管道，最终一致）。
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -101,6 +114,10 @@ type testSrv struct {
 }
 
 func newTestServer(t *testing.T, mutate func(*Config)) *testSrv {
+	return newTestServerInj(t, mutate, inject.Config{RepeatDelay: time.Hour, RepeatInterval: time.Hour})
+}
+
+func newTestServerInj(t *testing.T, mutate func(*Config), injCfg inject.Config) *testSrv {
 	t.Helper()
 	store, err := pairing.Load(filepath.Join(t.TempDir(), "clients.json"))
 	if err != nil {
@@ -109,7 +126,7 @@ func newTestServer(t *testing.T, mutate func(*Config)) *testSrv {
 	mgr := pairing.NewManager(store)
 	mgr.SetNotify(func(string) {})
 	cap := &capture{}
-	inj := inject.NewInjector(cap, inject.Config{RepeatDelay: time.Hour, RepeatInterval: time.Hour})
+	inj := inject.NewInjector(cap, injCfg)
 	cfg := Config{
 		Port:          0,
 		DaemonVersion: "test",
@@ -730,6 +747,30 @@ func TestUnpairedTokenRejectedAfterRemove(t *testing.T) {
 		return ts.srv.StatsSnapshot().HMACFail > before.HMACFail
 	})
 	waitFor(t, "解配后包不注入", func() bool { return ts.cap.count(evRel, 0, 7) == 0 })
+}
+
+// 连发经注入队列与主事件串行：按住产生周期性 down，抬起后零残留 down。
+func TestKeyRepeatThroughQueue(t *testing.T) {
+	ts := newTestServerInj(t, nil, inject.Config{RepeatDelay: 20 * time.Millisecond, RepeatInterval: 20 * time.Millisecond})
+	token := prepair(t, ts)
+	c := dialAuthed(t, ts.srv.Port(), token)
+	code := inject.HIDToKey[inject.HIDA]
+
+	c.sendSealed(proto.NewKey(c.nextSeq(), inject.HIDA, true))
+	waitFor(t, "连发产生 ≥2 次 down", func() bool { return ts.cap.count(evKey, code, 1) >= 2 })
+	c.sendSealed(proto.NewKey(c.nextSeq(), inject.HIDA, false))
+	waitFor(t, "抬起 up 注入", func() bool { return ts.cap.count(evKey, code, 0) == 1 })
+
+	time.Sleep(120 * time.Millisecond) // 连发周期 20ms：若残留会在此窗口内新增 down
+	seq := ts.cap.keySeq(code)
+	if last := seq[len(seq)-1]; last != 0 {
+		t.Fatalf("末事件应为 up(0)，实为 %d（序列 %v）", last, seq)
+	}
+	for _, v := range seq[:len(seq)-1] {
+		if v == 0 {
+			t.Fatalf("up 后仍有事件残留（序列 %v）", seq)
+		}
+	}
 }
 
 // prepair 直接经存储预置一个已配对客户端，返回其 token。

@@ -364,6 +364,76 @@ func keysString(evs []recordedEvent) string {
 	return fmt.Sprint(parts)
 }
 
+// 接队列且延迟执行：up 返回后队列中的迟到连发任务必须自弃（零残留契约）。
+func TestRepeatEnqueueDropsLateTasks(t *testing.T) {
+	fw := &fakeDeviceWriter{}
+	var mu sync.Mutex
+	var pending []func()
+	inj := NewInjector(fw, Config{
+		RepeatDelay: 10 * time.Millisecond, RepeatInterval: 10 * time.Millisecond,
+		EnqueueRepeat: func(f func()) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			pending = append(pending, f)
+			return true
+		},
+	})
+	if err := inj.Key(0x04, true); err != nil {
+		t.Fatalf("Key down: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(pending)
+		mu.Unlock()
+		if n >= 3 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := inj.Key(0x04, false); err != nil {
+		t.Fatalf("Key up: %v", err)
+	}
+	mu.Lock()
+	tasks := append([]func(){}, pending...)
+	mu.Unlock()
+	for _, f := range tasks { // 模拟注入循环迟到执行
+		f()
+	}
+	if got := fw.countKey(30, 1); got != 1 {
+		t.Fatalf("迟到任务未自弃: down %d 次, want 1", got)
+	}
+	if got := fw.countKey(30, 0); got != 1 {
+		t.Fatalf("up 事件数 = %d, want 1", got)
+	}
+	inj.Close()
+}
+
+// 接队列且立即执行：连发仍按节奏产生 down，up 后停止。
+func TestRepeatEnqueuePassThrough(t *testing.T) {
+	fw := &fakeDeviceWriter{}
+	inj := NewInjector(fw, Config{
+		RepeatDelay: 15 * time.Millisecond, RepeatInterval: 15 * time.Millisecond,
+		EnqueueRepeat: func(f func()) bool { f(); return true },
+	})
+	if err := inj.Key(0x04, true); err != nil {
+		t.Fatalf("Key down: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && fw.countKey(30, 1) < 3 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := inj.Key(0x04, false); err != nil {
+		t.Fatalf("Key up: %v", err)
+	}
+	final := fw.countKey(30, 1)
+	time.Sleep(80 * time.Millisecond)
+	if got := fw.countKey(30, 1); got != final {
+		t.Fatalf("up 后仍在连发: %d → %d", final, got)
+	}
+	inj.Close()
+}
+
 // 大写锁生效且手机打小写：必须临时补 Shift，否则主机出大写。
 func TestCapsLockCompensatesLowercase(t *testing.T) {
 	f := &fakeDeviceWriter{}

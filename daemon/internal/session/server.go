@@ -1,6 +1,6 @@
 // Package session 实现 TCP 会话层与 UDP 数据面（同端口复用）：HELLO 版本协商、
 // PAIR_REQ 配对路径、token 逐包认证、心跳超时、速率限制与事件分发。
-// 所有注入调用经单一 goroutine 串行化（Injector 非并发安全），保证事件序与无并发写。
+// 所有注入调用（含 key repeat 连发，经注入队列投递）在单一 goroutine 串行执行，保证事件序。
 package session
 
 import (
@@ -134,7 +134,7 @@ func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.In
 	if cfg.Log == nil {
 		cfg.Log = log.New(os.Stdout, "padlinkd ", log.LstdFlags)
 	}
-	return &Server{
+	srv := &Server{
 		cfg:         cfg,
 		store:       store,
 		pair:        pair,
@@ -147,6 +147,10 @@ func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.In
 		closed:      make(chan struct{}),
 		sessions:    make(map[*tcpSession]struct{}),
 	}
+	if inj != nil {
+		inj.SetRepeatEnqueue(srv.tryEnqueue) // 连发与主事件同队列串行
+	}
+	return srv
 }
 
 // Start 绑定 UDP 与 TCP（同一端口）。

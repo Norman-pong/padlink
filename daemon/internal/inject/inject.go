@@ -5,6 +5,7 @@ package inject
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -52,11 +53,15 @@ type Config struct {
 	// 手机端 Shift 表达的是"这个字母要大写"，主机大写锁会在注入侧再反转一次，
 	// 故字母键按「手机意图 XOR 主机大写锁」改写 Shift。macOS 传恒 false（合成 CGEvent 带显式 flags）。
 	CapsLockActive func() bool
+	// EnqueueRepeat 把连发任务交回注入队列执行（与主事件串行；返回 false = 队列满，跳过本轮）。
+	// nil 时连发在本 goroutine 直写后端（Injector 脱离 Server 队列独立使用时）。
+	EnqueueRepeat func(f func()) bool
 }
 
 type repeatHandle struct {
-	stop chan struct{}
-	done chan struct{}
+	stop    chan struct{}
+	done    chan struct{}
+	stopped atomic.Bool // 置停后队列中的迟到任务自检丢弃（up 后零残留）
 }
 
 // Injector 把 MOVE/SCROLL/BUTTON/KEY 事件编排为带 SYN 边界的 uinput 事件序列，
@@ -82,6 +87,11 @@ func NewInjector(w DeviceWriter, cfg Config) *Injector {
 		click:   newClickTracker(cfg.DoubleClickInterval, cfg.DoubleClickDistance),
 		repeats: make(map[uint16]*repeatHandle),
 	}
+}
+
+// SetRepeatEnqueue 接入注入队列（Server 装配时调用；须在首次 Key 前完成）。
+func (in *Injector) SetRepeatEnqueue(f func(func()) bool) {
+	in.cfg.EnqueueRepeat = f
 }
 
 // Move 写 REL_X/REL_Y 并以 SYN 收帧。
@@ -296,6 +306,7 @@ func (in *Injector) Close() error {
 	}
 	in.mu.Unlock()
 	for _, h := range handles {
+		h.stopped.Store(true)
 		close(h.stop)
 		<-h.done
 	}
@@ -324,13 +335,32 @@ func (in *Injector) startRepeat(code uint16) {
 			case <-h.stop:
 				return
 			case <-timer.C:
-				if err := in.tapKey(code, 1); err != nil {
-					return // 写入失败即停连发，不吞错重试
+				in.fireRepeat(h, code)
+				if h.stopped.Load() {
+					return // 后端写入失败：停连发，不吞错重试
 				}
 				timer.Reset(interval)
 			}
 		}
 	}()
+}
+
+// fireRepeat 投递一次连发 down：接队列时与主事件串行（迟到任务自检丢弃），
+// 队列满则本轮跳过（连发可丢）；未接队列时直写后端。
+func (in *Injector) fireRepeat(h *repeatHandle, code uint16) {
+	tap := func() {
+		if h.stopped.Load() {
+			return
+		}
+		if err := in.tapKey(code, 1); err != nil {
+			h.stopped.Store(true)
+		}
+	}
+	if in.cfg.EnqueueRepeat == nil {
+		tap()
+		return
+	}
+	in.cfg.EnqueueRepeat(tap)
 }
 
 func (in *Injector) stopRepeat(code uint16) {
@@ -339,6 +369,9 @@ func (in *Injector) stopRepeat(code uint16) {
 	delete(in.repeats, code)
 	in.mu.Unlock()
 	if h != nil {
+		// 先置停再等退出：保证返回后不会再有连发 down 注入（零残留）；
+		// 队列非阻塞，等 done 不会与注入循环互锁。
+		h.stopped.Store(true)
 		close(h.stop)
 		<-h.done
 	}
