@@ -257,7 +257,7 @@ export class VoiceModel {
     this.sendText();
   }
 
-  // 发送 TEXT（TCP）：以 tcpSendFail 计数差判定成败，失败置 sendFailed 供手动重发。
+  // 发送 TEXT（TCP）：以 sendReliable 返回值判定成败，失败置 sendFailed 供手动重发。
   private sendText(): void {
     const conn: ConnectionManager | null = this.conn;
     if (conn === null || !conn.isConnected()) {
@@ -267,10 +267,9 @@ export class VoiceModel {
       return;
     }
     this.phase = VoicePhase.SENDING;
-    const failBefore: number = conn.transport.stats.tcpSendFail;
     conn.transport.sendReliable(newText(conn.transport.nextSeq(), this.accumulated))
-      .then(() => {
-        if (conn.transport.stats.tcpSendFail > failBefore) {
+      .then((ok: boolean) => {
+        if (!ok) {
           this.sendFailed = true;
           this.phase = VoicePhase.ERROR;
           this.errorKey = 'voice_err_send_failed';
@@ -278,12 +277,6 @@ export class VoiceModel {
           this.sent = true;
           this.phase = VoicePhase.DONE;
         }
-      })
-      .catch((err: BusinessError) => {
-        this.sendFailed = true;
-        this.phase = VoicePhase.ERROR;
-        this.errorKey = 'voice_err_send_failed';
-        hilog.warn(DOMAIN, TAG, 'text send fail %{public}d %{public}s', err.code, err.message);
       });
   }
 

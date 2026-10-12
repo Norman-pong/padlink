@@ -284,25 +284,28 @@ export class Transport {
       });
   }
 
-  // TCP 可靠发送。未认证时静默丢弃并计数（断连期间手势不崩 UI）。
-  public sendReliable(pkt: Packet): Promise<void> {
+  // TCP 可靠发送；resolve 值 = 成败（未认证/发送失败为 false），不 reject——
+  // 手势/心跳等调用方无需 catch，需要判定成败的调用方（语音 TEXT）读返回值。
+  public sendReliable(pkt: Packet): Promise<boolean> {
     if (this.provider === null) {
       this.stats.tcpSendFail++;
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
     seal(pkt, this.provider);
     return this.sendUnsealed(pkt);
   }
 
   // 无 token 会话（配对流）专用：不封签直发 TCP，仅限协议规定不认证的报文（HELLO 首包 / PAIR_REQ）；
-  // 失败计数+日志不上抛，调用方以回包/超时判定结果。
-  public sendUnsealed(pkt: Packet): Promise<void> {
+  // 失败计数+日志不上抛，resolve 值 = 成败，调用方按需判定。
+  public sendUnsealed(pkt: Packet): Promise<boolean> {
     const wire: ArrayBuffer = encode(pkt);
     return this.tcp.send(wire).then(() => {
       this.stats.tcpSendOk++;
+      return true;
     }).catch((err: BusinessError) => {
       this.stats.tcpSendFail++;
       hilog.warn(DOMAIN, TAG, 'tcp send fail: %{public}d %{public}s', err.code, err.message);
+      return false;
     });
   }
 
@@ -313,7 +316,7 @@ export class Transport {
   }
 
   // HELLO：payload 2B 大端 ver。按协议 TCP 首包必须为未认证 HELLO，恒不封签。
-  public sendHello(): Promise<void> {
+  public sendHello(): Promise<boolean> {
     return this.sendUnsealed(buildHelloPacket(this.nextSeq()));
   }
 

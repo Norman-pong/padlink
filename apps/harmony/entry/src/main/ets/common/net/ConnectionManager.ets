@@ -7,7 +7,12 @@ import { NoticeCode, PacketType } from '../proto/PacketType';
 import type { Packet } from '../proto/Packet';
 import { utf8DecodeStrict } from '../proto/Utf8';
 import { Transport, TCP_CONNECT_TIMEOUT_MS } from './Transport';
+import { ConnState } from './ConnState';
+import { canEnterDiscoverOverlay, shouldExitDiscoverOverlay } from './DiscoverOverlay';
 import { ResError } from '../ResError';
+
+// 兼容既有导入方：ConnState 常量已拆至纯逻辑文件 ConnState.ets。
+export { ConnState } from './ConnState';
 
 const TAG: string = 'PadLink.ConnMgr';
 const DOMAIN: number = 0x5050;
@@ -28,16 +33,8 @@ export class ConnPolicy {
   public static readonly CTRL_BUSY_TICK_MS: number = 1000;
 }
 
-// 状态常量（不用 TS enum：纯逻辑层须 node 可直跑）。
-export class ConnState {
-  public static readonly IDLE: number = 0;
-  public static readonly DISCOVERING: number = 1;
-  public static readonly PAIRING: number = 2;
-  public static readonly CONNECTED: number = 3;
-  public static readonly RECONNECTING: number = 4;
-  // 重连失败达上限：已释放一切资源，需手动重连。
-  public static readonly LOST: number = 5;
-}
+export type RttListener = (rttMs: number) => void;
+export type PairPacketListener = (pkt: Packet) => void;
 
 // UI 可观察快照：字段仅由 ConnectionManager 写入（UI 只读）；@Trace 是刷新驱动，字段缺了它写入不触发 UI 更新。
 @ObservedV2
@@ -52,9 +49,6 @@ export class ConnectionState {
   // 由 daemon NOTICE(0, 剩余秒数) 驱动，本端按 1Hz 递减，断开/换会话即清零。
   @Trace ctrlBusyLeftSec: number = 0;
 }
-
-export type RttListener = (rttMs: number) => void;
-export type PairPacketListener = (pkt: Packet) => void;
 
 export class ConnectionManager {
   public readonly snapshot: ConnectionState = new ConnectionState();
@@ -252,6 +246,20 @@ export class ConnectionManager {
     this.snapshot.state = ConnState.IDLE;
     this.snapshot.rttMs = -1;
     this.snapshot.reconnectAttempt = 0;
+  }
+
+  // 发现浮层态（PairingModel 借道写状态）：规则见 DiscoverOverlay——断开态挂 DISCOVERING、
+  // 回收只认自写的态，不踩踏活动会话。
+  public enterDiscovering(): void {
+    if (canEnterDiscoverOverlay(this.snapshot.state)) {
+      this.snapshot.state = ConnState.DISCOVERING;
+    }
+  }
+
+  public exitDiscovering(): void {
+    if (shouldExitDiscoverOverlay(this.snapshot.state)) {
+      this.snapshot.state = ConnState.IDLE;
+    }
   }
 
 

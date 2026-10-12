@@ -2,7 +2,7 @@
 // 设备名取 @ohos.deviceInfo（marketName 优先、productModel 兜底），发送前经 sanitizeDeviceName 截到 ≤64 字节。
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ConnState } from '../net/ConnectionManager';
+
 import type { ConnectionManager } from '../net/ConnectionManager';
 import { Discoverer, DiscoverPolicy } from '../net/Discoverer';
 import type { DiscoveredHost } from '../net/DiscoverCore';
@@ -103,33 +103,24 @@ export class PairingModel {
   }
 
 
-  // UDP 广播发现（窗口内收集全部应答，按 IP 去重）。
-  // conn 浮层态只在断开态下挂 DISCOVERING，回收只认自写的态——不踩踏活动会话。
+  // UDP 广播发现（窗口内收集全部应答，按 IP 去重）。conn 浮层态经 CM 的 enter/exit 收口。
   public async startDiscovery(): Promise<void> {
     if (this.snapshot.phase === PairPhase.DISCOVERING) {
       return;
     }
     this.resetError();
     this.snapshot.phase = PairPhase.DISCOVERING;
-    const s: number = this.conn.snapshot.state;
-    if (s === ConnState.IDLE || s === ConnState.LOST || s === ConnState.DISCOVERING) {
-      this.conn.snapshot.state = ConnState.DISCOVERING;
-    }
+    this.conn.enterDiscovering();
     try {
       const hosts: DiscoveredHost[] = await this.discoverer.discover(DiscoverPolicy.WINDOW_MS, DEFAULT_PORT);
       this.snapshot.hosts = hosts;
       this.snapshot.phase = PairPhase.IDLE;
-      if (this.conn.snapshot.state === ConnState.DISCOVERING) {
-        this.conn.snapshot.state = ConnState.IDLE;
-      }
     } catch (err) {
       this.snapshot.hosts = [];
       this.setKeyError('pair_discover_failed_fmt', [(err as Error).message]);
       this.snapshot.phase = PairPhase.FAILED;
-      if (this.conn.snapshot.state === ConnState.DISCOVERING) {
-        this.conn.snapshot.state = ConnState.IDLE;
-      }
     }
+    this.conn.exitDiscovering();
   }
 
   // 选中主机：已配对（同一 ip+port 有 token）→ token 直连（不消耗电脑端名额）；token 失效 → 回落配对自愈。
@@ -290,9 +281,7 @@ export class PairingModel {
     this.pairWaiter = null;
     this.selected = null;
     if (this.snapshot.phase === PairPhase.DISCOVERING) {
-      if (this.conn.snapshot.state === ConnState.DISCOVERING) {
-        this.conn.snapshot.state = ConnState.IDLE;
-      }
+      this.conn.exitDiscovering();
     } else {
       this.conn.disconnect();
     }

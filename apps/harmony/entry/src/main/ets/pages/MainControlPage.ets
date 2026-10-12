@@ -49,6 +49,8 @@ export struct MainControlPage {
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
+  // getLastWindow 异步返回晚于 aboutToDisappear 时（快速进出页），据此丢弃迟到的窗口操作。
+  private disposed: boolean = false;
   aboutToAppear(): void {
     this.setupWindow();
   }
@@ -56,6 +58,7 @@ export struct MainControlPage {
   aboutToDisappear(): void {
     // 离开页面必须收口：未释放按键先发 release、键盘层可能仍挂载需 zoneLeave、
     // 语音会话 cancel（麦克风仅按住期间占用）。
+    this.disposed = true;
     this.touchpad.cancelGesture();
     if (this.keyboard.zoneActive) {
       this.keyboard.zoneLeave();
@@ -85,6 +88,9 @@ export struct MainControlPage {
   private setupWindow(): void {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     window.getLastWindow(ctx).then((win: window.Window) => {
+      if (this.disposed) {
+        return; // 页面已销毁：不设全屏/常亮、不挂监听（restoreWindow 此时已跑过）
+      }
       this.win = win;
       win.setWindowLayoutFullScreen(true).catch((err: BusinessError) => {
         hilogWarn('layoutFullScreen fail', err);

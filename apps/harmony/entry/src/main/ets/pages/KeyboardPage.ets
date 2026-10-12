@@ -205,7 +205,7 @@ export struct KeyboardPage {
           this.onInput(value, previewText);
         })
         .onEditChange((editing: boolean) => {
-          this.model.imeVisible = editing; // 主控页据此收停靠簇底边距（键条贴齐 IME 顶）
+          this.model.setImeVisible(editing);
         })
 
       Row({ space: KEY_GAP_VP }) {

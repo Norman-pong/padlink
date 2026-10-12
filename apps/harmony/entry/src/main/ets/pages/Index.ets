@@ -47,6 +47,15 @@ struct Index {
     }
   }
 
+  // 回前台补一次静默重连（AutoConnect 冷却窗防重复；仅在断开态生效）。
+  onPageShow(): void {
+    tryAutoReconnect(this.conn, this.settings);
+  }
+
+  aboutToDisappear(): void {
+    this.voice.dispose(); // ASR 引擎常驻资源最终收口（幂等，再次 press 自动重建）
+  }
+
   build() {
     HdsNavigation(this.pathStack) {
       MainControlPage({ conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard,

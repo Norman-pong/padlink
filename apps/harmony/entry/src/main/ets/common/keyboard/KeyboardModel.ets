@@ -12,9 +12,13 @@ export class KeyboardModel {
   @Trace ctrlLatched: boolean = false;
   @Trace altLatched: boolean = false;
   @Trace superLatched: boolean = false;
-  // IME 可见性单源（KeyboardPage 的 TextArea onEditChange 写入）：主控页据此把停靠簇底边距收成 0
-  // 让键条贴齐 IME 顶（RESIZE 避让下窗口底边即 IME 顶边）。
+  // IME 可见性：主控页据此把停靠簇底边距收成 0，让键条贴齐 IME 顶
+  //（RESIZE 避让下窗口底边即 IME 顶边）；由 KeyboardPage 的 onEditChange 经 setImeVisible 写入。
   @Trace imeVisible: boolean = false;
+
+  public setImeVisible(visible: boolean): void {
+    this.imeVisible = visible;
+  }
 
   public onZoneEnter: (() => void) | null = null;
   public onZoneLeave: (() => void) | null = null;
