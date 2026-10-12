@@ -9,13 +9,15 @@ import { privacyManager } from '@kit.AppGalleryKit';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
-import { HostInfo, validateHostName } from '../common/viewmodel/HostsStore';
+import { HostInfo } from '../common/viewmodel/HostsStore';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
 import { PairedHostsSection } from './PairedHostsSection';
 import type { PairingModel } from '../common/viewmodel/PairingModel';
 import { PressedRow } from './PressedRow';
-import { pageErrText } from './Res';
+import { HostRow } from './HostRow';
+import { RenameOverlay } from './RenameOverlay';
+import { pageResStr, pageErrText } from './Res';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { enterKeyboardAvoidResize, restoreKeyboardAvoidMode } from './KeyboardAvoid';
 
@@ -25,8 +27,6 @@ const VERSION_TAP_WINDOW_MS: number = 1500;
 const VERSION_TAP_COUNT: number = 5;
 const TOAST_MS: number = 2000;
 const DIVIDER_WIDTH_VP: number = 0.5;
-// AGC 托管链接不可得时（模拟器/未托管）回落仓库底稿。
-const PRIVACY_FALLBACK_URL: string = 'https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md';
 
 @ComponentV2
 export struct SettingsPage {
@@ -47,10 +47,7 @@ export struct SettingsPage {
   @Local defaultIp: string = '';
   @Local hostsLoading: boolean = true;
   @Local hostsError: string = '';
-  @Local renameIp: string = '';
-  @Local renamePort: number = 53021;
-  @Local renameText: string = '';
-  @Local renameError: string = '';
+  @Local renameHost: HostInfo | null = null;
   @Local actionHost: HostInfo | null = null;
 
   aboutToAppear(): void {
@@ -108,37 +105,6 @@ export struct SettingsPage {
     this.getUIContext().getPromptAction().showToast({
       message: text,
       duration: TOAST_MS,
-    });
-  }
-
-  private openRename(h: HostInfo): void {
-    this.renameIp = h.ip;
-    this.renamePort = h.port;
-    this.renameText = h.name;
-    this.renameError = '';
-  }
-
-  private closeRename(): void {
-    this.renameIp = '';
-    this.renameText = '';
-    this.renameError = '';
-  }
-
-  // 名称上限 64B 对齐 daemon MaxNameLen。
-  private saveRename(): void {
-    const name = validateHostName(this.renameText);
-    if (name.length === 0) {
-      this.renameError = this.resStr('settings_host_name_invalid');
-      return;
-    }
-    const ip = this.renameIp;
-    const port = this.renamePort;
-    this.settings.renameHost(ip, port, name).then(() => {
-      this.closeRename();
-      this.toast(this.resStr('settings_host_renamed'));
-      this.refreshHosts();
-    }).catch((err: Error) => {
-      this.renameError = pageErrText(this.getUIContext(), err);
     });
   }
 
@@ -370,8 +336,17 @@ export struct SettingsPage {
         // 穿透到标题栏下方显影滚动模糊。
         .clip(false)
 
-        if (this.renameIp.length > 0) {
-          this.renameOverlay()
+        if (this.renameHost !== null) {
+          RenameOverlay({
+            settings: this.settings,
+            ip: this.renameHost.ip,
+            port: this.renameHost.port,
+            initialName: this.renameHost.name,
+            onDone: (): void => {
+              this.renameHost = null;
+              this.refreshHosts();
+            }
+          })
         }
       }
       .width('100%')
@@ -402,8 +377,8 @@ export struct SettingsPage {
     })
     // 自绘蒙层不自带返回行为，返回键必须先关弹层，否则直接退页丢输入。
     .onBackPressed((): boolean => {
-      if (this.renameIp.length > 0) {
-        this.closeRename();
+      if (this.renameHost !== null) {
+        this.renameHost = null;
         return true;
       }
       return false;
@@ -452,45 +427,18 @@ export struct SettingsPage {
     .width('100%')
   }
 
+  // 整行可点；低频/破坏性操作收进动作单（行内小按钮达不到 40vp 命中区），chevron 为钻取语义。
   @Builder
   hostItem(h: HostInfo) {
-    // 整行可点；低频/破坏性操作收进动作单（行内小按钮达不到 40vp 命中区），chevron 为钻取语义。
-    PressedRow({
-      a11yText: `${this.hostName(h)}，${h.ip}`,
-      onActivated: (): void => {
+    HostRow({
+      label: this.hostName(h),
+      ip: h.ip,
+      badge: this.isDefault(h) ? $r('app.string.settings_hosts_default') : null,
+      showChevron: true,
+      onRowActivated: (): void => {
         this.actionHost = h;
       }
-    }) {
-      Row({ space: 8 }) {
-        Column({ space: 2 }) {
-          Text(this.hostName(h))
-            .fontSize($r('sys.float.ohos_id_text_size_body1'))
-            .fontColor($r('sys.color.font_primary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(h.ip)
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.font_secondary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        if (this.isDefault(h)) {
-          Text($r('app.string.settings_hosts_default'))
-            .fontSize($r('sys.float.ohos_id_text_size_caption1'))
-            .fontColor($r('sys.color.brand'))
-            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-            .borderRadius(10)
-            .border({ width: 1, color: $r('sys.color.brand') })
-        }
-        SymbolGlyph($r('sys.symbol.chevron_forward'))
-          .fontSize(20)
-          .fontColor([$r('sys.color.icon_tertiary')])
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-    }
+    })
   }
 
   // 动作先关面板再执行（删除确认走 AlertDialog 二次确认）。
@@ -503,7 +451,7 @@ export struct SettingsPage {
           const h: HostInfo | null = this.actionHost;
           this.actionHost = null;
           if (h !== null) {
-            this.openRename(h);
+            this.renameHost = h;
           }
         }
       }) {
@@ -546,60 +494,6 @@ export struct SettingsPage {
     .padding({ left: 16, right: 16, bottom: 16 })
   }
 
-  @Builder
-  renameOverlay() {
-    Column() {
-      // 蒙层点击不关闭（防误触丢输入），仅按钮退出。
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor($r('sys.color.ohos_id_color_mask_regular'))
-      Column({ space: 12 }) {
-        Text($r('app.string.settings_host_rename'))
-          .fontSize($r('sys.float.ohos_id_text_size_body1'))
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('sys.color.font_primary'))
-        TextInput({ text: this.renameText, placeholder: this.resStr('settings_host_name_hint') })
-          .height(40)
-          .maxLength(64)
-          .defaultFocus(true)
-          // 输入框必须用 tertiary：与弹层卡面同色会隐形。
-          .backgroundColor($r('sys.color.comp_background_tertiary'))
-          .onChange((v: string) => {
-            this.renameText = v;
-            this.renameError = '';
-          })
-        if (this.renameError.length > 0) {
-          Text(this.renameError)
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.warning'))
-            .width('100%')
-        }
-        Row({ space: 12 }) {
-          Button($r('app.string.pair_cancel'))
-            .buttonStyle(ButtonStyleMode.NORMAL)
-            .layoutWeight(1)
-            .onClick(() => {
-              this.closeRename();
-            })
-          Button($r('app.string.settings_host_save'))
-            .layoutWeight(1)
-            .onClick(() => {
-              this.saveRename();
-            })
-        }
-        .width('100%')
-      }
-      .padding(20)
-      .borderRadius(16)
-      .backgroundColor($r('sys.color.comp_background_primary'))
-      .margin({ left: 32, right: 32 })
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-  }
-
   private resStr(name: string): string {
     const ctx = this.getUIContext().getHostContext();
     if (ctx === undefined) {
@@ -609,9 +503,9 @@ export struct SettingsPage {
     return ctx.resourceManager.getStringByNameSync(name);
   }
 
-  // AGC 托管隐私链接优先，服务不可达（模拟器/侧载未托管）回落仓库底稿。
+  // AGC 托管隐私链接优先，服务不可达（模拟器/侧载未托管）回落仓库底稿（string.json 配置）。
   private openPrivacyPolicy(): void {
-    let url: string = PRIVACY_FALLBACK_URL;
+    let url: string = this.resStr('privacy_fallback_url');
     try {
       const links: privacyManager.AppPrivacyLink[] = privacyManager.getAppPrivacyMgmtInfo().privacyInfo;
       if (links.length > 0 && links[0].url.length > 0) {

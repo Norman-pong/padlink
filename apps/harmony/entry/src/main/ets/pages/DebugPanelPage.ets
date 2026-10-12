@@ -8,8 +8,8 @@ import { hexToBytes } from '../common/net/HexCodec';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import type { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { HostInfo } from '../common/viewmodel/SettingsModel';
-import { HostsFullError } from '../common/viewmodel/HostsStore';
-import { pageResStr, pageErrText, connStateKey } from './Res';
+import type { PairingModel } from '../common/viewmodel/PairingModel';
+import { pageResStr, pageResFmt, pageErrText, connStateKey } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -62,6 +62,7 @@ export struct DebugPanelPage {
   @Require @Param conn: ConnectionManager;
   @Require @Param touchpad: TouchpadModel;
   @Require @Param settings: SettingsModel;
+  @Require @Param pairing: PairingModel;
   @Require @Param pathStack: NavPathStack;
 
   @Local gestureState: number = GestureStateName.IDLE;
@@ -212,6 +213,7 @@ export struct DebugPanelPage {
     this.statusOk = ok;
   }
 
+  // 经 PairingModel.connectKnown 连接并落默认主机档案（与发现页/设置页同一路径）。
   private async onConnectClick(): Promise<void> {
     if (this.connecting) {
       return;
@@ -227,30 +229,23 @@ export struct DebugPanelPage {
       this.showStatus(this.resStr('debug_token_invalid'), false);
       return;
     }
+    const h = new HostInfo();
+    h.ip = ip;
+    h.port = port;
+    h.tokenHex = this.tokenHex.trim();
+    h.name = ip;
     this.connecting = true;
     this.showStatus(this.resStr('debug_connecting'), false);
-    try {
-      await this.conn.connect(ip, port, port, token);
+    const ok: boolean = await this.pairing.connectKnown(h);
+    this.connecting = false;
+    if (ok) {
       this.showStatus(this.resStr('debug_connected'), true);
-      const h = new HostInfo();
-      h.ip = ip;
-      h.port = port;
-      h.tokenHex = this.tokenHex.trim();
-      h.name = ip;
-      this.settings.saveLastHost(h).catch((err: Error) => {
-        // 保存失败不影响本会话（满 4 台提示先删除）。
-        if (err instanceof HostsFullError) {
-          this.showStatus(this.resStr('debug_hosts_full'), false);
-          return;
-        }
-        this.showStatus(`${this.resStr('debug_save_fail')}（${pageErrText(this.getUIContext(), err)}）`, false);
-        hilog.warn(DOMAIN, TAG, 'saveLastHost fail: %{public}s', err.message);
-      });
-    } catch (err) {
-      this.showStatus(pageErrText(this.getUIContext(), err as Error), false);
-    } finally {
-      this.connecting = false;
+      return;
     }
+    const snap = this.pairing.snapshot;
+    this.showStatus(snap.errorKey.length > 0
+      ? pageResFmt(this.getUIContext(), snap.errorKey, snap.errorParams)
+      : snap.errorText, false);
   }
 
   private onDisconnectClick(): void {

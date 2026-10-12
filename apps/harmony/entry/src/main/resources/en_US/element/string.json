@@ -565,6 +565,10 @@
       "value": "Host name (non-empty, max 64 bytes)"
     },
     {
+      "name": "privacy_fallback_url",
+      "value": "https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md"
+    },
+    {
       "name": "settings_host_name_invalid",
       "value": "Name must be non-empty and at most 64 bytes"
     },
@@ -583,14 +587,6 @@
     {
       "name": "pair_hosts_full",
       "value": "Paired host list is full (max 4). This connection still works; delete one in Settings first"
-    },
-    {
-      "name": "debug_hosts_full",
-      "value": "Host profile not saved: paired host list is full (max 4). Delete one in Settings first"
-    },
-    {
-      "name": "debug_save_fail",
-      "value": "Failed to save host profile"
     },
     {
       "name": "a11y_capsule_format",

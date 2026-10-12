@@ -75,7 +75,8 @@ struct Index {
     } else if (name === 'settings') {
       SettingsPage({ settings: this.settings, pairing: this.pairing, touchpad: this.touchpad, pathStack: this.pathStack })
     } else if (name === 'debug') {
-      DebugPanelPage({ conn: this.conn, touchpad: this.touchpad, settings: this.settings, pathStack: this.pathStack })
+      DebugPanelPage({ conn: this.conn, touchpad: this.touchpad, settings: this.settings,
+        pairing: this.pairing, pathStack: this.pathStack })
     } else if (name === 'guide') {
       GuidePage()
     }

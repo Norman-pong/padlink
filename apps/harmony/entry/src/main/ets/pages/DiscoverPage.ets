@@ -10,6 +10,7 @@ import { HostInfo } from '../common/viewmodel/HostsStore';
 import { pageResStr, pageResFmt, pageErrText } from './Res';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { PressedRow } from './PressedRow';
+import { HostRow } from './HostRow';
 import { PairedHostsSection } from './PairedHostsSection';
 import { GroupHeader } from './GroupCard';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -107,42 +108,18 @@ export struct DiscoverPage {
     });
   }
 
+  // 不挂 chevron：› 是导航语义，本行点击即切换。
   @Builder
   hostRow(h: HostInfo) {
-    // 不挂 chevron：› 是导航语义，本行点击即切换。
-    PressedRow({
-      a11yText: `${this.hostLabel(h)}，${h.ip}${this.isActive(h) ? '，' + this.resStr('discover_hosts_in_use') : ''}`,
-      onActivated: (): void => {
+    HostRow({
+      label: this.hostLabel(h),
+      ip: h.ip,
+      badge: this.isActive(h) ? $r('app.string.discover_hosts_in_use') : null,
+      a11yExtra: this.isActive(h) ? `，${this.resStr('discover_hosts_in_use')}` : '',
+      onRowActivated: (): void => {
         this.switchTo(h);
       }
-    }) {
-      Row({ space: 8 }) {
-        Column({ space: 2 }) {
-          Text(this.hostLabel(h))
-            .fontSize($r('sys.float.ohos_id_text_size_body1'))
-            .fontColor($r('sys.color.font_primary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(h.ip)
-            .fontSize($r('sys.float.ohos_id_text_size_body3'))
-            .fontColor($r('sys.color.font_secondary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        if (this.isActive(h)) {
-          Text($r('app.string.discover_hosts_in_use'))
-            .fontSize($r('sys.float.ohos_id_text_size_caption1'))
-            .fontColor($r('sys.color.brand'))
-            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-            .borderRadius(10)
-            .border({ width: 1, color: $r('sys.color.brand') })
-        }
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-    }
+    })
   }
 
   private errorText(): string {

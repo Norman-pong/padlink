@@ -565,6 +565,10 @@
       "value": "主机名称（非空，不超过 64 字节）"
     },
     {
+      "name": "privacy_fallback_url",
+      "value": "https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md"
+    },
+    {
       "name": "settings_host_name_invalid",
       "value": "名称不能为空，且不超过 64 字节"
     },
@@ -583,14 +587,6 @@
     {
       "name": "pair_hosts_full",
       "value": "配对主机已满（最多 4 台），本次连接仍可用，请先在设置中删除"
-    },
-    {
-      "name": "debug_hosts_full",
-      "value": "主机档案未保存：已配对主机已满（最多 4 台），请先在设置中删除"
-    },
-    {
-      "name": "debug_save_fail",
-      "value": "主机档案保存失败"
     },
     {
       "name": "a11y_capsule_format",
