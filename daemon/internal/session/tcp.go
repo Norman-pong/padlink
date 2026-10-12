@@ -325,7 +325,8 @@ func (t *tcpSession) dispatch(pkt proto.Packet) error {
 			return nil
 		}
 		text := pkt.Text
-		t.enqueue(t.srv.doInj("TEXT", func() error { return fn(text) }))
+		id := t.bound()
+		t.enqueue(t.srv.doInj("TEXT", func() error { return fn(id, text) }))
 	case proto.TypeEcho:
 		reply := proto.NewEcho(t.nextSeq(), pkt.Echo.TsMs)
 		proto.Seal(&reply, t.token())

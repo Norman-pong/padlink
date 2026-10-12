@@ -490,8 +490,8 @@ func TestInjectWlKeepsNonTextSelection(t *testing.T) {
 	in.Env = func(string) string { return "wayland-0" }
 
 	err := in.Inject("这段字不该注入")
-	if !errors.Is(err, errNonText) {
-		t.Fatalf("got %v, want errNonText", err)
+	if !errors.Is(err, ErrNonText) {
+		t.Fatalf("got %v, want ErrNonText", err)
 	}
 	if !strings.Contains(err.Error(), "image/png") {
 		t.Errorf("错误文案应带上原类型: %v", err)

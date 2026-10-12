@@ -44,9 +44,9 @@ func isNoSelection(err error) bool {
 	return err != nil && strings.Contains(err.Error(), noSelectionMarker)
 }
 
-// errNonText 内部哨兵：原剪贴板有内容但 CLI 备份不到（能力边界），调用方据此取消本次注入。
-// 仅 Linux wl-paste 路径可触发（读取失败 + 已记录的 MIME 为非文本）；darwin 原生后端全类型可备份，不再有该边界。
-var errNonText = errors.New("剪贴板内容不是文本")
+// ErrNonText：原剪贴板有内容但 CLI 备份不到（能力边界），调用方据此取消本次注入并向手机回传原因。
+// 仅 Linux wl-paste 路径可触发；darwin 原生后端全类型可备份，不再有该边界。
+var ErrNonText = errors.New("剪贴板内容不是文本")
 
 // isNonTextMIME 判定已记录的 MIME 是否为非文本（image/png、application/pdf…）：
 // 文本类 MIME 读取失败属工具故障，非文本类读取失败属能力边界，两者降级语义不同。
@@ -124,7 +124,8 @@ type clipboard struct {
 	needEnv string // 非空时要求该环境变量存在才可用（Linux=WAYLAND_DISPLAY；macOS 无门槛）
 	// readMIME 记录原剪贴板 MIME；平台无类型概念时返回 ""；无选择内容时返回 errNoSelection。
 	readMIME func(r Runner) (string, error)
-	// read 读取备份（mime 为已记录的原始类型，macOS 恒空）；原内容非文本（CLI 备份不到）时返回 errNonText。
+	// read 读取备份（mime 为已记录的原始类型；macOS 为整板快照，Linux 为按 MIME 的原始字节）；
+	// 原内容非文本且 CLI 读不出时返回 ErrNonText。
 	read func(r Runner, mime string) ([]byte, error)
 	// write 写入内容；mime 为空时由实现决定默认类型（wl-clipboard 按 pasteType 恢复）。
 	write func(r Runner, data []byte, mime string) error
@@ -148,7 +149,7 @@ var wlClipboard = clipboard{
 		return firstLine(out), nil
 	},
 	// --no-newline 防尾部多出换行；非文本选择（图片/文件）通常能按字节读到并按记录的 MIME
-	// 原样写回，只有读取确实失败时才是能力边界 → errNonText 取消注入，绝不用空备份覆盖原内容。
+	// 原样写回，只有读取确实失败时才是能力边界 → ErrNonText 取消注入，绝不用空备份覆盖原内容。
 	read: func(r Runner, mime string) ([]byte, error) {
 		out, err := runCmd(r, "wl-paste", nil, "--no-newline")
 		if err != nil {
@@ -156,7 +157,7 @@ var wlClipboard = clipboard{
 				return nil, errNoSelection
 			}
 			if isNonTextMIME(mime) {
-				return nil, fmt.Errorf("%w：原类型 %s", errNonText, mime)
+				return nil, fmt.Errorf("%w：原类型 %s", ErrNonText, mime)
 			}
 		}
 		return out, err
@@ -259,7 +260,7 @@ func (in *Injector) Inject(text string) error {
 		switch {
 		case errors.Is(err, errNoSelection):
 			noSelection = true // 备份间隙选择消失：等同空剪贴板
-		case errors.Is(err, errNonText):
+		case errors.Is(err, ErrNonText):
 			// 备份不到内容（非文本且 CLI 读不出，或类型表查询失败）→ 取消本次注入；
 			// 绝不"用空备份覆盖回去"，那会把用户的图片静默抹掉（两端共同契约）。
 			return fmt.Errorf("%w（本次注入已取消，剪贴板未改动）", err)

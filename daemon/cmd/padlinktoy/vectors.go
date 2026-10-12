@@ -270,6 +270,12 @@ func buildVectors() ([]vectorOut, error) {
 	if err != nil {
 		return nil, err
 	}
+	v22, err := mk(22, "NOTICE code=1 (TEXT not injected) arg=2 (clipboard tool unavailable), daemon->phone",
+		proto.NewNotice(19, proto.NoticeTextFailed, proto.TextFailUnavailable), "NOTICE", 19, false,
+		semNotice{Code: 1, Arg: 2})
+	if err != nil {
+		return nil, err
+	}
 	out = append(out, v1, v2, v3, v4, v5, v6, v7, v8,
 		vectorOut{ID: 9, Desc: "INVALID: magic is 'XL' not 'PL' — receiver must drop+count",
 			Hex: "584c010600000900040000000000000000000000010001", Valid: false, ExpectError: "bad_magic"},
@@ -277,7 +283,7 @@ func buildVectors() ([]vectorOut, error) {
 			Hex: "504c010b00000a0800000000000000000000000000000000000001", Valid: false, ExpectError: "len_out_of_range"},
 		vectorOut{ID: 11, Desc: "INVALID: payload truncated (payload_len=4 but only 2 bytes follow) — drop+count",
 			Hex: "504c010600000b0004000000000000000000000007", Valid: false, ExpectError: "truncated"},
-		v12, v13, v14, v15, v16, v17, v18, v19, v20, v21)
+		v12, v13, v14, v15, v16, v17, v18, v19, v20, v21, v22)
 	return out, nil
 }
 

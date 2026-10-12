@@ -17,7 +17,7 @@
 | UDP 单播 | **MOVE / SCROLL** / ECHO | 高频可丢：丢包由新值自然覆盖，不做重传 |
 | TCP | **BUTTON / KEY / TEXT** / PAIR_* / HELLO / ECHO / BYE / ERR / NOTICE | 不可丢事件：点击、按键、文本错乱即事故，必须可靠传输 |
 
-daemon → 手机的下行事件：**DISCOVER_RESP / PAIR_OK / PAIR_NAK / ERR**（应答类）与 **NOTICE**（唯一的主动通知类——控制权裁决提示，见 §4.7）；HELLO / ECHO / BYE 双向；其余事件均为手机 → daemon。
+daemon → 手机的下行事件：**DISCOVER_RESP / PAIR_OK / PAIR_NAK / ERR**（应答类）与 **NOTICE**（唯一的主动通知类：控制权裁决、文本未上屏，见 §4.7）；HELLO / ECHO / BYE 双向；其余事件均为手机 → daemon。
 
 ## 2. 报文 = 固定 19 字节头 + payload
 
@@ -109,13 +109,14 @@ int64 ts_ms (BE)
 u8 code | u8 arg
 ```
 
-唯一的**主动通知类**下行事件：daemon 用它向手机通报控制权裁决结果，不改变任何注入状态。TCP 通道、随该客户端 token 封 FlagAuth（手机端验签失败即丢弃计数）。
+唯一的**主动通知类**下行事件：daemon 用它向手机主动通报控制权裁决结果与文本注入失败，不改变任何注入状态。TCP 通道、随该客户端 token 封 FlagAuth（手机端验签失败即丢弃计数）。
 
 | code | 含义 | arg |
 | --- | --- | --- |
 | 0 | 控制被其他设备占用：本机输入已被丢弃 | 冷静期剩余秒数（0..255，0 = 未知） |
+| 1 | TEXT 未上屏：电脑端文本注入失败 | 原因码：0 未知 / 1 剪贴板内容不是文本 / 2 剪贴板工具或环境不可用 |
 
-未定义的 code：手机端忽略（向前兼容）。同一轮冷静期内 daemon 只下发一次，避免刷屏。
+未定义的 code：手机端忽略（向前兼容）。code 0 在同一轮冷静期内只下发一次、避免刷屏；code 1 按次下发（对应用户的一次发送动作）。
 
 ### 4.8 PAIR_REQ（0B / JSON / 4B）
 

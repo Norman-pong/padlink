@@ -20,6 +20,7 @@ import (
 	"padlink/daemon/internal/hostinfo"
 	"padlink/daemon/internal/inject"
 	"padlink/daemon/internal/pairing"
+	"padlink/daemon/internal/proto"
 	"padlink/daemon/internal/session"
 	"padlink/daemon/internal/textinject"
 	"padlink/daemon/internal/uinput"
@@ -124,11 +125,21 @@ func run(cfg config) error {
 		pasteKey = inj.SuperV
 	}
 	ti := textinject.New(textinject.ExecRunner{}, pasteKey, cfg.restoreDelay)
-	srv := session.New(session.Config{
+	// srv 前向引用：onText 需要经 srv 回传注入失败提示，而 srv 构造又要收 onText（闭包在
+	// Start 后才可能在会话 goroutine 里执行，赋值先于一切调用）。
+	var srv *session.Server
+	onText := func(clientID string, text string) error {
+		err := ti.Inject(text)
+		if err != nil {
+			srv.NotifyTextFailed(clientID, textFailReason(err))
+		}
+		return err
+	}
+	srv = session.New(session.Config{
 		Port:          cfg.port,
 		DaemonVersion: daemonVersion,
 		Verbose:       cfg.verbose,
-	}, store, mgr, inj, ti.Inject)
+	}, store, mgr, inj, onText)
 	if err := srv.Start(); err != nil {
 		inj.Close()
 		return err
@@ -177,6 +188,18 @@ func onOff(b bool) string {
 		return "可用"
 	}
 	return "降级"
+}
+
+// textFailReason 把文本注入错误映射为 NOTICE(TEXT 未上屏) 的 arg 原因码（与 PROTOCOL.md §4.7 同步）。
+func textFailReason(err error) uint8 {
+	switch {
+	case errors.Is(err, textinject.ErrNonText):
+		return proto.TextFailNonText
+	case errors.Is(err, textinject.ErrUnavailable):
+		return proto.TextFailUnavailable
+	default:
+		return proto.TextFailUnknown
+	}
 }
 
 // ensureUTF8Locale 保证本进程及子进程拿到 UTF-8 locale（仅 macOS）：launchd 环境无 locale 时

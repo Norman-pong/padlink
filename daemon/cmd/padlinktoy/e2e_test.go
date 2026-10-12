@@ -139,7 +139,7 @@ func newToyServer(t *testing.T) *toyServer {
 		Hostname:      "toyhost",
 		Log:           log.New(io.Discard, "", 0),
 	}
-	ts.srv = session.New(cfg, store, mgr, inj, func(text string) error {
+	ts.srv = session.New(cfg, store, mgr, inj, func(clientID string, text string) error {
 		select {
 		case ts.texts <- text:
 		default: // 防异常用例灌满通道阻塞注入 goroutine

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -9,6 +11,8 @@ import (
 	"testing"
 
 	"padlink/daemon/internal/inject"
+	"padlink/daemon/internal/proto"
+	"padlink/daemon/internal/textinject"
 )
 
 type eventKind uint8
@@ -196,6 +200,26 @@ func TestEnsureUTF8Locale(t *testing.T) {
 			}
 			if got := os.Getenv("LANG"); got != c.wantLang {
 				t.Fatalf("LANG = %q，期望 %q（%s）", got, c.wantLang, c.whyShort)
+			}
+		})
+	}
+}
+
+// NOTICE arg 原因码映射：按错误类别分派，未知错误落通用码。
+func TestTextFailReason(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want uint8
+	}{
+		{"剪贴板非文本", fmt.Errorf("注入被取消: %w", textinject.ErrNonText), proto.TextFailNonText},
+		{"工具不可用", fmt.Errorf("%w: wl-clipboard 缺失", textinject.ErrUnavailable), proto.TextFailUnavailable},
+		{"其他", errors.New("恢复剪贴板失败"), proto.TextFailUnknown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := textFailReason(c.err); got != c.want {
+				t.Fatalf("textFailReason = %d, want %d", got, c.want)
 			}
 		})
 	}

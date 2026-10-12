@@ -114,10 +114,11 @@ type testSrv struct {
 }
 
 func newTestServer(t *testing.T, mutate func(*Config)) *testSrv {
-	return newTestServerInj(t, mutate, inject.Config{RepeatDelay: time.Hour, RepeatInterval: time.Hour})
+	return newTestServerInj(t, mutate, inject.Config{RepeatDelay: time.Hour, RepeatInterval: time.Hour}, nil)
 }
 
-func newTestServerInj(t *testing.T, mutate func(*Config), injCfg inject.Config) *testSrv {
+func newTestServerInj(t *testing.T, mutate func(*Config), injCfg inject.Config,
+	onText func(clientID, text string) error) *testSrv {
 	t.Helper()
 	store, err := pairing.Load(filepath.Join(t.TempDir(), "clients.json"))
 	if err != nil {
@@ -137,7 +138,7 @@ func newTestServerInj(t *testing.T, mutate func(*Config), injCfg inject.Config) 
 	if mutate != nil {
 		mutate(&cfg)
 	}
-	srv := New(cfg, store, mgr, inj, nil)
+	srv := New(cfg, store, mgr, inj, onText)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -525,7 +526,7 @@ func TestTextDispatch(t *testing.T) {
 	inj := inject.NewInjector(cap, inject.Config{})
 	got := make(chan string, 1)
 	srv := New(Config{Port: 0, DaemonVersion: "t", Log: log.New(io.Discard, "", 0)},
-		store, mgr, inj, func(text string) error { got <- text; return nil })
+		store, mgr, inj, func(clientID string, text string) error { got <- text; return nil })
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -751,7 +752,8 @@ func TestUnpairedTokenRejectedAfterRemove(t *testing.T) {
 
 // 连发经注入队列与主事件串行：按住产生周期性 down，抬起后零残留 down。
 func TestKeyRepeatThroughQueue(t *testing.T) {
-	ts := newTestServerInj(t, nil, inject.Config{RepeatDelay: 20 * time.Millisecond, RepeatInterval: 20 * time.Millisecond})
+	ts := newTestServerInj(t, nil,
+		inject.Config{RepeatDelay: 20 * time.Millisecond, RepeatInterval: 20 * time.Millisecond}, nil)
 	token := prepair(t, ts)
 	c := dialAuthed(t, ts.srv.Port(), token)
 	code := inject.HIDToKey[inject.HIDA]
@@ -770,6 +772,38 @@ func TestKeyRepeatThroughQueue(t *testing.T) {
 		if v == 0 {
 			t.Fatalf("up 后仍有事件残留（序列 %v）", seq)
 		}
+	}
+}
+
+// TEXT 注入失败：daemon 向该客户端下发 NOTICE(code=1, arg=原因码)，会话不受影响（手机端据此提示）。
+func TestTextFailNotifiesClient(t *testing.T) {
+	var srvRef *Server
+	ts := newTestServerInj(t, nil,
+		inject.Config{RepeatDelay: time.Hour, RepeatInterval: time.Hour},
+		func(clientID string, text string) error {
+			srvRef.NotifyTextFailed(clientID, proto.TextFailUnavailable)
+			return errors.New("联调：注入失败")
+		})
+	srvRef = ts.srv
+	token := prepair(t, ts)
+	c := dialAuthed(t, ts.srv.Port(), token)
+
+	c.sendSealed(proto.NewText(c.nextSeq(), "这段字不上屏"))
+	reply := c.mustRecv(2 * time.Second)
+	if reply.Type != proto.TypeNotice {
+		t.Fatalf("类型 = %v, want NOTICE", reply.Type)
+	}
+	if reply.Notice.Code != proto.NoticeTextFailed || reply.Notice.Arg != proto.TextFailUnavailable {
+		t.Errorf("NOTICE = {code:%d arg:%d}, want {code:%d arg:%d}",
+			reply.Notice.Code, reply.Notice.Arg, proto.NoticeTextFailed, proto.TextFailUnavailable)
+	}
+	if !proto.VerifyHMAC(&reply, token) {
+		t.Error("NOTICE 必须随客户端 token 封签")
+	}
+	// 失败只提示不断连：会话仍可正常应答 ECHO。
+	c.sendSealed(proto.NewEcho(c.nextSeq(), 42))
+	if echo := c.mustRecv(2 * time.Second); echo.Type != proto.TypeEcho {
+		t.Fatalf("NOTICE 后会话异常: %v", echo.Type)
 	}
 }
 

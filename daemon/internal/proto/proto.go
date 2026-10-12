@@ -37,7 +37,7 @@ const (
 	TypeEcho         Type = 11
 	TypeBye          Type = 12
 	TypeErr          Type = 13
-	TypeNotice       Type = 14 // daemon → 手机提示：唯一的下行事件，payload 定长 2B
+	TypeNotice       Type = 14 // daemon → 手机主动通知（控制权裁决 / 文本未上屏），payload 定长 2B
 )
 
 func (t Type) String() string {
@@ -118,6 +118,14 @@ type (
 
 const (
 	NoticeControlBusy uint8 = 0 // 控制被其他设备占用：arg = 冷静期剩余秒数
+	NoticeTextFailed  uint8 = 1 // TEXT 未上屏（注入失败）：arg = TextFail* 原因码
+)
+
+// NoticeTextFailed 的 arg 原因码（与 PROTOCOL.md §4.7 同步）。
+const (
+	TextFailUnknown     uint8 = 0 // 未分类失败（详见电脑日志）
+	TextFailNonText     uint8 = 1 // 剪贴板内容不是文本（Linux CLI 读不出）
+	TextFailUnavailable uint8 = 2 // 剪贴板工具/环境不可用（如缺 wl-clipboard）
 )
 
 // Packet 是一次解码后的完整报文。类型化字段仅在 Type 匹配时有效；

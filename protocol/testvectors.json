@@ -283,6 +283,19 @@
       "payload_semantics": {
         "payload_hex": "7b226e616d65223a226f6666696365222c226f73223a2264617277696e222c226461656d6f6e223a22302e312e30222c22766572223a312c22706169726564223a312c22706f7274223a35333032317d"
       }
+    },
+    {
+      "id": 22,
+      "desc": "NOTICE code=1 (TEXT not injected) arg=2 (clipboard tool unavailable), daemon->phone",
+      "hex": "504c010e0000130002000000000000000000000102",
+      "valid": true,
+      "type": "NOTICE",
+      "seq": 19,
+      "authenticated": false,
+      "payload_semantics": {
+        "code": 1,
+        "arg": 2
+      }
     }
   ]
 }

@@ -85,7 +85,7 @@ type Server struct {
 	store  *pairing.Store
 	pair   *pairing.Manager
 	inj    *inject.Injector
-	onText func(string) error
+	onText func(clientID, text string) error
 
 	stats   Stats
 	limiter *rateBucket // UDP 全局桶：未认证洪泛防线（已认证包退还后改记客户端桶）
@@ -109,9 +109,9 @@ type Server struct {
 	stopped  bool
 }
 
-// New 构造服务。onText 处理已认证 TEXT（剪贴板注入路径），可为 nil（丢弃计数）；
-// 它在注入 goroutine 内被调用，可安全使用 inj。
-func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.Injector, onText func(string) error) *Server {
+// New 构造服务。onText 处理已认证 TEXT（剪贴板注入路径，clientID 为发送方，供失败时经
+// NotifyTextFailed 回传提示），可为 nil（丢弃计数）；它在注入 goroutine 内被调用，可安全使用 inj。
+func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.Injector, onText func(clientID, text string) error) *Server {
 	if cfg.ReadTimeout <= 0 {
 		cfg.ReadTimeout = DefaultReadTimeout
 	}
@@ -284,13 +284,8 @@ func (s *Server) admitControl(clientID string) bool {
 	return false
 }
 
-// notifyControlBusy 向被拒设备下发 NOTICE(控制被占用, 剩余秒数)，手机端据此 toast；
-// 无 TCP 会话（仅 UDP 在发）时静默丢弃——提示不是控制路径的必要条件。
+// notifyControlBusy 向被拒设备下发 NOTICE(控制被占用, 剩余秒数)，手机端据此 toast。
 func (s *Server) notifyControlBusy(clientID string, retryAfter time.Duration) {
-	sess := s.sessionOf(clientID)
-	if sess == nil {
-		return
-	}
 	secs := uint8(0)
 	if secsF := retryAfter.Seconds(); secsF > 0 {
 		n := int(secsF + 0.999)
@@ -299,11 +294,27 @@ func (s *Server) notifyControlBusy(clientID string, retryAfter time.Duration) {
 		}
 		secs = uint8(n)
 	}
+	s.notifyClient(clientID, proto.NoticeControlBusy, secs)
+}
+
+// NotifyTextFailed 向该客户端下发 NOTICE(TEXT 未上屏, 原因码)：注入失败要让用户可见，
+// 否则手机端表现为「发送成功但电脑毫无反应」（详见 PROTOCOL.md §4.7）。
+func (s *Server) NotifyTextFailed(clientID string, reason uint8) {
+	s.notifyClient(clientID, proto.NoticeTextFailed, reason)
+}
+
+// notifyClient 向客户端会话下发 NOTICE(code, arg)；无 TCP 会话（仅 UDP 在发）或未认证时
+// 静默丢弃——提示不是注入路径的必要条件。
+func (s *Server) notifyClient(clientID string, code uint8, arg uint8) {
+	sess := s.sessionOf(clientID)
+	if sess == nil {
+		return
+	}
 	tok := sess.token()
 	if tok == nil {
 		return // 未认证会话无法封签，手机端会丢包
 	}
-	pkt := proto.NewNotice(sess.nextSeq(), proto.NoticeControlBusy, secs)
+	pkt := proto.NewNotice(sess.nextSeq(), code, arg)
 	proto.Seal(&pkt, tok)
 	if err := sess.writePkt(pkt); err != nil {
 		s.vlogf("NOTICE 下发失败（%s）: %v", clientID, err)
