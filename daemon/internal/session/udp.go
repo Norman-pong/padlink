@@ -33,8 +33,10 @@ func (s *Server) udpLoop(uc *net.UDPConn) {
 }
 
 func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
-	// UDP 无会话概念，用全局令牌桶；超限静默丢弃（新值覆盖语义天然容丢）
-	if !s.limiter.allow(time.Now()) {
+	now := time.Now()
+	// 全局桶先于 HMAC 拦洪泛（未认证流量的唯一防线）；已认证包在 matchToken
+	// 命中后退还全局令牌、改记客户端桶——单设备高频不再饿死其他设备。
+	if !s.limiter.allow(now) {
 		s.stats.Dropped.Add(1)
 		return
 	}
@@ -66,6 +68,11 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 	client, tok, ok := s.matchToken(&pkt)
 	if !ok {
 		s.stats.HMACFail.Add(1)
+		return
+	}
+	s.limiter.refund()
+	if !s.udpClientAllow(client.ID, now) {
+		s.stats.Dropped.Add(1)
 		return
 	}
 	// 控制权与 TCP 同闸：MOVE/SCROLL 是光标与滚动主通道，

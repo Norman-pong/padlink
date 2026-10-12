@@ -88,8 +88,11 @@ type Server struct {
 	onText func(string) error
 
 	stats   Stats
-	limiter *rateBucket     // UDP 数据面全局限速（UDP 无会话概念）
-	arb     *controlArbiter // 多设备控制权裁决（TCP/UDP 控制事件统一过闸）
+	limiter *rateBucket // UDP 全局桶：未认证洪泛防线（已认证包退还后改记客户端桶）
+	// udpLimiters 已认证 UDP 的按客户端限速（对齐 TCP 每会话独立桶；条目 ≤ 客户端数，
+	// 惰性建立，解配后残留条目只占恒定内存）。
+	udpLimiters map[string]*rateBucket
+	arb         *controlArbiter // 多设备控制权裁决（TCP/UDP 控制事件统一过闸）
 
 	injCh      chan func()
 	closed     chan struct{}
@@ -132,16 +135,17 @@ func New(cfg Config, store *pairing.Store, pair *pairing.Manager, inj *inject.In
 		cfg.Log = log.New(os.Stdout, "padlinkd ", log.LstdFlags)
 	}
 	return &Server{
-		cfg:      cfg,
-		store:    store,
-		pair:     pair,
-		inj:      inj,
-		onText:   onText,
-		limiter:  newRateBucket(cfg.RatePerSec, cfg.RateBurst),
-		arb:      newControlArbiter(cfg.PreemptCooldown, cfg.PreemptIdle),
-		injCh:    make(chan func(), MaxInflightInj),
-		closed:   make(chan struct{}),
-		sessions: make(map[*tcpSession]struct{}),
+		cfg:         cfg,
+		store:       store,
+		pair:        pair,
+		inj:         inj,
+		onText:      onText,
+		limiter:     newRateBucket(cfg.RatePerSec, cfg.RateBurst),
+		udpLimiters: make(map[string]*rateBucket),
+		arb:         newControlArbiter(cfg.PreemptCooldown, cfg.PreemptIdle),
+		injCh:       make(chan func(), MaxInflightInj),
+		closed:      make(chan struct{}),
+		sessions:    make(map[*tcpSession]struct{}),
 	}
 }
 
@@ -391,6 +395,18 @@ func (s *Server) doInj(what string, f func() error) func() {
 			s.logf("注入 %s 失败: %v", what, err)
 		}
 	}
+}
+
+// udpClientAllow 已认证 UDP 的按客户端限速。
+func (s *Server) udpClientAllow(id string, now time.Time) bool {
+	s.mu.Lock()
+	b := s.udpLimiters[id]
+	if b == nil {
+		b = newRateBucket(s.cfg.RatePerSec, s.cfg.RateBurst)
+		s.udpLimiters[id] = b
+	}
+	s.mu.Unlock()
+	return b.allow(now)
 }
 
 // matchToken 逐个尝试已配对客户端 token（≤4 个）。

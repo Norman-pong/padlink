@@ -647,6 +647,55 @@ func TestUDPMoveAndEcho(t *testing.T) {
 	waitFor(t, "错包不注入", func() bool { return ts.cap.count(evRel, 0, 99) == 0 })
 }
 
+// 单客户端高频灌 UDP 不得饿死其他客户端（已认证流量按客户端桶，全局桶仅拦未认证洪泛）。
+func TestUDPFairness(t *testing.T) {
+	ts := newTestServer(t, func(c *Config) {
+		c.RatePerSec, c.RateBurst = 1, 5
+		c.PreemptIdle = time.Millisecond // 让控制权在灌包后立即空闲，不干扰限速断言
+	})
+	tokA := addClient(t, ts.store, "灌包A")
+	tokB := addClient(t, ts.store, "正常B")
+	dial := func() *net.UDPConn {
+		uc, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: ts.srv.Port()})
+		if err != nil {
+			t.Fatalf("DialUDP: %v", err)
+		}
+		return uc
+	}
+	ucA, ucB := dial(), dial()
+	t.Cleanup(func() { ucA.Close(); ucB.Close() })
+	send := func(uc *net.UDPConn, token []byte, seq uint16, dx int16) {
+		t.Helper()
+		pkt := proto.NewMove(seq, dx, 0)
+		proto.Seal(&pkt, token)
+		buf, err := proto.Encode(&pkt)
+		if err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		if _, err := uc.Write(buf); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	for i := 0; i < 10; i++ { // A 灌 10 包：本客户端桶容量 5，超出的丢弃
+		send(ucA, tokA, uint16(i), int16(100+i))
+	}
+	time.Sleep(20 * time.Millisecond) // 等 A 空闲出控制权
+	send(ucB, tokB, 1, 200)           // B 随后发 2 包：必须全部注入
+	send(ucB, tokB, 2, 201)
+
+	waitFor(t, "B 的 MOVE 全部注入", func() bool {
+		return ts.cap.count(evRel, 0, 200) == 1 && ts.cap.count(evRel, 0, 201) == 1
+	})
+	injectedA := 0
+	for i := 0; i < 10; i++ {
+		injectedA += ts.cap.count(evRel, 0, int32(100+i))
+	}
+	if injectedA > 5 {
+		t.Errorf("A 超出其桶容量的包被注入（%d > 5）", injectedA)
+	}
+}
+
 // 解配后旧 token 的 UDP 包必须被拒：认证索引随 Store.Remove 失效，缓存残留即放行已解配设备。
 func TestUnpairedTokenRejectedAfterRemove(t *testing.T) {
 	ts := newTestServer(t, nil)

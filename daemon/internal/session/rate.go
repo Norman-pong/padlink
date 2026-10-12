@@ -34,3 +34,12 @@ func (b *rateBucket) allow(now time.Time) bool {
 	b.tokens--
 	return true
 }
+
+// refund 退还一枚令牌（已认证 UDP 改记客户端桶，不吃全局配额）。
+func (b *rateBucket) refund() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.tokens < b.burst {
+		b.tokens++
+	}
+}
