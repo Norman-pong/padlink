@@ -17,7 +17,7 @@
 | UDP 单播 | **MOVE / SCROLL** / ECHO | 高频可丢：丢包由新值自然覆盖，不做重传 |
 | TCP | **BUTTON / KEY / TEXT** / PAIR_* / HELLO / ECHO / BYE / ERR / NOTICE | 不可丢事件：点击、按键、文本错乱即事故，必须可靠传输 |
 
-NOTICE 是唯一的 **daemon → 手机** 方向事件（控制权裁决提示，见 §4.7），其余事件均为手机 → daemon。
+daemon → 手机的下行事件：**DISCOVER_RESP / PAIR_OK / PAIR_NAK / ERR**（应答类）与 **NOTICE**（唯一的主动通知类——控制权裁决提示，见 §4.7）；HELLO / ECHO / BYE 双向；其余事件均为手机 → daemon。
 
 ## 2. 报文 = 固定 19 字节头 + payload
 
@@ -109,7 +109,7 @@ int64 ts_ms (BE)
 u8 code | u8 arg
 ```
 
-唯一的**下行**事件：daemon 用它向手机通报控制权裁决结果，不改变任何注入状态。TCP 通道、随该客户端 token 封 FlagAuth（手机端验签失败即丢弃计数）。
+唯一的**主动通知类**下行事件：daemon 用它向手机通报控制权裁决结果，不改变任何注入状态。TCP 通道、随该客户端 token 封 FlagAuth（手机端验签失败即丢弃计数）。
 
 | code | 含义 | arg |
 | --- | --- | --- |
