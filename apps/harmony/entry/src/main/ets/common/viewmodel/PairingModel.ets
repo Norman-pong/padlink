@@ -7,6 +7,7 @@ import type { ConnectionManager } from '../net/ConnectionManager';
 import { Discoverer, DiscoverPolicy } from '../net/Discoverer';
 import type { DiscoveredHost } from '../net/DiscoverCore';
 import { hexToBytes, bytesToHex } from '../net/HexCodec';
+import { OneShotWaiter } from '../net/OneShotWaiter';
 import type { SettingsModel } from './SettingsModel';
 import { HostInfo } from './SettingsModel';
 import { HostsFullError, hostKeyOf, findHost } from './HostsStore';
@@ -66,7 +67,7 @@ export class PairingModel {
   private settings: SettingsModel;
   private discoverer: Discoverer = new Discoverer();
   private selected: DiscoveredHost | null = null;
-  private pairWaiter: ((pkt: Packet | null) => void) | null = null;
+  private pairWaiter: OneShotWaiter<Packet | null> | null = null;
   private deviceNameCache: string | null = null;
 
   constructor(conn: ConnectionManager, settings: SettingsModel) {
@@ -371,29 +372,14 @@ export class PairingModel {
       return;
     }
     if (this.pairWaiter !== null) {
-      this.pairWaiter(pkt);
+      this.pairWaiter.deliver(pkt);
     }
   }
 
   private awaitPairReply(timeoutMs: number): Promise<Packet | null> {
-    return new Promise<Packet | null>((resolve: (pkt: Packet | null) => void) => {
-      let done: boolean = false;
-      const timer = setTimeout(() => {
-        if (!done) {
-          done = true;
-          this.pairWaiter = null;
-          resolve(null);
-        }
-      }, timeoutMs);
-      this.pairWaiter = (pkt: Packet | null) => {
-        if (!done) {
-          done = true;
-          clearTimeout(timer);
-          this.pairWaiter = null;
-          resolve(pkt);
-        }
-      };
-    });
+    const w: OneShotWaiter<Packet | null> = new OneShotWaiter<Packet | null>();
+    this.pairWaiter = w;
+    return w.wait(timeoutMs, null);
   }
 
   private resetError(): void {

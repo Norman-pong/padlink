@@ -9,6 +9,7 @@ import { utf8DecodeStrict } from '../proto/Utf8';
 import { Transport, TCP_CONNECT_TIMEOUT_MS } from './Transport';
 import { ConnState } from './ConnState';
 import { canEnterDiscoverOverlay, shouldExitDiscoverOverlay } from './DiscoverOverlay';
+import { OneShotWaiter } from './OneShotWaiter';
 import { ResError } from '../ResError';
 
 // 兼容既有导入方：ConnState 常量已拆至纯逻辑文件 ConnState.ets。
@@ -65,7 +66,7 @@ export class ConnectionManager {
   private manualClose: boolean = false;
   // 会话代次：每次 connect/disconnect/LOST 递增，隔离在途异步回调（防旧会话写新状态）。
   private epoch: number = 0;
-  private helloWaiter: ((ok: boolean) => void) | null = null;
+  private helloWaiter: OneShotWaiter<boolean> | null = null;
   private rttListeners: RttListener[] = [];
   private ctrlBusyTimer: number = -1;
   public onPairPacket: PairPacketListener | null = null;
@@ -433,24 +434,9 @@ export class ConnectionManager {
   }
 
   private awaitHello(timeoutMs: number): Promise<boolean> {
-    return new Promise<boolean>((resolve: (ok: boolean) => void) => {
-      let done: boolean = false;
-      const timer = setTimeout(() => {
-        if (!done) {
-          done = true;
-          this.helloWaiter = null;
-          resolve(false);
-        }
-      }, timeoutMs);
-      this.helloWaiter = (ok: boolean) => {
-        if (!done) {
-          done = true;
-          clearTimeout(timer);
-          this.helloWaiter = null;
-          resolve(ok);
-        }
-      };
-    });
+    const w: OneShotWaiter<boolean> = new OneShotWaiter<boolean>();
+    this.helloWaiter = w;
+    return w.wait(timeoutMs, false);
   }
 
   private handlePacket(pkt: Packet): void {
@@ -466,7 +452,7 @@ export class ConnectionManager {
     }
     if (pkt.type === PacketType.HELLO) {
       if (this.helloWaiter !== null) {
-        this.helloWaiter(true);
+        this.helloWaiter.deliver(true);
       }
       return;
     }
