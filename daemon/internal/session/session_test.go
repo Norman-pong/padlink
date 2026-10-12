@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -855,5 +856,58 @@ func TestEffectiveReadTimeout(t *testing.T) {
 	}
 	if got := effectiveReadTimeout(base, now.Add(-time.Second), now); got != base {
 		t.Errorf("宽限已过期 = %v, want %v", got, base)
+	}
+}
+
+// 临时端口模式下 UDP 选中的端口可能在 TCP 空间已被占（两端口空间独立，CI 实测偶发）：
+// 必须换端口重试而不是启动失败。
+func TestBindPairRetriesOnTCPConflict(t *testing.T) {
+	udpCalls, tcpCalls := 0, 0
+	udp := func(port int) (*net.UDPConn, error) {
+		udpCalls++
+		return listenUDP(port)
+	}
+	tcp := func(port int) (net.Listener, error) {
+		tcpCalls++
+		if tcpCalls == 1 {
+			return nil, fmt.Errorf("listen tcp :%d: bind: address already in use", port)
+		}
+		return listenTCP(port)
+	}
+	uc, ln, port, err := bindPairWith(0, udp, tcp)
+	if err != nil {
+		t.Fatalf("bindPairWith: %v", err)
+	}
+	defer uc.Close()
+	defer ln.Close()
+	if udpCalls != 2 || tcpCalls != 2 {
+		t.Fatalf("应各重试一次：udp=%d tcp=%d，期望各 2", udpCalls, tcpCalls)
+	}
+	if got := uc.LocalAddr().(*net.UDPAddr).Port; got != port {
+		t.Fatalf("UDP 端口 %d ≠ 返回端口 %d", got, port)
+	}
+	if got := ln.Addr().(*net.TCPAddr).Port; got != port {
+		t.Fatalf("TCP 端口 %d ≠ 返回端口 %d", got, port)
+	}
+}
+
+// 显式端口被占属部署错误：不得重试掩盖，直接报错。
+func TestBindPairExplicitPortNoRetry(t *testing.T) {
+	hold, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("占位监听: %v", err)
+	}
+	defer hold.Close()
+	taken := hold.Addr().(*net.TCPAddr).Port
+	tcpCalls := 0
+	_, _, _, err = bindPairWith(taken, listenUDP, func(port int) (net.Listener, error) {
+		tcpCalls++
+		return listenTCP(port)
+	})
+	if err == nil {
+		t.Fatal("端口被占应报错")
+	}
+	if tcpCalls != 1 {
+		t.Fatalf("显式端口不得重试：tcp 调用 %d 次", tcpCalls)
 	}
 }

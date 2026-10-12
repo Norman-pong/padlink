@@ -160,15 +160,9 @@ func (s *Server) Start() error {
 	if s.started {
 		return errors.New("session: 服务已启动")
 	}
-	uc, err := net.ListenUDP("udp", &net.UDPAddr{Port: s.cfg.Port})
+	uc, ln, port, err := bindPairWith(s.cfg.Port, listenUDP, listenTCP)
 	if err != nil {
-		return fmt.Errorf("session: 监听 UDP %d: %w", s.cfg.Port, err)
-	}
-	port := uc.LocalAddr().(*net.UDPAddr).Port
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		uc.Close()
-		return fmt.Errorf("session: 监听 TCP %d: %w", port, err)
+		return err
 	}
 	s.started = true
 	s.tcpLn, s.udp, s.port = ln, uc, port
@@ -178,6 +172,39 @@ func (s *Server) Start() error {
 	go s.udpLoop(uc)
 	go s.injectLoop()
 	return nil
+}
+
+type udpBinder func(port int) (*net.UDPConn, error)
+type tcpBinder func(port int) (net.Listener, error)
+
+func listenUDP(port int) (*net.UDPConn, error) {
+	return net.ListenUDP("udp", &net.UDPAddr{Port: port})
+}
+
+func listenTCP(port int) (net.Listener, error) {
+	return net.Listen("tcp", fmt.Sprintf(":%d", port))
+}
+
+// bindPairWith 绑定同端口 UDP+TCP。Port=0 时 UDP 与 TCP 的临时端口空间相互独立：
+// UDP 选中的空闲端口在 TCP 空间可能已被占（CI 实测偶发），冲突则换端口重试；
+// 显式端口不重试——端口被占属部署错误，直接报错。
+func bindPairWith(port int, udp udpBinder, tcp tcpBinder) (*net.UDPConn, net.Listener, int, error) {
+	const retries = 10
+	for i := 0; ; i++ {
+		uc, err := udp(port)
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("session: 监听 UDP %d: %w", port, err)
+		}
+		p := uc.LocalAddr().(*net.UDPAddr).Port
+		ln, err := tcp(p)
+		if err == nil {
+			return uc, ln, p, nil
+		}
+		uc.Close()
+		if port != 0 || i >= retries {
+			return nil, nil, 0, fmt.Errorf("session: 监听 TCP %d: %w", p, err)
+		}
+	}
 }
 
 // Port 返回实际监听端口（Start 后有效）。
