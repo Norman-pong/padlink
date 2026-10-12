@@ -1,0 +1,47 @@
+# 质量门禁；release.yml 经 workflow_call 复用，发版产物必须先过同一套门禁。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+jobs:
+  go-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+
+      - name: gofmt
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "未格式化文件："
+            echo "$files"
+            exit 1
+          fi
+
+      - run: go vet ./...
+
+      - run: go test ./... -race
+
+  ets-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - run: node tools/prototest/run.mjs
+
+      - run: node tools/etstest/run.mjs .

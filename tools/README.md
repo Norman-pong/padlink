@@ -5,7 +5,7 @@
 
 | 脚本 | 用途 | 运行 |
 | --- | --- | --- |
-| `etstest/run.mjs` | 跑 `common/<目录>` 下的纯逻辑单测 | `node tools/etstest/run.mjs <目录>`（默认 `gesture`） |
+| `etstest/run.mjs` | 跑 `common/<目录>` 下的纯逻辑单测 | `node tools/etstest/run.mjs <目录>`（默认 `gesture`，传 `.` 跑全量） |
 | `prototest/run.mjs` | 以黄金向量对拍 ArkTS 协议层编解码 | `node tools/prototest/run.mjs` |
 | `etsrun/load.mjs` | 上面两者的共享加载库（被 import，不单独运行） | — |
 

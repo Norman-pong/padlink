@@ -2,6 +2,7 @@
   "app": {
     "bundleName": "com.zhimingcool.padlink",
     "vendor": "example",
+    // versionCode = major×1e6 + minor×1e4 + patch×1e2，须与 versionName 同步（发版 CI 校验）
     "versionCode": 1020000,
     "versionName": "1.2.0",
     "icon": "$media:layered_image",

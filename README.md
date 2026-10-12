@@ -41,7 +41,7 @@ cd apps/harmony && devecocli build
 
 # 契约对拍与纯逻辑单测（node ≥ 26，零依赖）
 node tools/prototest/run.mjs
-node tools/etstest/run.mjs gesture
+node tools/etstest/run.mjs .        # 全量；可传单目录名（默认 gesture）
 ```
 
 开发与运维细节（模块划分、安装形态、控制通道、联调工具）见 **[daemon/README.md](daemon/README.md)**。

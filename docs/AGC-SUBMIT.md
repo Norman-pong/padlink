@@ -61,6 +61,11 @@ App 必须配合 PC 端 daemon 才有功能，审核员环境里没有——**�
 
 提审前建议在 DevEco Studio 跑「上架前体检」（AppAnalyzer，6.1.0+），100 分后可把报告同步 AGC 供审核参考（ide-app-analyzer-before-appgallery）。
 
+### 版本号规则
+
+- `versionName` 与 git tag 对齐（`v1.2.0` ↔ `1.2.0`）；`versionCode = major×1e6 + minor×1e4 + patch×1e2`（1.2.0 → 1020000）。
+- 发版 CI 强校验两处一致（`tools/check-version.mjs`）：打 tag 前先同步 bump `apps/harmony/AppScope/app.json5`。
+
 ## 三、App 侧合规实现（已完成，改动记录）
 
 1. **隐私签署门控**（`VoiceModel.ensurePrivacyConsented`）：申请麦克风权限前先 `privacyManager.getAppPrivacyResult()` 查 AGC 托管签署状态；未同意则 `requestAppPrivacyConsent` 拉起标准化弹窗，同意后才走权限弹窗（store-privacy：未签署时系统必拒权限申请）。服务不可达（模拟器 / 侧载未托管）放行，不阻断开发链路。

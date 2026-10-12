@@ -13,7 +13,11 @@ permissions:
   contents: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+
   goreleaser:
+    needs: tests
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +27,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: daemon/go.mod
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: 校验 APP 版本与 tag 一致
+        run: node tools/check-version.mjs "${GITHUB_REF_NAME}"
 
       - uses: goreleaser/goreleaser-action@v6
         with:
