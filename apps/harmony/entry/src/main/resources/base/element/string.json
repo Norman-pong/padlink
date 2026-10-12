@@ -217,6 +217,18 @@
       "value": "重发"
     },
     {
+      "name": "notice_text_failed",
+      "value": "未上屏：电脑端文本注入失败（详见电脑端日志）"
+    },
+    {
+      "name": "notice_text_failed_nontext",
+      "value": "未上屏：电脑剪贴板内容不是文本，已保持原样"
+    },
+    {
+      "name": "notice_text_failed_unavailable",
+      "value": "未上屏：电脑缺少剪贴板工具（Ubuntu 需安装 wl-clipboard）"
+    },
+    {
       "name": "kb_key_esc",
       "value": "Esc"
     },

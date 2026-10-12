@@ -6,12 +6,15 @@ import type { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
 import { ConnectionManager } from '../common/net/ConnectionManager';
+import { NoticeCode } from '../common/proto/PacketType';
+import { textFailToastKey } from '../common/net/NoticeCore';
 import { SettingsModel } from '../common/viewmodel/SettingsModel';
 import { TouchpadModel } from '../common/viewmodel/TouchpadModel';
 import { KeyboardModel } from '../common/keyboard/KeyboardModel';
 import { VoiceModel } from '../common/voice/VoiceModel';
 import { PairingModel } from '../common/viewmodel/PairingModel';
 import { tryAutoReconnect } from '../common/viewmodel/AutoConnect';
+import { pageResStr } from './Res';
 import { MainControlPage } from './MainControlPage';
 import { DiscoverPage } from './DiscoverPage';
 import { SettingsPage } from './SettingsPage';
@@ -35,6 +38,15 @@ struct Index {
   aboutToAppear(): void {
     this.touchpad.bindTransport(this.conn.transport);
     this.keyboard.bindTransport(this.conn.transport);
+    // 注入失败此前仅 daemon 日志可见，手机侧由此给出可见反馈（TEXT 未上屏）。
+    this.conn.onNotice = (code: number, arg: number): void => {
+      if (code === NoticeCode.TEXT_FAILED) {
+        this.getUIContext().getPromptAction().showToast({
+          message: pageResStr(this.getUIContext(), textFailToastKey(arg)),
+          duration: 2500,
+        });
+      }
+    };
     const ctx = this.getUIContext().getHostContext();
     if (ctx !== undefined) {
       this.voice.attach(this.conn, ctx as common.UIAbilityContext);

@@ -217,6 +217,18 @@
       "value": "Resend"
     },
     {
+      "name": "notice_text_failed",
+      "value": "Not typed: text injection failed on the computer (see its log)"
+    },
+    {
+      "name": "notice_text_failed_nontext",
+      "value": "Not typed: the computer's clipboard content is not text; left unchanged"
+    },
+    {
+      "name": "notice_text_failed_unavailable",
+      "value": "Not typed: clipboard tool missing on the computer (Ubuntu: install wl-clipboard)"
+    },
+    {
       "name": "kb_key_esc",
       "value": "Esc"
     },

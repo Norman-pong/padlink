@@ -36,6 +36,7 @@ export class ConnPolicy {
 
 export type RttListener = (rttMs: number) => void;
 export type PairPacketListener = (pkt: Packet) => void;
+export type NoticeListener = (code: number, arg: number) => void;
 
 // UI 可观察快照：字段仅由 ConnectionManager 写入（UI 只读）；@Trace 是刷新驱动，字段缺了它写入不触发 UI 更新。
 @ObservedV2
@@ -70,6 +71,8 @@ export class ConnectionManager {
   private rttListeners: RttListener[] = [];
   private ctrlBusyTimer: number = -1;
   public onPairPacket: PairPacketListener | null = null;
+  // CONTROL_BUSY 由本类自行处理（倒计时），其余 NOTICE code 交上层做提示。
+  public onNotice: NoticeListener | null = null;
 
   constructor() {
     this.transport.onPacket = (pkt: Packet) => {
@@ -463,9 +466,11 @@ export class ConnectionManager {
       return;
     }
     if (pkt.type === PacketType.NOTICE) {
-      // daemon → 手机提示（多设备控制权裁决）：只驱动冷静期倒计时，不改连接状态
+      // daemon → 手机提示：只提示不改连接状态
       if (pkt.notice.code === NoticeCode.CONTROL_BUSY) {
         this.startCtrlBusy(pkt.notice.arg);
+      } else if (this.onNotice !== null) {
+        this.onNotice(pkt.notice.code, pkt.notice.arg);
       }
       return;
     }
