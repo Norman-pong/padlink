@@ -27,6 +27,8 @@ func main() {
 		err = fuzzMain(os.Args[2:])
 	case "latency":
 		err = latencyMain(os.Args[2:])
+	case "vectors":
+		err = vectorsMain(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -51,6 +53,7 @@ func usage() {
   replay   将 .plrec 回放到目标 daemon
   fuzz     协议变异模糊测试，结束后做 daemon 活性判定
   latency  ECHO 往返时延（RTT）压测，可叠加 MOVE 背景负载
+  vectors  生成 protocol/testvectors.json 黄金向量（-w 写入）
 
 token 一律经 -token（hex）或环境变量 PADLINK_TOKEN 提供；不写日志、不入录制文件。
 各子命令 -h 查看完整 flags。

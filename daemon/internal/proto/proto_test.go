@@ -188,6 +188,16 @@ func TestGoldenVectors(t *testing.T) {
 				if pkt.Notice.Code != wantCode || pkt.Notice.Arg != wantArg {
 					t.Errorf("Notice = %+v, want {Code:%d Arg:%d}", pkt.Notice, wantCode, wantArg)
 				}
+			default:
+				// 不透明 payload 类型（HELLO/PAIR_*/DISCOVER_RESP/BYE/ERR）：与 payload_hex 比对
+				wantHex, _ := v.Semantics["payload_hex"].(string)
+				wantPayload, err := hex.DecodeString(wantHex)
+				if err != nil {
+					t.Fatalf("payload_hex 解码: %v", err)
+				}
+				if string(pkt.Payload) != string(wantPayload) {
+					t.Errorf("payload = %x, want %x", pkt.Payload, wantPayload)
+				}
 			}
 
 			// 重编码必须字节级一致

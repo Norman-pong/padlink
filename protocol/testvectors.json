@@ -168,6 +168,121 @@
         "code": 0,
         "arg": 15
       }
+    },
+    {
+      "id": 13,
+      "desc": "HELLO payload 2B ver=1 (version negotiation, unsealed by protocol)",
+      "hex": "504c010100000a0002000000000000000000000001",
+      "valid": true,
+      "type": "HELLO",
+      "seq": 10,
+      "authenticated": false,
+      "payload_semantics": {
+        "ver": 1,
+        "payload_hex": "0001"
+      }
+    },
+    {
+      "id": 14,
+      "desc": "PAIR_REQ initiate with empty payload (0B form)",
+      "hex": "504c010300000b000000000000000000000000",
+      "valid": true,
+      "type": "PAIR_REQ",
+      "seq": 11,
+      "authenticated": false,
+      "payload_semantics": {
+        "form": "initiate"
+      }
+    },
+    {
+      "id": 15,
+      "desc": "PAIR_REQ initiate with JSON {name, dev fingerprint} form",
+      "hex": "504c010300000c004c000000000000000000007b226e616d65223a22e58fa3e8a28be994aee9bca0222c22646576223a226161626263636464656566663030313132323333343435353636373738383939616162626363646465656666227d",
+      "valid": true,
+      "type": "PAIR_REQ",
+      "seq": 12,
+      "authenticated": false,
+      "payload_semantics": {
+        "form": "initiate",
+        "name": "口袋键鼠",
+        "dev": "aabbccddeeff00112233445566778899aabbccddeeff",
+        "payload_hex": "7b226e616d65223a22e58fa3e8a28be994aee9bca0222c22646576223a226161626263636464656566663030313132323333343435353636373738383939616162626363646465656666227d"
+      }
+    },
+    {
+      "id": 16,
+      "desc": "PAIR_REQ confirm code '4821' (4B ASCII digits form)",
+      "hex": "504c010300000d00040000000000000000000034383231",
+      "valid": true,
+      "type": "PAIR_REQ",
+      "seq": 13,
+      "authenticated": false,
+      "payload_semantics": {
+        "form": "confirm_code",
+        "code": "4821",
+        "payload_hex": "34383231"
+      }
+    },
+    {
+      "id": 17,
+      "desc": "PAIR_OK payload = fresh 32B token (demo token here), sealed with that token",
+      "hex": "504c010401000e00200000dabda689b7d5ae9e00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+      "valid": true,
+      "type": "PAIR_OK",
+      "seq": 14,
+      "authenticated": true,
+      "payload_semantics": {
+        "token_hex": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+        "payload_hex": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+      }
+    },
+    {
+      "id": 18,
+      "desc": "PAIR_NAK reason=1 (code expired), unsealed by protocol",
+      "hex": "504c010500000f00010000000000000000000001",
+      "valid": true,
+      "type": "PAIR_NAK",
+      "seq": 15,
+      "authenticated": false,
+      "payload_semantics": {
+        "reason": 1,
+        "reason_name": "expired",
+        "payload_hex": "01"
+      }
+    },
+    {
+      "id": 19,
+      "desc": "ERR code=2 (protocol violation), daemon->phone, unsealed",
+      "hex": "504c010d00001000010000000000000000000002",
+      "valid": true,
+      "type": "ERR",
+      "seq": 16,
+      "authenticated": false,
+      "payload_semantics": {
+        "code": 2,
+        "payload_hex": "02"
+      }
+    },
+    {
+      "id": 20,
+      "desc": "BYE empty payload (graceful close)",
+      "hex": "504c010c000011000000000000000000000000",
+      "valid": true,
+      "type": "BYE",
+      "seq": 17,
+      "authenticated": false
+    },
+    {
+      "id": 21,
+      "desc": "DISCOVER_RESP host descriptor JSON, daemon->phone, unsealed",
+      "hex": "504c01020000120050000000000000000000007b226e616d65223a226f6666696365222c226f73223a2264617277696e222c226461656d6f6e223a22302e312e30222c22766572223a312c22706169726564223a312c22706f7274223a35333032317d",
+      "valid": true,
+      "type": "DISCOVER_RESP",
+      "seq": 18,
+      "authenticated": false,
+      "payload_semantics": {
+        "payload_hex": "7b226e616d65223a226f6666696365222c226f73223a2264617277696e222c226461656d6f6e223a22302e312e30222c22766572223a312c22706169726564223a312c22706f7274223a35333032317d"
+      }
     }
   ]
 }

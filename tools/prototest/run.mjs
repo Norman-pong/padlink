@@ -101,7 +101,9 @@ try {
       case 'NOTICE':
         return Packet.newNotice(v.seq, s.code, s.arg);
       default:
-        return Packet.newRaw(typeByName[v.type], v.seq, new ArrayBuffer(0));
+        // 不透明 payload 类型：从语义里的 payload_hex 重建
+        return Packet.newRaw(typeByName[v.type], v.seq,
+          s && s.payload_hex ? bytesFromHex(s.payload_hex) : new ArrayBuffer(0));
     }
   }
 
@@ -140,8 +142,15 @@ try {
         eq('code', pkt.notice.code, s.code);
         eq('arg', pkt.notice.arg, s.arg);
         break;
-      default:
+      default: {
+        // 不透明 payload 类型：payload 字节与 payload_hex 比对
+        const want = s && s.payload_hex ? Buffer.from(s.payload_hex, 'hex') : Buffer.alloc(0);
+        const got = Buffer.from(new Uint8Array(pkt.payload));
+        if (!want.equals(got)) {
+          diffs.push(`payload_hex: 期望 ${want.toString('hex') || '(空)'}，实得 ${got.toString('hex')}`);
+        }
         break;
+      }
     }
     return diffs;
   }
@@ -169,7 +178,7 @@ try {
       }
       if (!v.authenticated) {
         // 未认证向量：同语义重新构造后 encode 必须 hex 级一致；
-        // 已认证向量（仅向量 2）由下方 seal 专项用例覆盖
+        // 已认证向量（2/17）由下方 seal 专项用例覆盖
         const rebuiltHex = hexFromBytes(Codec.encode(buildFromSemantics(v)));
         if (rebuiltHex !== v.hex) {
           diffs.push(`同语义重编 hex 不一致\n      期望 ${v.hex}\n      实得 ${rebuiltHex}`);
@@ -202,6 +211,22 @@ try {
       sealedHex === v.hex,
       `期望 ${v.hex}\n      实得 ${sealedHex}`,
     );
+  }
+
+  // 3b'. 向量 17 专项：PAIR_OK 不透明 payload 从 payload_hex 重建 + seal 后逐字节复现
+  {
+    const v = vectors.vectors.find((x) => x.id === 17);
+    if (v) {
+      const rebuilt = Packet.newRaw(PacketType.PAIR_OK, v.seq,
+        bytesFromHex(v.payload_semantics.payload_hex));
+      Auth.seal(rebuilt, provider);
+      const sealedHex = hexFromBytes(Codec.encode(rebuilt));
+      check(
+        '向量 17 PAIR_OK payload_hex+seal 重编 hex 级一致',
+        sealedHex === v.hex,
+        `期望 ${v.hex}\n      实得 ${sealedHex}`,
+      );
+    }
   }
 
   // 3c. HMAC 语义自证：独立用 node:crypto 按"flags 含 FlagAuth、11..18 清零"重算向量 2
