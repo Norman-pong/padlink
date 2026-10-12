@@ -139,6 +139,29 @@ func TestPortZeroEphemeral(t *testing.T) {
 	}
 }
 
+// TestStopDuringConnectionStorm Stop 与并发拨号竞速：不得 panic、不得卡死
+// （sessWG.Add 必须与注册同临界区，迟到的会话会撞上已关闭的 injCh）。
+func TestStopDuringConnectionStorm(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		ts := newTestServer(t, nil)
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(ts.srv.Port()))
+		var wg sync.WaitGroup
+		for j := 0; j < 8; j++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+				if err != nil {
+					return
+				}
+				c.Close()
+			}()
+		}
+		ts.srv.Stop()
+		wg.Wait()
+	}
+}
+
 type tcpClient struct {
 	t    *testing.T
 	conn net.Conn

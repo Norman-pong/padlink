@@ -69,9 +69,16 @@ func (s *Server) acceptLoop(ln net.Listener) {
 			btnsDown: make(map[uint8]struct{}),
 		}
 		s.mu.Lock()
+		// sessWG.Add 须与注册同临界区：Stop 在锁内快照会话后即 Wait，锁外 Add 违反 WaitGroup 契约
+		//（且 Stop 后 finish 的 enqueueBlocking 可能撞上已关闭的 injCh）。
+		if s.stopped {
+			s.mu.Unlock()
+			c.Close()
+			return
+		}
 		s.sessions[sess] = struct{}{}
-		s.mu.Unlock()
 		s.sessWG.Add(1)
+		s.mu.Unlock()
 		go sess.run()
 	}
 }
