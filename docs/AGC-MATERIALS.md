@@ -1,7 +1,7 @@
 # AGC 提审素材（可直接粘贴）
 
 > 配套 `docs/AGC-SUBMIT.md`（流程手册）：本文件只放**填写内容**。字段上限以 AGC 页面内提示为准；本文已按保守长度撰写。
-> 截图在 `docs/agc/screenshots/`，均为 1320×2232 PNG（模拟器原生分辨率，2026-10-12 采集，中文界面、已连接状态）。
+> 截图在 `docs/agc/screenshots/`：**1080×1920（9:16）PNG，手机 mockup 外壳包裹**（2026-10-12 采集，中文界面、已连接状态）。未包裹的原图存于 `docs/agc/raw/`，可用第三节脚本重新套壳（换背景/加文案）。
 
 ## 一、一句话简介
 
@@ -56,8 +56,58 @@
 | 6 | `docs/agc/screenshots/06-设置（备选，含调试项）.png` | 设置页（灵敏度/自然滚动/已配对主机/关于） | 备选；该页含"调试面板"开关，如需更干净的商店图可不选 |
 | 7 | `docs/agc/screenshots/07-权限弹窗（审核佐证，非商店图）.png` | 麦克风权限弹窗（含用途说明） | **不要**作为商店图；留作审核备注的合规佐证 |
 
-- 规格：PNG，1320×2232（≥ 常见最小要求 720×1280），单张 < 400KB。AGC 若提示尺寸不符，用 `sips -z 2340 1080 输入.png --out 输出.png` 缩放。
+**AGC 要求（页面提示）**：3~10 张；宽高比 9:16；最低 1080×1920；PNG / JPG / JPEG（≤5MB）或 WEBP（≤200KB）。
+
+- 规格：PNG，**1080×1920（严格 9:16）**，单张 94–372KB。做法：模拟器原生 1320×2232 截图等比缩放到机身内屏（948×1603）后嵌入手机 mockup 外壳——深色边框 + 细侧键 + 投影 + 浅色渐变背景，**不裁切任何内容**。
 - 采集口径：系统语言简体中文、应用已与电脑连接（"已连接"状态）、无调试入口（手动配对卡片已关闭）。
+- 重新套壳（改背景色/加标题文案等）：用 `docs/agc/raw/` 原图跑第三节末尾的 PIL 脚本即可，无需重拍。
+- 第 7 张（权限弹窗）保持未套壳原样，作为审核佐证，**不要**上传到商店截图位。
+
+**套壳脚本（改样式时用，原图在 `docs/agc/raw/`）**
+
+```python
+# 依赖：pip install pillow（本机已装）
+from PIL import Image, ImageDraw, ImageFilter
+
+CANVAS, BEZEL, DEV_W, RADIUS = (1080, 1920), 26, 1000, 66
+SRC = {  # 输出文件名: 原图路径
+    '01-触摸板.png': 'docs/agc/raw/01-触摸板-原图.png',
+    '02-键盘.png': 'docs/agc/raw/02-键盘-原图.png',
+    '03-语音听写.png': 'docs/agc/raw/03-语音听写-原图.png',
+    '04-已配对主机.png': 'docs/agc/raw/04-已配对主机-原图.png',
+    '05-服务端安装指南.png': 'docs/agc/raw/05-服务端安装指南-原图.png',
+    '06-设置（备选，含调试项）.png': 'docs/agc/raw/06-设置-原图.png',
+}
+
+def bg(size):  # 浅色纵向渐变，可换品牌蓝等
+    top, bottom = (240, 244, 250), (219, 228, 240)
+    im = Image.new('RGB', (1, size[1]))
+    for y in range(size[1]):
+        t = y / (size[1] - 1)
+        im.putpixel((0, y), tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
+    return im.resize(size, Image.BILINEAR)
+
+for out, src in SRC.items():
+    shot = Image.open(src).convert('RGB')
+    cw = DEV_W - 2 * BEZEL
+    ch = round(shot.height * cw / shot.width)
+    dev_h, x, y = ch + 2 * BEZEL, (CANVAS[0] - DEV_W) // 2, 0
+    y = (CANVAS[1] - dev_h) // 2
+    canvas = bg(CANVAS)
+    sh = Image.new('L', CANVAS, 0)
+    ImageDraw.Draw(sh).rounded_rectangle([x + 6, y + 16, x + DEV_W - 6, y + dev_h + 12], radius=RADIUS, fill=64)
+    canvas = Image.composite(Image.new('RGB', CANVAS, (124, 134, 148)), canvas, sh.filter(ImageFilter.GaussianBlur(24)))
+    d = ImageDraw.Draw(canvas)
+    for ex, y0, y1 in ((x, 300, 372), (x, 402, 474), (x + DEV_W, 344, 436)):  # 音量×2 / 电源
+        d.rounded_rectangle([ex - 3, y + y0, ex + 4, y + y1], radius=2, fill=(64, 66, 70))
+    d.rounded_rectangle([x, y, x + DEV_W - 1, y + dev_h - 1], radius=RADIUS, fill=(23, 24, 26), outline=(62, 64, 68), width=1)
+    scaled = shot.resize((cw, ch), Image.LANCZOS)
+    mask = Image.new('L', (cw, ch), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, cw - 1, ch - 1], radius=RADIUS - BEZEL, fill=255)
+    canvas.paste(scaled, (x + BEZEL, y + BEZEL), mask)
+    canvas.save(f'docs/agc/screenshots/{out}', 'PNG', optimize=True)
+```
+
 
 ## 四、备案话术（单机应用豁免）
 
