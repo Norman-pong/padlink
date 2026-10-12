@@ -1,6 +1,7 @@
-// 配对流程纯逻辑（无 @ohos 依赖、目录内自闭合，node 可直跑）：PAIR_NAK reason→资源键映射、
+// 配对流程纯逻辑（无 @ohos 依赖，node 可直跑）：PAIR_NAK reason→资源键映射、
 // 确认码校验、PAIR_REQ payload 构造、设备名 64B 截断；文案本体存 string.json，本层只产出资源键。
 // 与 daemon internal/pairing 同源：CodeLen=4、MaxNameLen=64 字节、Nak reason 0..4。
+import { utf8ByteLen } from '../proto/Utf8';
 
 // PAIR_NAK reason 枚举（与 daemon Nak* 一一对应）。
 export class PairNak {
@@ -133,19 +134,6 @@ export function sanitizeDeviceName(raw: string, maxBytes: number = PairPolicy.NA
     end += surrogateUnits(u, end + 1 < s.length ? s.charCodeAt(end + 1) : -1);
   }
   return s.slice(0, end);
-}
-
-// UTF-8 字节体积估算（与 common/proto/Utf8 编码规则一致）。
-
-function utf8ByteLen(s: string): number {
-  let total = 0;
-  let i = 0;
-  while (i < s.length) {
-    const u: number = s.charCodeAt(i);
-    total += utf8BytesOfUnit(u, i + 1 < s.length ? s.charCodeAt(i + 1) : -1);
-    i += surrogateUnits(u, i + 1 < s.length ? s.charCodeAt(i + 1) : -1);
-  }
-  return total;
 }
 
 function utf8BytesOfUnit(u: number, next: number): number {

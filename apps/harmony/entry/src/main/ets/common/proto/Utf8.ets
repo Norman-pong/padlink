@@ -2,6 +2,18 @@
 // 纯逻辑层禁止 @ohos.util.TextDecoder/TextEncoder，故自行实现；
 // 解码为严格校验：拒绝截断、超长编码、代理对码点（U+D800..U+DFFF）、越界码点（> U+10FFFF）。
 
+// 字符串的 UTF-8 字节数（孤立代理按 3B，与 utf8Encode 的 U+FFFD 体积一致）。
+export function utf8ByteLen(s: string): number {
+  let total = 0;
+  let i = 0;
+  while (i < s.length) {
+    const cp: number = nextCodePoint(s, i);
+    i += codePointUnits(cp);
+    total += codePointBytes(cp);
+  }
+  return total;
+}
+
 // 字符串 → UTF-8 字节；孤立代理按 U+FFFD 编码（与 WHATWG TextEncoder 一致）。
 export function utf8Encode(text: string): Uint8Array {
   let byteLen = 0;

@@ -1,5 +1,7 @@
 // 键盘 ViewModel：键条按键与输入法提交增量 → HID/TEXT 包；APP 只发 down/up，key repeat 由 daemon 负责。
 import { newKey, newText } from '../proto/Packet';
+import { Protocol } from '../proto/PacketType';
+import { utf8ByteLen } from '../proto/Utf8';
 import { HidUsage } from '../hid/KeyCodes';
 import type { Transport } from '../net/Transport';
 import { StickyModifiers, StickyMod } from './StickyModifiers';
@@ -144,15 +146,14 @@ export class KeyboardModel {
     this.endKey(usage);
   }
 
-  // TEXT payload 上限 1400B，按码点分块不劈 UTF-8。
+  // TEXT payload 按 Protocol.MAX_PAYLOAD 分块，不劈 UTF-8。
   private sendTextRun(text: string): void {
-    const MAX_B: number = 1400;
     const chars: string[] = Array.from(text);
     let chunk: string = '';
     let bytes: number = 0;
     for (const ch of chars) {
-      const b: number = utf8Len(ch);
-      if (bytes + b > MAX_B) {
+      const b: number = utf8ByteLen(ch);
+      if (bytes + b > Protocol.MAX_PAYLOAD) {
         this.pushText(chunk);
         chunk = '';
         bytes = 0;
@@ -189,18 +190,4 @@ export class KeyboardModel {
       this.transport.sendReliable(newKey(this.transport.nextSeq(), hid, down));
     }
   }
-}
-
-function utf8Len(ch: string): number {
-  const cp: number = ch.codePointAt(0) as number;
-  if (cp <= 0x7F) {
-    return 1;
-  }
-  if (cp <= 0x7FF) {
-    return 2;
-  }
-  if (cp <= 0xFFFF) {
-    return 3;
-  }
-  return 4;
 }
