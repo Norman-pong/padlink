@@ -75,6 +75,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "padlinkctl: %v\n", err)
 			os.Exit(2)
 		}
+		if p, err := control.SocketPath(); err == nil {
+			opts.SocketPath = p
+		}
 		if err := service.Uninstall(opts, os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "padlinkctl: %v\n", err)
 			os.Exit(1)

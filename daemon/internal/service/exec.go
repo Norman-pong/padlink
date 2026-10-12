@@ -10,8 +10,6 @@ import (
 	"os/exec"
 	"runtime"
 	"time"
-
-	"padlink/daemon/internal/control"
 )
 
 // Result 是一次 Plan 执行的结果（卸载末尾分类清单的来源）。
@@ -145,6 +143,8 @@ type UninstallOptions struct {
 	Purge  bool // 连配置与 token 一起删除（需二次确认）
 	Yes    bool // 跳过 --purge 的二次确认
 	DryRun bool // 只打印将执行的命令与将删除的路径
+	// SocketPath 控制 socket 路径（卸载后探测 padlinkd 存活优先连它）；空串只用同名进程检查。
+	SocketPath string
 }
 
 // Uninstall 执行卸载：探测安装形态 →（--purge）二次确认 → 构造并执行计划 → 打印末尾清单。
@@ -171,7 +171,7 @@ func Uninstall(opts UninstallOptions, in io.Reader, out io.Writer) error {
 	fmt.Fprintf(out, "安装形态: %s\n", p.Kind)
 	res, err := Run(plan, opts.DryRun, out)
 	printSummary(out, res)
-	if DaemonRunning() {
+	if DaemonRunning(opts.SocketPath) {
 		fmt.Fprintln(out, "注意: padlinkd 仍在运行（控制 socket 可连或存在同名进程）；若已移除服务定义，请确认进程确实退出（pgrep padlinkd）")
 	}
 	return err
@@ -222,10 +222,10 @@ func joinCommands(cmds []string) string {
 	}
 }
 
-// DaemonRunning 判断 padlinkd 是否仍在运行：优先连接控制 socket，失败再退回同名进程检查。
-func DaemonRunning() bool {
-	if path, err := control.SocketPath(); err == nil {
-		if conn, err := net.DialTimeout("unix", path, 300*time.Millisecond); err == nil {
+// DaemonRunning 判断 padlinkd 是否仍在运行：socketPath 可连即活，失败再退回同名进程检查。
+func DaemonRunning(socketPath string) bool {
+	if socketPath != "" {
+		if conn, err := net.DialTimeout("unix", socketPath, 300*time.Millisecond); err == nil {
 			conn.Close()
 			return true
 		}

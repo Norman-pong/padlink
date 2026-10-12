@@ -180,5 +180,6 @@ func TestRunExecutesCommandAndRemovesFile(t *testing.T) {
 
 func TestDaemonRunningWithoutSocket(t *testing.T) {
 	// 只验证探测函数不 panic 且返回布尔值（真实环境相关，不做断言）
-	_ = DaemonRunning()
+	_ = DaemonRunning("")
+	_ = DaemonRunning("/nonexistent/padlinkd.sock")
 }
