@@ -2,7 +2,6 @@ package session
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -257,28 +256,18 @@ func (t *tcpSession) handleHello(pkt proto.Packet) error {
 	return t.writePkt(reply)
 }
 
-// handlePairReq 处理配对路径：payload 空(0B)或 JSON{"name","dev"} = 发起配对（成功无响应，
-// 确认码仅在主机侧展示）；4B ASCII 数字 = 确认码尝试 → PAIR_OK(封签新 token) / PAIR_NAK(1B reason)。
+// handlePairReq 处理配对路径（payload 三形态的文法见 pairing.ParsePairReqPayload）：
+// 发起配对成功无响应，确认码仅在主机侧展示；4B 确认码 → PAIR_OK(封签新 token) / PAIR_NAK(1B reason)。
 func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
-	if len(pkt.Payload) == 0 || pkt.Payload[0] == '{' {
-		name, devID := "", ""
-		if len(pkt.Payload) > 0 {
-			var meta struct {
-				Name string `json:"name"`
-				Dev  string `json:"dev"`
-			}
-			if err := json.Unmarshal(pkt.Payload, &meta); err != nil || len(meta.Name) > pairing.MaxNameLen {
-				t.sendErr(ErrCodeProto)
-				return errClose
-			}
-			if !pairing.ValidDevID(meta.Dev) {
-				// 指纹非法属协议违规：与名字超长同口径拒收（手机端不应发出）
-				t.srv.logf("%s PAIR_REQ 设备指纹非法（%dB），拒收", t.conn.RemoteAddr(), len(meta.Dev))
-				t.sendErr(ErrCodeProto)
-				return errClose
-			}
-			name, devID = meta.Name, meta.Dev
+	name, devID, code, err := pairing.ParsePairReqPayload(pkt.Payload)
+	if err != nil {
+		if !errors.Is(err, pairing.ErrBadPairReq) { // 名字超长/指纹非法属手机端不应发出的违规
+			t.srv.logf("%s PAIR_REQ payload 拒收: %v", t.conn.RemoteAddr(), err)
 		}
+		t.sendErr(ErrCodeProto)
+		return errClose
+	}
+	if code == "" {
 		if _, err := t.srv.pair.StartPairing(name, devID); err != nil {
 			t.sendNak(nakReasonOf(err))
 			return nil
@@ -287,29 +276,25 @@ func (t *tcpSession) handlePairReq(pkt proto.Packet) error {
 		t.pairWaitUntil = time.Now().Add(t.srv.pair.ActiveCodeTTL() + pairReadMargin)
 		return nil // 发起成功不回包；确认码仅在主机侧展示
 	}
-	if len(pkt.Payload) == pairing.CodeLen && isDigits(pkt.Payload) {
-		client, err := t.srv.pair.Verify(string(pkt.Payload))
-		if err != nil {
-			if !errors.Is(err, pairing.ErrWrongCode) {
-				t.pairWaitUntil = time.Time{} // 轮次结束（过期/超限/无会话），收起宽限
-			}
-			t.sendNak(nakReasonOf(err))
-			return nil
+	client, err := t.srv.pair.Verify(code)
+	if err != nil {
+		if !errors.Is(err, pairing.ErrWrongCode) {
+			t.pairWaitUntil = time.Time{} // 轮次结束（过期/超限/无会话），收起宽限
 		}
-		t.pairWaitUntil = time.Time{} // 配对成功，恢复正常读超时
-		tok, err := client.Token()
-		if err != nil {
-			t.srv.logf("配对成功但 token 解码失败（%s）: %v", client.ID, err)
-			t.sendNak(NakNoSession)
-			return nil
-		}
-		t.srv.logf("客户端 %q（%s）配对成功", client.Name, client.ID)
-		reply := proto.NewRaw(proto.TypePairOK, t.nextSeq(), tok)
-		proto.Seal(&reply, tok) // PAIR_OK 必须用刚签发的 token 封签；PAIR_NAK 不封签
-		return t.writePkt(reply)
+		t.sendNak(nakReasonOf(err))
+		return nil
 	}
-	t.sendErr(ErrCodeProto)
-	return errClose
+	t.pairWaitUntil = time.Time{} // 配对成功，恢复正常读超时
+	tok, err := client.Token()
+	if err != nil {
+		t.srv.logf("配对成功但 token 解码失败（%s）: %v", client.ID, err)
+		t.sendNak(NakNoSession)
+		return nil
+	}
+	t.srv.logf("客户端 %q（%s）配对成功", client.Name, client.ID)
+	reply := proto.NewRaw(proto.TypePairOK, t.nextSeq(), tok)
+	proto.Seal(&reply, tok) // PAIR_OK 必须用刚签发的 token 封签；PAIR_NAK 不封签
+	return t.writePkt(reply)
 }
 
 func (t *tcpSession) dispatch(pkt proto.Packet) error {
@@ -481,13 +466,4 @@ func nakReasonOf(err error) uint8 {
 	default:
 		return NakNoSession
 	}
-}
-
-func isDigits(b []byte) bool {
-	for _, c := range b {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
 }

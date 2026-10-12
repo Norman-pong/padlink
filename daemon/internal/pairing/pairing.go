@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -31,7 +32,47 @@ var (
 	ErrClientsFull     = errors.New("已配对客户端已达上限")
 	ErrNameTooLong     = errors.New("客户端名超过 64 字节")
 	ErrBadDevID        = errors.New("设备指纹格式非法（应为 32 个小写 hex 字符或空）")
+	// ErrBadPairReq：payload 不属于三种合法形态（会话层映射 ERR(2)+断连）。
+	ErrBadPairReq = errors.New("PAIR_REQ payload 非法")
 )
+
+// ParsePairReqPayload 解析 PAIR_REQ payload 三形态：空(0B)或 JSON{"name","dev"} 为发起配对
+// （返回 name/devID，code 为空）；4B ASCII 数字为确认码提交（返回 code）。名字超长与指纹非法
+// 分别返回 ErrNameTooLong / ErrBadDevID，其余非法形态返回 ErrBadPairReq。
+func ParsePairReqPayload(payload []byte) (name, devID, code string, err error) {
+	if len(payload) == 0 {
+		return "", "", "", nil
+	}
+	if payload[0] == '{' {
+		var meta struct {
+			Name string `json:"name"`
+			Dev  string `json:"dev"`
+		}
+		if jsonErr := json.Unmarshal(payload, &meta); jsonErr != nil {
+			return "", "", "", fmt.Errorf("%w: %v", ErrBadPairReq, jsonErr)
+		}
+		if len(meta.Name) > MaxNameLen {
+			return "", "", "", ErrNameTooLong
+		}
+		if !ValidDevID(meta.Dev) {
+			return "", "", "", ErrBadDevID
+		}
+		return meta.Name, meta.Dev, "", nil
+	}
+	if len(payload) == CodeLen && isDigits(payload) {
+		return "", "", string(payload), nil
+	}
+	return "", "", "", ErrBadPairReq
+}
+
+func isDigits(b []byte) bool {
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
 
 type attempt struct {
 	code    string

@@ -319,6 +319,43 @@ func TestAuthIndexConsistency(t *testing.T) {
 	}
 }
 
+// PAIR_REQ payload 三形态解析：发起（空/JSON）、确认码（4B 数字）、非法形态与边界。
+func TestParsePairReqPayload(t *testing.T) {
+	cases := []struct {
+		name     string
+		payload  string
+		wantName string
+		wantDev  string
+		wantCode string
+		wantErr  error
+	}{
+		{name: "空 payload = 发起", payload: ``},
+		{name: "JSON 发起", payload: `{"name":"手机","dev":"` + strings.Repeat("a", 32) + `"}`, wantName: "手机", wantDev: strings.Repeat("a", 32)},
+		{name: "JSON 空 dev 合法（旧版手机）", payload: `{"name":"","dev":""}`},
+		{name: "坏 JSON", payload: `{"name":`, wantErr: ErrBadPairReq},
+		{name: "名字超 64 字节", payload: `{"name":"` + strings.Repeat("x", 65) + `","dev":""}`, wantErr: ErrNameTooLong},
+		{name: "dev 非 hex", payload: `{"name":"n","dev":"zz"}`, wantErr: ErrBadDevID},
+		{name: "dev 大写 hex", payload: `{"name":"n","dev":"` + strings.Repeat("A", 32) + `"}`, wantErr: ErrBadDevID},
+		{name: "4B 数字 = 确认码", payload: `1234`, wantCode: "1234"},
+		{name: "4B 含非数字", payload: `12a4`, wantErr: ErrBadPairReq},
+		{name: "5B 数字", payload: `12345`, wantErr: ErrBadPairReq},
+		{name: "3B 数字", payload: `123`, wantErr: ErrBadPairReq},
+	}
+	for _, tc := range cases {
+		name, dev, code, err := ParsePairReqPayload([]byte(tc.payload))
+		if !errors.Is(err, tc.wantErr) {
+			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.wantErr)
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if name != tc.wantName || dev != tc.wantDev || code != tc.wantCode {
+			t.Errorf("%s: got (%q,%q,%q), want (%q,%q,%q)", tc.name, name, dev, code, tc.wantName, tc.wantDev, tc.wantCode)
+		}
+	}
+}
+
 func wrongCode(code string, delta int) string {
 	d := int(code[3]-'0') + delta
 	d %= 10
