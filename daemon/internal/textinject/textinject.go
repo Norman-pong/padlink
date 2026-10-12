@@ -1,8 +1,9 @@
 // Package textinject 实现语音文本注入：剪贴板备份 → 写入 → 粘贴组合键 → 延迟恢复。
 //
-// 两端共同契约（行为一致，改动必须同时满足）：能备份到内容 → 注入后精确恢复；
-// 备份不到内容（原剪贴板只有非文本、或读取失败）→ 取消本次注入并给出可见错误；
-// 任何情况下都不得把注入文本留在剪贴板，也不得覆盖备份不到的原内容。
+// 两端共同契约（行为一致，改动必须同时满足）：能备份到内容 → 注入后精确恢复
+// （macOS 为 NSPasteboard 原生全保真快照，图片/文件等非文本剪贴板同样可备份恢复；
+// Linux wl-clipboard 按记录的 MIME 原样字节读回）；备份不到内容（读取失败或工具能力边界）
+// → 取消本次注入并给出可见错误；任何情况下都不得把注入文本留在剪贴板，也不得覆盖备份不到的原内容。
 package textinject
 
 import (
@@ -43,8 +44,8 @@ func isNoSelection(err error) bool {
 	return err != nil && strings.Contains(err.Error(), noSelectionMarker)
 }
 
-// errNonText 内部哨兵：原剪贴板有内容但不是文本（CLI 备份不到），调用方据此取消本次注入。
-// Linux 由 wl-paste 读取失败 + 已记录的 MIME 判定触发；macOS 由 pbpaste 取空 + 类型表无文本类型触发。
+// errNonText 内部哨兵：原剪贴板有内容但 CLI 备份不到（能力边界），调用方据此取消本次注入。
+// 仅 Linux wl-paste 路径可触发（读取失败 + 已记录的 MIME 为非文本）；darwin 原生后端全类型可备份，不再有该边界。
 var errNonText = errors.New("剪贴板内容不是文本")
 
 // isNonTextMIME 判定已记录的 MIME 是否为非文本（image/png、application/pdf…）：
@@ -174,74 +175,34 @@ var wlClipboard = clipboard{
 	},
 }
 
-// pbClipboard：macOS pbcopy/pbpaste 后端（系统自带）。已知限制：CLI 只有纯文本面，
-// 非文本剪贴板备份不了——备份不到即取消注入（见 read）。
+// pbSnapshotType 是 darwin 后端的内部备份标记：备份内容是整板快照而非文本，恢复按快照写回；
+// 该值不跨进程，仅用于同一 Injector 内的备份/恢复配对。
+const pbSnapshotType = "application/x-padlink-pasteboard-snapshot"
+
+// pbClipboard：macOS 原生 NSPasteboard 后端。备份/恢复走进程内原生 API 的全保真快照
+// （全条目 × 全类型），图片/文件等非文本剪贴板同样可精确恢复；注入文本也走原生写入，
+// 不依赖 pbcopy/pbpaste 的子进程与 locale 环境。
 var pbClipboard = clipboard{
-	name: "pbcopy/pbpaste",
+	name: "NSPasteboard",
 	hint: "macOS 系统自带，失败请查日志",
 	readMIME: func(Runner) (string, error) {
-		return "", nil // macOS 无 MIME 概念，恢复固定写回纯文本
+		return pbSnapshotType, nil
 	},
-	read: func(r Runner, _ string) ([]byte, error) {
-		out, err := runCmd(r, "pbpaste", nil)
-		if err != nil || len(out) > 0 {
-			return out, err
+	read: func(_ Runner, mime string) ([]byte, error) {
+		if mime != pbSnapshotType {
+			return nil, fmt.Errorf("备份类型标记异常: %q", mime)
 		}
-		// pbpaste 取空有两种含义：粘贴板确实为空（含空文本），或里面只有非文本内容，两者都是
-		// 退 0 + 空串，只能另查类型表区分；不区分就会在恢复阶段把用户的图片/文件覆盖成空文本。
-		// 类型表查不出来（osascript 失败）按备份失败处理——同样不动剪贴板。
-		hasContent, hasText, terr := pbTypes(r)
-		if terr != nil {
-			return nil, terr
-		}
-		if hasContent && !hasText {
-			return nil, errNonText
-		}
-		return out, nil
+		return pbSnapshot()
 	},
-	write: func(r Runner, data []byte, _ string) error {
-		_, err := runCmd(r, "pbcopy", data)
-		return err
+	write: func(_ Runner, data []byte, mime string) error {
+		if mime == pbSnapshotType {
+			return pbRestore(data)
+		}
+		return pbSetText(string(data))
 	},
-	// pbcopy 空输入即清空粘贴板：macOS 无 wl-copy --clear 对应的 CLI，空文本与"真·无内容"
-	// 对粘贴方等价（都粘不出东西），但类型表仍留有文本类型。
-	clear: func(r Runner) error {
-		_, err := runCmd(r, "pbcopy", nil)
-		return err
+	clear: func(Runner) error {
+		return pbClear()
 	},
-}
-
-// pbTypes 查询 macOS 粘贴板类型表，返回"是否有任何类型"与"是否含文本类型"。
-// 走系统自带的 osascript（clipboard info 为纯本地查询，不需要辅助功能/自动化授权），只在 pbpaste 取空时调用。
-func pbTypes(r Runner) (hasContent bool, hasText bool, err error) {
-	out, err := runCmd(r, "osascript", nil, "-e", "clipboard info")
-	if err != nil {
-		return false, false, err
-	}
-	// 形如「TIFF picture, 6386, «class utf8», 5」：类型名与字节数交替出现。
-	parts := strings.Split(string(out), ",")
-	for i := 0; i+1 < len(parts); i += 2 {
-		name := strings.ToLower(strings.TrimSpace(parts[i]))
-		if name == "" {
-			continue
-		}
-		hasContent = true
-		if isTextPasteboardType(name) {
-			return hasContent, true, nil
-		}
-	}
-	return hasContent, false, nil
-}
-
-// isTextPasteboardType 判定粘贴板类型是否为文本类。Apple 的类名/UTI 命名五花八门，判定宁宽勿严：
-// 误判成文本只会退回"写回纯文本"的降级，误判成非文本会直接拒绝注入。
-func isTextPasteboardType(name string) bool {
-	for _, k := range []string{"text", "string", "utf8", "ut16", "txt"} {
-		if strings.Contains(name, k) {
-			return true
-		}
-	}
-	return false
 }
 
 // platformClipboard 按运行平台选默认剪贴板后端；其余平台回落 wl-clipboard（不可用即降级）。

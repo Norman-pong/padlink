@@ -151,7 +151,7 @@ ProgramArguments 指向 `PadLink.app/Contents/MacOS/padlinkd`（保持 launchd �
 | 事件真的能投递 | `txtprobe -moves 40:40` 打给生产 bundle 实例后，用 `CGEventGetLocation` 读光标：1157.7,576.3 → 1197.7,616.3（**精确 +40/+40**）。注意别拿"文本是否出现在某编辑器文件里"当判据——TextEdit 不会即时落盘，会误判成"注入没生效" |
 | 带图标的更新同样免授权 | 装了应用图标后再走一次完整更新（`+icon1` → `+icon2`）：install.sh 全程自动（组装 bundle → 生成 .icns → 签名 → `lsregister` → 重启），**未弹授权、未等待**，直接启动成功 |
 | 图标本身可用 | `Contents/Resources/PadLink.icns` 可由 `iconutil -c iconset` 反向解出全部 10 个尺寸，其中 512@2x 为 1024×1024 且带 alpha；Info.plist `CFBundleIconFile=PadLink`；bundle `codesign --verify` 报 valid on disk + satisfies its DR |
-| 剪贴板契约 | 文本型粘贴板注入后原样恢复；图片型粘贴板取消注入且类型表前后一致；两处均无失败行（详见 §2.5） |
+| 剪贴板契约 | 任意粘贴板（文本/图片/文件/空）注入后全保真恢复；失败行 0（详见 §2.5） |
 | 签名身份不需要信任设置 | 曾把自签证书加进用户信任设置做对照实验：`find-identity -v -p codesigning` 仍报 0 valid，行为无变化；随后已 `security remove-trusted-cert` 撤销，daemon 依然免授权启动 ⇒ 该信任设置不是必要条件，不应留在用户机器上 |
 
 **发版说明**：darwin 归档需带 `packaging/macos/{install.sh,uninstall.sh,signing-identity.sh,PadLink.app.Info.plist,PadLink.app.icon.png,make-appicon.m,com.zhimingcool.padlink.plist}`
@@ -171,58 +171,41 @@ ProgramArguments 指向 `PadLink.app/Contents/MacOS/padlinkd`（保持 launchd �
 **排查口径**：验证「手机能否发现本机」必须以**手机**为准。替身探针（另一台 Linux 机发广播）
 只能验证**协议与端口**，不能用来断言客户端的发现体验——探针收不到回包不代表应答被系统门控拦掉。
 
-### 2.5 文本注入：pbcopy/pbpaste
+### 2.5 文本注入：macOS 原生 NSPasteboard / Linux wl-clipboard
 
-textinject 的 wl-copy/wl-paste 命令名/参数按平台参数化（Runner 抽象已就绪）；
-darwin 侧 pbcopy 写入即 public.utf8-plain-text，pbpaste 读出。Cmd+V 由 main.go 按平台注入
-（inject 接口不动）。
+darwin 侧走 NSPasteboard 原生 API（cgo，实现见 `internal/textinject/pasteboard_darwin.m`）：
+备份＝整板快照（全条目 × 全类型，只收录 `dataForType` 可读出的类型），注入文本＝原生 `setString`，
+恢复＝按快照 `writeObjects` 写回；全程无 pbcopy/pbpaste/osascript 子进程。Linux 侧维持
+wl-clipboard 按记录的 MIME 字节级读回。`Cmd+V` 由 main.go 按平台注入（inject 接口不动）。
 
 **两端共同契约**（textinject 包注释同步声明，改动须同时满足）：
 
-> 能备份到内容 → 注入后精确恢复；备份不到内容（Linux：读取失败；macOS：粘贴板只有非文本）→
+> 能备份到内容 → 注入后精确恢复；备份不到内容（macOS 快照失败 / Linux 读取失败）→
 > 取消本次注入并给出可见错误。任何情况下都不把注入文本留在剪贴板，也不覆盖备份不到的原内容。
 
-真机实测（macOS 26；`pbpaste` 对"真·清空 / 只有图片 / 空串文本"三种状态一律退 0 且输出空串，
-无法自行区分，故取空时补查类型表）：
-
-| 粘贴板状态 | `pbpaste` | `osascript -e 'clipboard info'` | daemon 行为 |
-| --- | --- | --- | --- |
-| 有文本 | 文本 | 含 `«class utf8»`/`string`/`Unicode text` | 备份文本 → 注入 → 写回文本 |
-| 真·清空 | 空 | （无输出） | 照常注入 → 收尾写空 |
-| 空串文本 | 空 | 有文本类型、长度为 0 | 照常注入 → 收尾写空 |
-| 只有非文本（图片/文件） | 空 | 只有 `TIFF picture`/`«class PNGf»` 等 | **取消注入**（`errNonText`），粘贴板不动 |
-
-`osascript` 为系统自带、纯本地粘贴板查询，不需要辅助功能/自动化授权，且只在 `pbpaste` 取空的
-少数路径上调用；类型表查询失败按备份失败降级，同样不写剪贴板。
-
-**真机验收（macOS 26 / arm64）**：测试实例 `padlinkd -v -port 53099
--restore-delay-ms 4000`，粘贴落点用 TextEdit 打开 `/tmp/mac-accept.txt`（避免把注入文本粘进用户
-正在用的窗口）：
-
-| 场景 | 操作 | 结果 |
+| 粘贴板状态 | macOS（原生快照） | Linux（wl-clipboard） |
 | --- | --- | --- |
-| A 文本恢复 | 粘贴板置 `baseline-mac-clean-*` → 注入 1 条 TEXT → 等 6s | 内容字节不变，RESTORE OK，失败行 0 |
-| B 空粘贴板 | `clearContents` → 注入 → 1.5s 窗口内读一次 | 窗口内读到注入文本；收尾后 `pbpaste` 为空、类型表为 0 长文本，失败行 0 |
-| C 只有图片 | 写入 NSImage → 注入 → 等 6s | 类型表前后一致（`TIFF picture`/`«class AVIF»`/`«class 8BPS»`… 仍在），恰好新增 1 条失败行：`注入 TEXT 失败: 剪贴板内容不是文本（本次注入已取消，剪贴板未改动）` |
-| D 实际上屏 | A/B 两次注入落到 TextEdit | 落盘文件内容为 `空粘贴板注入验收乙macOS 注入上屏验收甲`（daemon → pbcopy → Cmd+V → TextEdit 自动保存） |
+| 有文本 / 空串文本 | 快照 → 注入 → 快照恢复 | 同（按 MIME 写回） |
+| 真·清空 | 快照（0 条目）→ 注入 → 恢复为空 | 同（收尾 `wl-copy --clear`） |
+| 只有非文本（图片/文件） | **注入照常**，恢复为全类型原样 | 读取成功即注入并原样写回；读取失败（`inferred output type`）才取消 |
 
-测量时机必须晚于恢复延迟（上例 4s）：在注入窗口内读剪贴板得到的是中间态，不能据此判定
-「RESTORE FAIL / 图片被破坏」。
+已知限制：快照只收录 `dataForType` 可读出的类型；惰性/承诺型（如文件 promise）不进快照，恢复后其余类型仍原样。
 
-**与 Linux 端的差异（同为"不破坏剪贴板"，结果因能力不同而不同）**：Linux 侧 `wl-paste` 通常
-能按字节读到非文本内容（真机实测 `image/png` 193 字节原样往返、类型不变），因此**注入照常进行**
-且剪贴板保真；只有读取确实失败（`inferred output type` 报错）时才取消注入。macOS 的 CLI 只有
-纯文本面（`pbpaste` 对图片一律输出空串），无法字节级备份，所以**只能取消注入**——两端都不覆盖
-备份不到的内容，差别仅在"Linux 能继续注入、macOS 拒绝"。若将来要让 macOS 也支持非文本剪贴板，
-需走 quartz 包补 NSPasteboard 全保真备份（届时两侧行为可再对齐）。
+**真机验收（macOS 26 / arm64，2026-10-12 原生后端）**：
 
-已知限制（v1 接受，日志声明）：CLI 只有纯文本面，恢复只写回纯文本，富文本类型（RTF/HTML/图片）
-不保真——粘贴板含文本时文本内容仍能备份/恢复，只有非文本时取消注入。`pbcopy` 空输入用于收尾：
-macOS 无 `wl-copy --clear` 对应的 CLI，对粘贴方等价于"粘不出内容"，但类型表仍留有文本类型。
+- 字节级往返（`PADLINK_PB_ROUNDTRIP=1 go test ./internal/textinject/ -run RoundTrip` 显式触发）：
+  150988B 图片板快照 → 写文本 → 恢复 → 清空 → 再恢复，两次快照逐字节一致；
+  9 种 flavor（PNGf/AVIF/TIFF/BMP…）与字节数前后不变。
+- 端到端：手机在图片剪贴板下发中文 TEXT，注入照常执行、失败行 0，剪贴板 flavor 与字节数不变。
+
+**沿革**：2026-10-11 的 CLI 后端（pbcopy/pbpaste + osascript 类型表）在非文本剪贴板下只能取消注入
+（旧验收 C 场景即该行为）；2026-10-12 真机报障「图片剪贴板下中文/语音注入全部失效」——与 fa0a9f6
+对 Linux 已判「牺牲图片场景不可接受」同源，故按本文件旧版预留的方案补 NSPasteboard 全保真备份，
+两侧行为就此对齐。
 
 **两个必须在 daemon 侧兜底的平台差异（真机定位，此前表现为"中文与语音注入不上屏"）**：
 
-- **UTF-8 locale**：`pbcopy/pbpaste` 按 locale 解释输入输出。launchd 启动的 daemon 环境里
+- **UTF-8 locale**（剪贴板路径已改原生 NSPasteboard、不再依赖；该保障继续服务通知等 osascript 子进程）：`pbcopy/pbpaste` 按 locale 解释输入输出。launchd 启动的 daemon 环境里
   **没有任何 locale**，此时写 CJK 得到的是**空内容**——手机侧显示"发送成功"、daemon 无失败行、
   剪贴板里却是空的（实测注入窗口内轮询 `pbpaste`：基线 → 空 → 基线）。更严重的是备份非 ASCII
   剪贴板会读成空、还原时再写回空，**等于清空用户剪贴板**。直接对照：`env -i HOME=$HOME pbcopy`

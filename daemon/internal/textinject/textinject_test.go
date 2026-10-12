@@ -343,18 +343,46 @@ func TestAvailable(t *testing.T) {
 	}
 }
 
-// darwin 命令序列：备份(pbpaste) → 写入(pbcopy) → CmdV → 延迟 → 恢复(pbcopy)；无环境门槛。
-func TestInjectDarwinSequence(t *testing.T) {
-	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
-		if i == 0 { // 备份
-			return []byte("原内容"), nil
-		}
-		return nil, nil
-	}}
+// swapPasteboard 替换 darwin 原生粘贴板调用为假实现，返回记录器；t.Cleanup 还原。
+// 单元测试绝不触碰真实粘贴板。
+func swapPasteboard(t *testing.T, snap []byte, snapErr error) *pbCalls {
+	t.Helper()
+	c := &pbCalls{}
+	oldSnap, oldRestore, oldSet, oldClear := pbSnapshot, pbRestore, pbSetText, pbClear
+	pbSnapshot = func() ([]byte, error) {
+		c.snapShots++
+		return append([]byte(nil), snap...), snapErr
+	}
+	pbRestore = func(b []byte) error {
+		c.restored = append(c.restored, append([]byte(nil), b...))
+		return nil
+	}
+	pbSetText = func(s string) error {
+		c.written = append(c.written, s)
+		return nil
+	}
+	pbClear = func() error { c.cleared++; return nil }
+	t.Cleanup(func() {
+		pbSnapshot, pbRestore, pbSetText, pbClear = oldSnap, oldRestore, oldSet, oldClear
+	})
+	return c
+}
+
+type pbCalls struct {
+	snapShots int
+	restored  [][]byte
+	written   []string
+	cleared   int
+}
+
+// darwin 原生序列：快照备份 → 原生写文本 → CtrlV → 延迟 → 快照恢复；全程无子进程、无环境门槛。
+func TestInjectDarwinNativeSequence(t *testing.T) {
+	fr := &fakeRunner{}
 	rec := &recorder{}
 	in := newInjector(fr, rec, time.Millisecond)
 	in.clip = pbClipboard
 	in.Env = func(string) string { return "" }
+	pb := swapPasteboard(t, []byte("snapshot-blob"), nil)
 
 	if !in.Available() {
 		t.Fatal("darwin 无环境门槛，Available = false")
@@ -362,161 +390,90 @@ func TestInjectDarwinSequence(t *testing.T) {
 	if err := in.Inject("注入文本"); err != nil {
 		t.Fatalf("Inject: %v", err)
 	}
-
-	calls := fr.recorded()
-	if len(calls) != 3 {
-		t.Fatalf("命令数 = %d, want 3（darwin 不记 MIME）:\n%+v", len(calls), calls)
+	if pb.snapShots != 1 {
+		t.Errorf("快照次数 = %d, want 1", pb.snapShots)
 	}
-	want := []call{
-		{"pbpaste", nil, nil},
-		{"pbcopy", nil, []byte("注入文本")},
-		{"pbcopy", nil, []byte("原内容")},
+	if len(pb.written) != 1 || pb.written[0] != "注入文本" {
+		t.Errorf("写入文本 = %v, want [注入文本]", pb.written)
 	}
-	for i, w := range want {
-		if calls[i].name != w.name || len(calls[i].args) != 0 || string(calls[i].stdin) != string(w.stdin) {
-			t.Errorf("call[%d] = %+v, want %+v", i, calls[i], w)
-		}
+	if len(pb.restored) != 1 || string(pb.restored[0]) != "snapshot-blob" {
+		t.Errorf("恢复快照 = %v, want [snapshot-blob]", pb.restored)
+	}
+	if got := fr.recorded(); len(got) != 0 {
+		t.Errorf("原生后端不得起子进程，实得命令: %+v", got)
 	}
 	if ops := rec.snapshot(); len(ops) != 1 || ops[0] != "ctrlv" {
 		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
 	}
 }
 
-// darwin 降级：pbpaste 失败 → ErrUnavailable 且不再写剪贴板。
-func TestInjectDarwinDegradesOnBackupFail(t *testing.T) {
-	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
-		return nil, errors.New("pbpaste: 未知错误")
-	}}
-	in := newInjector(fr, &recorder{}, time.Millisecond)
+// darwin 快照失败：ErrUnavailable 降级，不写文本、不粘贴、不动粘贴板。
+func TestInjectDarwinDegradesOnSnapshotFail(t *testing.T) {
+	rec := &recorder{}
+	in := newInjector(&fakeRunner{}, rec, time.Millisecond)
 	in.clip = pbClipboard
 	in.Env = func(string) string { return "" }
+	pb := swapPasteboard(t, nil, errors.New("NSPasteboard 快照失败"))
 
 	err := in.Inject("x")
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("got %v, want ErrUnavailable", err)
 	}
-	if !strings.Contains(err.Error(), "pbcopy/pbpaste") {
+	if !strings.Contains(err.Error(), "NSPasteboard") {
 		t.Errorf("错误文案缺工具名: %v", err)
 	}
-	if len(fr.recorded()) != 1 {
-		t.Errorf("备份失败后不应继续写剪贴板，命令数 = %d", len(fr.recorded()))
-	}
-}
-
-// 两端共同契约回归：备份不到内容就取消注入，绝不覆盖剪贴板。
-
-// darwin 真·空粘贴板：照常注入，收尾写空。
-func TestInjectDarwinProceedsWhenPasteboardEmpty(t *testing.T) {
-	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
-		return nil, nil // pbpaste 空 + osascript 空
-	}}
-	rec := &recorder{}
-	in := newInjector(fr, rec, time.Millisecond)
-	in.clip = pbClipboard
-	in.Env = func(string) string { return "" }
-
-	if err := in.Inject("空粘贴板注入"); err != nil {
-		t.Fatalf("Inject: %v", err)
-	}
-	want := []call{
-		{"pbpaste", nil, nil},
-		{"osascript", []string{"-e", "clipboard info"}, nil},
-		{"pbcopy", nil, []byte("空粘贴板注入")},
-		{"pbcopy", nil, nil}, // 收尾：原无内容 → 不把注入文本留在剪贴板
-	}
-	calls := fr.recorded()
-	if len(calls) != len(want) {
-		t.Fatalf("命令数 = %d, want %d:\n%+v", len(calls), len(want), calls)
-	}
-	for i, w := range want {
-		if calls[i].name != w.name || strings.Join(calls[i].args, " ") != strings.Join(w.args, " ") ||
-			string(calls[i].stdin) != string(w.stdin) {
-			t.Errorf("call[%d] = %+v, want %+v", i, calls[i], w)
-		}
-	}
-	if ops := rec.snapshot(); len(ops) != 1 {
-		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
-	}
-}
-
-// darwin 空文本粘贴板（类型表有文本类型、内容为空串）：同"无内容"处理。
-func TestInjectDarwinProceedsWhenPasteboardHoldsEmptyText(t *testing.T) {
-	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
-		if i == 1 {
-			return []byte("«class utf8», 0, string, 0, Unicode text, 0\n"), nil
-		}
-		return nil, nil
-	}}
-	rec := &recorder{}
-	in := newInjector(fr, rec, time.Millisecond)
-	in.clip = pbClipboard
-	in.Env = func(string) string { return "" }
-
-	if err := in.Inject("空文本注入"); err != nil {
-		t.Fatalf("Inject: %v", err)
-	}
-	var writes int
-	for _, c := range fr.recorded() {
-		if c.name == "pbcopy" {
-			writes++
-		}
-	}
-	if writes != 2 { // 写入注入文本 + 收尾写空
-		t.Errorf("pbcopy 次数 = %d, want 2", writes)
-	}
-	if ops := rec.snapshot(); len(ops) != 1 {
-		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
-	}
-}
-
-// darwin 非文本粘贴板（只有图片）：备份不到 → 取消注入，且一次 pbcopy 都不能有。
-func TestInjectDarwinKeepsNonTextPasteboard(t *testing.T) {
-	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
-		if c.name == "osascript" {
-			return []byte("TIFF picture, 6386, «class PNGf», 4077, JPEG picture, 4934\n"), nil
-		}
-		return nil, nil // pbpaste 空
-	}}
-	rec := &recorder{}
-	in := newInjector(fr, rec, time.Millisecond)
-	in.clip = pbClipboard
-	in.Env = func(string) string { return "" }
-
-	err := in.Inject("这段字不该注入")
-	if !errors.Is(err, errNonText) {
-		t.Fatalf("got %v, want errNonText", err)
-	}
-	if !strings.Contains(err.Error(), "不是文本") || !strings.Contains(err.Error(), "剪贴板未改动") {
-		t.Errorf("错误文案未说明剪贴板未改动: %v", err)
-	}
-	for _, c := range fr.recorded() {
-		if c.name == "pbcopy" {
-			t.Fatalf("非文本剪贴板不得被覆盖，却调用了 pbcopy: %+v", c)
-		}
+	if len(pb.written) != 0 || len(pb.restored) != 0 || pb.cleared != 0 {
+		t.Errorf("快照失败后不得写/恢复粘贴板: written=%v restored=%v cleared=%d", pb.written, pb.restored, pb.cleared)
 	}
 	if ops := rec.snapshot(); len(ops) != 0 {
 		t.Fatalf("取消注入时不得发粘贴组合键，实际 %v", ops)
 	}
 }
 
-// darwin 类型表查询失败：保守按备份失败降级（同样不写剪贴板）。
-func TestInjectDarwinDegradesWhenTypeQueryFails(t *testing.T) {
-	fr := &fakeRunner{respond: func(i int, c call) ([]byte, error) {
-		if c.name == "osascript" {
-			return nil, errors.New("osascript: 执行失败")
-		}
-		return nil, nil
-	}}
-	in := newInjector(fr, &recorder{}, time.Millisecond)
+// darwin 空粘贴板：快照为空板（无条目），照常注入，收尾按快照恢复为空——注入文本不留板。
+func TestInjectDarwinEmptyPasteboardRestoresEmptySnapshot(t *testing.T) {
+	rec := &recorder{}
+	in := newInjector(&fakeRunner{}, rec, time.Millisecond)
 	in.clip = pbClipboard
 	in.Env = func(string) string { return "" }
+	emptyBoard := []byte{0, 0, 0, 0} // u32 条目数 = 0
+	pb := swapPasteboard(t, emptyBoard, nil)
 
-	err := in.Inject("x")
-	if !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("got %v, want ErrUnavailable", err)
+	if err := in.Inject("空板注入"); err != nil {
+		t.Fatalf("Inject: %v", err)
 	}
-	if len(fr.recorded()) != 2 {
-		t.Errorf("类型表查询失败后不应写剪贴板，命令数 = %d", len(fr.recorded()))
+	if len(pb.written) != 1 || pb.written[0] != "空板注入" {
+		t.Errorf("写入文本 = %v", pb.written)
+	}
+	if len(pb.restored) != 1 || string(pb.restored[0]) != string(emptyBoard) {
+		t.Errorf("恢复快照 = %v, want 空板快照", pb.restored)
+	}
+	if ops := rec.snapshot(); len(ops) != 1 {
+		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
+	}
+}
+
+// darwin 非文本粘贴板（只有图片）：原生快照可全保真备份 → 注入照常进行，恢复必须写回原快照。
+// 这是与旧 CLI 后端的契约差异点：不再有「非文本即取消注入」的能力边界。
+func TestInjectDarwinInjectsWithNonTextPasteboard(t *testing.T) {
+	rec := &recorder{}
+	in := newInjector(&fakeRunner{}, rec, time.Millisecond)
+	in.clip = pbClipboard
+	in.Env = func(string) string { return "" }
+	imageBoard := []byte{0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 6, 'p', 'u', 'b', 'l', 'i', 'c', 0, 0, 0, 3, 1, 2, 3}
+	pb := swapPasteboard(t, imageBoard, nil)
+
+	if err := in.Inject("图片剪贴板下也能注入"); err != nil {
+		t.Fatalf("Inject: %v", err)
+	}
+	if len(pb.written) != 1 || pb.written[0] != "图片剪贴板下也能注入" {
+		t.Errorf("写入文本 = %v", pb.written)
+	}
+	if len(pb.restored) != 1 || string(pb.restored[0]) != string(imageBoard) {
+		t.Errorf("恢复必须写回原图片快照，实得 %v", pb.restored)
+	}
+	if ops := rec.snapshot(); len(ops) != 1 {
+		t.Fatalf("粘贴组合键调用 = %v, want 恰一次", ops)
 	}
 }
 
@@ -602,30 +559,6 @@ func TestIsNonTextMIME(t *testing.T) {
 	for mime, want := range cases {
 		if got := isNonTextMIME(mime); got != want {
 			t.Errorf("isNonTextMIME(%q) = %v, want %v", mime, got, want)
-		}
-	}
-}
-
-// macOS 类型表分类回归（判定宁宽勿严）。
-func TestIsTextPasteboardType(t *testing.T) {
-	textTypes := []string{
-		"«class utf8»", "«class ut16»", "string", "unicode text",
-		"public.utf8-plain-text", "public.utf16-external-plain-text",
-		"nsstringpboardtype", "next rich text format v1.0 pasteboard type",
-	}
-	nonTextTypes := []string{
-		"tiff picture", "«class pngf»", "«class 8bps»", "gif picture", "jpeg picture",
-		"«class avif»", "«class jp2 »", "«class tpic»", "«class furl»", "public.file-url",
-		"«class weba»", "next smart paste pasteboard type",
-	}
-	for _, s := range textTypes {
-		if !isTextPasteboardType(s) {
-			t.Errorf("isTextPasteboardType(%q) = false, want true", s)
-		}
-	}
-	for _, s := range nonTextTypes {
-		if isTextPasteboardType(s) {
-			t.Errorf("isTextPasteboardType(%q) = true, want false", s)
 		}
 	}
 }
