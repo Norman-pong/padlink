@@ -327,6 +327,25 @@ func (s *Server) sessionOf(clientID string) *tcpSession {
 	return fallback
 }
 
+// releaseInputs 兜底补发按住未释放的按键/按钮 up；what 标记来源（零残留红线，入注入队列保序）。
+func (s *Server) releaseInputs(keys []uint16, btns []uint8, what string) {
+	if len(keys) == 0 && len(btns) == 0 {
+		return
+	}
+	s.enqueueBlocking(func() {
+		for _, hid := range keys {
+			if err := s.inj.Key(hid, false); err != nil {
+				s.logf("%s：按键释放失败 hid=0x%04X: %v", what, hid, err)
+			}
+		}
+		for _, b := range btns {
+			if err := s.inj.Button(b, false); err != nil {
+				s.logf("%s：按钮释放失败 btn=%d: %v", what, b, err)
+			}
+		}
+	})
+}
+
 // dropHeld 释放某设备残留的按键/按钮（被拒时的防御路径，零残留红线）。
 func (s *Server) dropHeld(clientID string) {
 	s.mu.Lock()
@@ -339,18 +358,7 @@ func (s *Server) dropHeld(clientID string) {
 	s.mu.Unlock()
 	for _, sess := range targets {
 		if keys, btns := sess.takeHeld(); len(keys) > 0 || len(btns) > 0 {
-			s.enqueueBlocking(func() {
-				for _, hid := range keys {
-					if err := s.inj.Key(hid, false); err != nil {
-						s.logf("被拒设备残留按键释放失败 hid=0x%04X: %v", hid, err)
-					}
-				}
-				for _, b := range btns {
-					if err := s.inj.Button(b, false); err != nil {
-						s.logf("被拒设备残留按钮释放失败 btn=%d: %v", b, err)
-					}
-				}
-			})
+			s.releaseInputs(keys, btns, "被拒设备残留")
 			s.logf("设备 %s 被拒控制权时仍按住输入，已补发释放", clientID)
 		}
 	}

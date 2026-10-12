@@ -359,20 +359,8 @@ func (t *tcpSession) dispatch(pkt proto.Packet) error {
 func (t *tcpSession) finish() {
 	keys, btns := t.takeHeld()
 	if len(keys) > 0 || len(btns) > 0 {
-		srv := t.srv
-		srv.enqueueBlocking(func() {
-			for _, hid := range keys {
-				if err := srv.inj.Key(hid, false); err != nil {
-					srv.logf("残留按键释放失败 hid=0x%04X: %v", hid, err)
-				}
-			}
-			for _, b := range btns {
-				if err := srv.inj.Button(b, false); err != nil {
-					srv.logf("残留按钮释放失败 btn=%d: %v", b, err)
-				}
-			}
-			srv.logf("会话结束兜底：补发 %d 个按键 / %d 个按钮 up", len(keys), len(btns))
-		})
+		t.srv.releaseInputs(keys, btns, "会话结束兜底")
+		t.srv.logf("会话结束兜底：补发 %d 个按键 / %d 个按钮 up", len(keys), len(btns))
 	}
 	t.srv.mu.Lock()
 	delete(t.srv.sessions, t)
