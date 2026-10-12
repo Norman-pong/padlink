@@ -4,6 +4,7 @@ package uinput
 
 import (
 	"errors"
+	"log"
 	"time"
 
 	"padlink/daemon/internal/inject"
@@ -13,7 +14,7 @@ import (
 type Device struct{}
 
 // Open 无后端平台恒返回错误。
-func Open() (*Device, error) {
+func Open(*log.Logger) (*Device, error) {
 	return nil, errors.New("uinput: 当前平台无注入后端（支持 Linux uinput / macOS CGEvent）")
 }
 

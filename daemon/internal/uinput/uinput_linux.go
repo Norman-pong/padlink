@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,7 @@ type Device struct {
 }
 
 // Open 创建虚拟输入设备；需要 /dev/uinput 的读写权限（udev uaccess 规则）。
-func Open() (*Device, error) {
+func Open(*log.Logger) (*Device, error) {
 	if unsafe.Sizeof(inputEvent{}) != sizeofInputEvent {
 		return nil, fmt.Errorf("uinput: input_event 布局 %d 字节与内核 ABI %d 不符", unsafe.Sizeof(inputEvent{}), sizeofInputEvent)
 	}

@@ -56,7 +56,7 @@ func main() {
 		return
 	}
 
-	dev, err := uinput.Open()
+	dev, err := uinput.Open(log.New(os.Stderr, "", 0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "padlinkd --test FAILED: %v\n", err)
 		os.Exit(1)
@@ -92,7 +92,7 @@ func run(cfg config) error {
 		}
 	}
 
-	dev, err := uinput.Open()
+	dev, err := uinput.Open(logf)
 	if err != nil {
 		return err
 	}

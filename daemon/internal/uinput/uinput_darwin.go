@@ -4,6 +4,7 @@ package uinput
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -30,8 +31,8 @@ type Device struct {
 const axPollInterval = 500 * time.Millisecond
 
 // Open 过 TCC 辅助功能门控后返回后端：未授权时 CGEvent 注入被系统静默丢弃，
-// 所以先弹系统授权框再驻留轮询，而不是带病启动。
-func Open() (*Device, error) {
+// 所以先弹系统授权框再驻留轮询，而不是带病启动。授权指引经 lg 输出（与 daemon 日志同去向）。
+func Open(lg *log.Logger) (*Device, error) {
 	if quartz.Trusted(false) {
 		return &Device{}, nil
 	}
@@ -39,26 +40,26 @@ func Open() (*Device, error) {
 	if err != nil || self == "" {
 		self = "（本进程可执行文件）"
 	}
-	fmt.Fprintln(os.Stderr, "PadLink 需要「辅助功能」权限才能注入键鼠事件：")
-	fmt.Fprintln(os.Stderr, "  系统设置 → 隐私与安全性 → 辅助功能 → 开启 PadLink（bundle 安装）或本二进制：")
-	fmt.Fprintf(os.Stderr, "  %s\n", self)
+	lg.Printf("PadLink 需要「辅助功能」权限才能注入键鼠事件：")
+	lg.Printf("  系统设置 → 隐私与安全性 → 辅助功能 → 开启 PadLink（bundle 安装）或本二进制：")
+	lg.Printf("  %s", self)
 	quartz.Trusted(true) // 拉起系统授权弹窗
-	fmt.Fprintln(os.Stderr, "  列表里没有对应条目：点系统弹窗的「打开系统设置」，或用 + 添加上面这个路径")
-	fmt.Fprintln(os.Stderr, "  条目已开启却仍停在此处：先重启本服务再看——进程内的授权状态不会自动更新：")
-	fmt.Fprintf(os.Stderr, "    launchctl kickstart -k gui/%d/com.zhimingcool.padlink\n", os.Getuid())
-	fmt.Fprintln(os.Stderr, "  （仍不行则是旧签名残留条目，删除该条目后按上面路径重新添加）")
-	fmt.Fprintln(os.Stderr, "等待授权中…（授权后自动继续；前台运行可按 Ctrl+C 取消）")
+	lg.Printf("  列表里没有对应条目：点系统弹窗的「打开系统设置」，或用 + 添加上面这个路径")
+	lg.Printf("  条目已开启却仍停在此处：先重启本服务再看——进程内的授权状态不会自动更新：")
+	lg.Printf("    launchctl kickstart -k gui/%d/com.zhimingcool.padlink", os.Getuid())
+	lg.Printf("  （仍不行则是旧签名残留条目，删除该条目后按上面路径重新添加）")
+	lg.Printf("等待授权中…（授权后自动继续；前台运行可按 Ctrl+C 取消）")
 	remind := time.NewTicker(30 * time.Second)
 	defer remind.Stop()
 	for {
 		if quartz.Trusted(false) {
-			fmt.Fprintln(os.Stderr, "已获得辅助功能权限")
+			lg.Printf("已获得辅助功能权限")
 			return &Device{}, nil
 		}
 		select {
 		case <-time.After(axPollInterval):
 		case <-remind.C:
-			fmt.Fprintln(os.Stderr, "仍在等待辅助功能授权（系统设置 → 隐私与安全性 → 辅助功能）…")
+			lg.Printf("仍在等待辅助功能授权（系统设置 → 隐私与安全性 → 辅助功能）…")
 		}
 	}
 }
