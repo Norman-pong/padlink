@@ -4,7 +4,6 @@
 package session
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -396,13 +395,9 @@ func (s *Server) doInj(what string, f func() error) func() {
 
 // matchToken 逐个尝试已配对客户端 token（≤4 个）。
 func (s *Server) matchToken(pkt *proto.Packet) (pairing.Client, []byte, bool) {
-	for _, c := range s.store.Clients() {
-		tok, err := hex.DecodeString(c.TokenHex)
-		if err != nil {
-			continue
-		}
-		if proto.VerifyHMAC(pkt, tok) {
-			return c, tok, true
+	for _, e := range s.store.AuthIndex() {
+		if proto.VerifyHMAC(pkt, e.Token) {
+			return e.Client, e.Token, true
 		}
 	}
 	return pairing.Client{}, nil, false

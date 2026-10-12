@@ -28,6 +28,12 @@ func (c Client) Token() ([]byte, error) {
 	return hex.DecodeString(c.TokenHex)
 }
 
+// AuthEntry 认证索引条目：客户端与其 token 字节（hex 解码结果）。
+type AuthEntry struct {
+	Client Client
+	Token  []byte
+}
+
 type storeFile struct {
 	Version int      `json:"version"`
 	Clients []Client `json:"clients"`
@@ -41,6 +47,7 @@ type Store struct {
 	path         string
 	mu           sync.Mutex
 	clients      []Client
+	auth         []AuthEntry // token 字节缓存，随 clients 变更重建（rebuildAuthLocked）
 	permWarnings []string
 }
 
@@ -79,6 +86,7 @@ func Load(path string) (*Store, error) {
 		return nil, fmt.Errorf("pairing: %s 格式版本 %d 高于支持版本 %d，请升级 padlinkd", path, sf.Version, storeVersion)
 	}
 	s.clients = sf.Clients
+	s.rebuildAuthLocked()
 
 	if info, err := os.Stat(path); err == nil {
 		if perm := info.Mode().Perm(); perm&0o077 != 0 {
@@ -111,12 +119,34 @@ func (s *Store) Clients() []Client {
 	return out
 }
 
+// AuthIndex 返回认证索引快照（供认证路径直接比对 HMAC，免逐包 hex 解码）。
+func (s *Store) AuthIndex() []AuthEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.auth
+}
+
+// rebuildAuthLocked 重建认证索引（调用方须持锁或处于单线程构造期）；
+// 每次分配新切片，先前返回的快照保持不可变；坏 hex 记录跳过。
+func (s *Store) rebuildAuthLocked() {
+	idx := make([]AuthEntry, 0, len(s.clients))
+	for _, c := range s.clients {
+		tok, err := hex.DecodeString(c.TokenHex)
+		if err != nil {
+			continue
+		}
+		idx = append(idx, AuthEntry{Client: c, Token: tok})
+	}
+	s.auth = idx
+}
+
 // Issue 签发客户端凭据（配对成功的唯一写入路径）：devID 命中既有记录则复用该记录
 // （id 不变）并轮换 token（不占新名额），否则新增；超上限返回 ErrClientsFull。
 // rotated 报告本次是否为同设备轮换；name 为空时不覆盖既有名称。
 func (s *Store) Issue(name, devID string) (client Client, rotated bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.rebuildAuthLocked() // 覆盖全部返回路径（含 saveLocked 失败回滚后）
 	if devID != "" {
 		for i := range s.clients {
 			if s.clients[i].DevID != devID {
@@ -163,6 +193,7 @@ func (s *Store) Issue(name, devID string) (client Client, rotated bool, err erro
 func (s *Store) Remove(id string) (Client, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.rebuildAuthLocked()
 	for i := range s.clients {
 		if s.clients[i].ID != id {
 			continue
@@ -198,13 +229,9 @@ func (s *Store) HasDevID(devID string) bool {
 func (s *Store) LookupToken(token []byte) (Client, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, c := range s.clients {
-		raw, err := hex.DecodeString(c.TokenHex)
-		if err != nil {
-			continue
-		}
-		if subtle.ConstantTimeCompare(raw, token) == 1 {
-			return c, true
+	for _, e := range s.auth {
+		if subtle.ConstantTimeCompare(e.Token, token) == 1 {
+			return e.Client, true
 		}
 	}
 	return Client{}, false

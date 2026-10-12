@@ -647,6 +647,42 @@ func TestUDPMoveAndEcho(t *testing.T) {
 	waitFor(t, "错包不注入", func() bool { return ts.cap.count(evRel, 0, 99) == 0 })
 }
 
+// 解配后旧 token 的 UDP 包必须被拒：认证索引随 Store.Remove 失效，缓存残留即放行已解配设备。
+func TestUnpairedTokenRejectedAfterRemove(t *testing.T) {
+	ts := newTestServer(t, nil)
+	token := addClient(t, ts.store, "udp手机")
+	uc, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: ts.srv.Port()})
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	t.Cleanup(func() { uc.Close() })
+	sendUDP := func(pkt proto.Packet) {
+		t.Helper()
+		proto.Seal(&pkt, token)
+		buf, err := proto.Encode(&pkt)
+		if err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		if _, err := uc.Write(buf); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	sendUDP(proto.NewMove(1, 5, 5))
+	waitFor(t, "解配前 MOVE 注入", func() bool { return ts.cap.count(evRel, 0, 5) == 1 })
+
+	c := ts.store.Clients()[0]
+	if _, ok, err := ts.store.Remove(c.ID); err != nil || !ok {
+		t.Fatalf("Remove: ok=%v err=%v", ok, err)
+	}
+	before := ts.srv.StatsSnapshot()
+	sendUDP(proto.NewMove(2, 7, 7))
+	waitFor(t, "解配后 HMACFail 计数", func() bool {
+		return ts.srv.StatsSnapshot().HMACFail > before.HMACFail
+	})
+	waitFor(t, "解配后包不注入", func() bool { return ts.cap.count(evRel, 0, 7) == 0 })
+}
+
 // prepair 直接经存储预置一个已配对客户端，返回其 token。
 func prepair(t *testing.T, ts *testSrv) []byte {
 	t.Helper()

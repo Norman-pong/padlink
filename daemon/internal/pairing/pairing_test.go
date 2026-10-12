@@ -1,6 +1,7 @@
 package pairing
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -278,6 +279,43 @@ func TestStoreRemove(t *testing.T) {
 	}
 	if _, ok := s.LookupToken(mustToken(t, c1)); ok {
 		t.Error("已删除的客户端 token 不应命中")
+	}
+}
+
+// 认证索引随 Issue（轮换）/Remove 同步，坏 hex 记录加载时跳过（缓存不得残留旧 token）。
+func TestAuthIndexConsistency(t *testing.T) {
+	store := newTestStore(t)
+	dev := strings.Repeat("d", 32)
+	c1, _, _ := store.Issue("手机A", dev)
+	tok1 := mustToken(t, c1)
+
+	c2, _, _ := store.Issue("手机A", dev)
+	idx := store.AuthIndex()
+	if len(idx) != 1 {
+		t.Fatalf("轮换后索引长度 = %d, want 1", len(idx))
+	}
+	if bytes.Equal(idx[0].Token, tok1) || !bytes.Equal(idx[0].Token, mustToken(t, c2)) {
+		t.Fatal("轮换后索引 token 未更新")
+	}
+
+	if _, ok, _ := store.Remove(c2.ID); !ok {
+		t.Fatal("Remove 未命中")
+	}
+	if idx := store.AuthIndex(); len(idx) != 0 {
+		t.Fatalf("Remove 后索引长度 = %d, want 0", len(idx))
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clients.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"clients":[{"id":"aa","name":"坏","dev_id":"","token_hex":"zz","paired_at":"2026-01-01T00:00:00Z"}]}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if idx := s.AuthIndex(); len(idx) != 0 {
+		t.Fatalf("坏 hex 记录应跳过，实得 %d 条", len(idx))
 	}
 }
 
