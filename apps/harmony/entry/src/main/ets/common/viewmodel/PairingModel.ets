@@ -138,7 +138,6 @@ export class PairingModel {
       }
       hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对');
       this.resetError();
-      this.snapshot.phase = PairPhase.CONNECTING;
     }
     this.snapshot.phase = PairPhase.CONNECTING;
     try {

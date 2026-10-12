@@ -8,6 +8,7 @@
 import { window, uiMaterial } from '@kit.ArkUI';
 import type { common } from '@kit.AbilityKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ConnState } from '../common/net/ConnectionManager';
 import type { ConnectionManager } from '../common/net/ConnectionManager';
 import type { TouchpadModel } from '../common/viewmodel/TouchpadModel';
@@ -439,5 +440,5 @@ export struct MainControlPage {
 }
 
 function hilogWarn(msg: string, err: BusinessError): void {
-  console.warn(`[PadLink.MainControl] ${msg}: ${err.code} ${err.message}`);
+  hilog.warn(0x5050, 'PadLink.MainControl', '%{public}s: %{public}d %{public}s', msg, err.code, err.message);
 }
