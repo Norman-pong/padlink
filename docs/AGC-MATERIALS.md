@@ -131,11 +131,22 @@ for out, src in SRC.items():
 
 ## 五、权限用途说明（AGC 权限填报）
 
-| 权限 | 级别 | 用途文案（照抄） |
+包内声明（`entry/src/main/module.json5`）：仅 `ohos.permission.MICROPHONE` 为 user_grant，其余为 system_grant。
+
+| 权限标识 | 级别 | 用途文案（照抄） |
 | --- | --- | --- |
-| 麦克风 `MICROPHONE` | user_grant | 麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑。 |
-| 网络 `INTERNET` | system_grant | 与用户同一局域网内的电脑通信（发现、配对与数据传输）。 |
-| 获取网络信息 `GET_NETWORK_INFO` | system_grant | 读取本机网络状态以完成局域网主机发现。 |
+| `ohos.permission.MICROPHONE` | user_grant | 麦克风权限仅用于「按住说话」语音听写：按住期间录音并识别为文字输入到电脑。 |
+| `ohos.permission.INTERNET` | system_grant | 与用户同一局域网内的电脑通信（发现、配对与数据传输）。 |
+| `ohos.permission.GET_NETWORK_INFO` | system_grant | 读取本机网络状态以完成局域网主机发现。 |
+
+> **打回经验（2026-10-12 实测）**：AGC 会自动比对「包内 user_grant 权限」与「托管隐私政策文本里出现的权限」，不一致即打回，报错形如
+> `检测到当前软件包user_grant类型的权限与隐私政策中声明的权限不一致，请修改后提交。只在软件包中的权限：[MICROPHONE]`。
+> 隐私政策里**必须出现权限标识原文**（如 `ohos.permission.MICROPHONE`），只写中文"麦克风"不算——`PRIVACY.md` 第二节已按此列出全部权限标识。
+> 改完政策后要在 AGC「隐私管理服务」里**重新粘贴全文**，再提交审核。
+
+> **打回经验（2026-10-13 实测）**：「标准化隐私声明托管」的系统弹窗依赖**应用市场云侧上架记录**，未上架（含审核中、被驳回）时**不弹**（faqs-appgallery-67）——审核员首启看不到任何隐私提示，被以「未明确提示用户阅读隐私政策」（审核指南 7.5）打回。
+> 解法是提审前**先发邀请测试**建立云侧记录（`docs/AGC-SUBMIT.md` 第一节第 6 步），并先按第四节清单在真机上验证（隐私管理服务不支持模拟器）。
+> 托管期间 App 侧**不得**自建弹窗：托管 + 自建会双弹窗被驳回（faqs-appgallery-84），两者只能选一。
 
 ## 六、数据披露（AGC 隐私声明/数据安全）
 
@@ -158,7 +169,9 @@ for out, src in SRC.items():
 
 预期分级：全年龄（3+）。
 
-## 八、版本更新说明（1.3.0）
+## 八、版本更新说明
+
+> 按实际提审版本填写；当前 `apps/harmony/AppScope/app.json5` = 1.3.1（versionCode 1030100）。1.3.0 未上架，故内容沿用。
 
 ```
 本次更新：
@@ -207,8 +220,11 @@ for out, src in SRC.items():
 
 - [ ] 应用名称「口袋键鼠」、包名 `com.zhimingcool.padlink`（与软著、备案一致）
 - [ ] 一句话简介 / 应用介绍（本文一、二节）
-- [ ] 应用截图 3–5 张（本文三节，建议 1–5）
-- [ ] 隐私政策托管（`PRIVACY.md` 全文）
+- [ ] 应用截图 3–10 张、9:16、≥1080×1920（本文三节，建议 1–5）
+- [ ] 隐私政策托管（`PRIVACY.md` 全文）——**文本里必须出现包内 user_grant 权限标识**（`ohos.permission.MICROPHONE`），改完要重新粘贴（见第五节打回经验）
+- [ ] **邀请测试已发布**并建立云侧隐私记录（`docs/AGC-SUBMIT.md` 第一节第 6 步）——托管弹窗审核期不生效的解法
+- [ ] 真机验证清单 A/B/C 三组已执行并记录结果（`docs/AGC-SUBMIT.md` 第四节；隐私管理服务不支持模拟器）
+- [ ] 调试预置 metadata（`entry/src/main/module.json5`）去留已按 B/C 组实测结论处理
 - [ ] 数据披露（本文六节）、权限填报（本文五节）
 - [ ] 备案：单机应用豁免（本文四节）
 - [ ] 年龄分级问卷（本文七节）
