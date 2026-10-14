@@ -223,8 +223,8 @@ for out, src in SRC.items():
 - [ ] 应用截图 3–10 张、9:16、≥1080×1920（本文三节，建议 1–5）
 - [ ] 隐私政策托管（`PRIVACY.md` 全文）——**文本里必须出现包内 user_grant 权限标识**（`ohos.permission.MICROPHONE`），改完要重新粘贴（见第五节打回经验）
 - [ ] **邀请测试已发布**并建立云侧隐私记录（`docs/AGC-SUBMIT.md` 第一节第 6 步）——托管弹窗审核期不生效的解法
-- [ ] 真机验证清单 A/B/C 三组已执行并记录结果（`docs/AGC-SUBMIT.md` 第四节；隐私管理服务不支持模拟器）
-- [ ] 调试预置 metadata（`entry/src/main/module.json5`）去留已按 B/C 组实测结论处理
+- [ ] 真机验证清单 A/B/C 三组已执行并记录结果（`docs/AGC-SUBMIT.md` 第四节；A/B 组已于 2026-10-14 真机通过，C 组待邀请测试后执行）
+- [ ] 调试预置 metadata（`entry/src/main/module.json5`）去留已按 C 组实测结论处理（默认保留：release 模式实测同样生效，可作审核期兜底）
 - [ ] 数据披露（本文六节）、权限填报（本文五节）
 - [ ] 备案：单机应用豁免（本文四节）
 - [ ] 年龄分级问卷（本文七节）
