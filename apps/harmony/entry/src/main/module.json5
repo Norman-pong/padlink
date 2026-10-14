@@ -13,10 +13,24 @@
     // 沉浸光感材质应用级开关（material-light.md §2.4，targetAPIVersion ≥ 26）：
     // 恒用 default（组件级 .systemMaterial() 生效且不劫持系统组件背景优先级）；
     // enable 会令 API26 模拟器材质假支持放大成全局视效回退，disable 则真机玻璃感全灭。
+    // 隐私托管预置（store-privacy「未上架应用接入隐私管理服务」）：未上架/审核中云侧无记录，
+    // 标准化隐私弹窗不弹（faqs-appgallery-67）；预置后 debug 构建 + hdc 安装即可弹窗并调
+    // privacyManager 全部接口，用于上架前的真机验证。release 包是否同样生效待真机实测，
+    // 结论与提审包取舍见 docs/AGC-SUBMIT.md 第四节 B/C 组。
     "metadata": [
       {
         "name": "ohos.arkui.UIMaterial.state",
         "value": "default"
+      },
+      {
+        "name": "appgallery_privacy_hosted",
+        "value": "1"
+      },
+      {
+        // 须与 entry/src/main/resources/base/element/string.json 的 privacy_fallback_url 同值
+        //（metadata.value 只接受字面量，无法引用 $string 资源）
+        "name": "appgallery_privacy_link_privacy_statement",
+        "value": "https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md"
       }
     ],
     // 局域网 UDP/TCP（FR-0/FR-6）。system_grant normal 级：无需 reason/usedScene
