@@ -14,9 +14,9 @@
     // 恒用 default（组件级 .systemMaterial() 生效且不劫持系统组件背景优先级）；
     // enable 会令 API26 模拟器材质假支持放大成全局视效回退，disable 则真机玻璃感全灭。
     // 隐私托管预置（store-privacy「未上架应用接入隐私管理服务」）：未上架/审核中云侧无记录，
-    // 标准化隐私弹窗不弹（faqs-appgallery-67）；预置后 debug 构建 + hdc 安装即可弹窗并调
-    // privacyManager 全部接口，用于上架前的真机验证。release 包是否同样生效待真机实测，
-    // 结论与提审包取舍见 docs/AGC-SUBMIT.md 第四节 B/C 组。
+    // 标准化隐私弹窗不弹（faqs-appgallery-67）；预置后即弹窗并可用 privacyManager 全部接口。
+    // 2026-10-14 真机实测：debug 与 release 两种构建模式均生效（去掉预置则同包不弹），
+    // 故提审包保留本预置可在审核期兜底；权威记录见 docs/AGC-SUBMIT.md 第四节执行记录。
     "metadata": [
       {
         "name": "ohos.arkui.UIMaterial.state",

@@ -85,7 +85,7 @@ App 必须配合 PC 端 daemon 才有功能，审核员环境里没有——**�
 3. **首启隐私弹窗**：托管模式下由系统统一弹出，App 侧**禁止**自建（store-privacy 硬约束）。
    - ⚠️ 该弹窗依赖**应用市场云侧上架记录**，未上架（含审核中、被驳回）时不弹——2026-10-13 提审即因此被以「首次启动未提示阅读隐私政策」打回。解法是**提审前先发邀请测试**（第一节第 6 步）建立记录，而不是在 App 侧补弹窗。
    - 曾按「自建首启弹窗 + AGC 自定义隐私政策」做过一版，因与托管模式互斥（托管+自建双弹窗会被驳回，faqs-appgallery-84）已整体回退；存档在 git 分支 `backup/self-built-privacy-popup` 与对应 stash。
-4. **上架前本地验证的调试预置**（store-privacy「未上架应用接入隐私管理服务」）：`entry/src/main/module.json5` 的 module 级 metadata 已加 `appgallery_privacy_hosted=1` 与 `appgallery_privacy_link_privacy_statement`（指向仓库 `PRIVACY.md` 的 https 地址，与 `privacy_fallback_url` 同值）。官方限定 **debug 构建**生效，用于无云侧记录时在真机上验证弹窗与 `privacyManager` 接口；release 行为与提审包去留由第四节 B/C 组实测决定。
+4. **上架前本地验证的调试预置**（store-privacy「未上架应用接入隐私管理服务」）：`entry/src/main/module.json5` 的 module 级 metadata 已加 `appgallery_privacy_hosted=1` 与 `appgallery_privacy_link_privacy_statement`（指向仓库 `PRIVACY.md` 的 https 地址，与 `privacy_fallback_url` 同值）。官方按「未上架应用测试用」描述、示例以 debug 构建演示，但 2026-10-14 真机实测确认 **release 模式同样生效**（去掉预置则同包不弹），因此它不只是测试工具，也是审核期弹窗的兜底——提审包去留见第四节 B/C 组结论。
 
 ## 四、上架前真机验证清单（隐私管理服务不支持模拟器，必须真机）
 
@@ -103,7 +103,21 @@ App 必须配合 PC 端 daemon 才有功能，审核员环境里没有——**�
 | | 8. 对同一包 hdc 安装 → 首次启动 | 仍弹窗；包内含预置时还须**只弹一次**（与云侧记录共存不双弹，faqs-appgallery-84 风险点） |
 | | 9. 若第 8 步双弹 | 提审包移除预置 metadata，重跑 7/8 |
 
-> 执行记录（日期 / 设备 / 每组结果）追加于此，作为提审依据：
+> **执行记录（2026-10-14，真机 HUAWEI Pura X 典藏版 / VDE-AL10 / API 26，无线 hdc；包 1.3.1 / 1030100）**：
+>
+> | 组 | 步 | 结果 | 取证 |
+> | --- | --- | --- | --- |
+> | A | 1 | ✅ debug 包（无云侧记录）首启弹标准化隐私弹窗 | `docs/agc/privacy-verify/01-debug首启弹窗.png`；日志 `AppGalleryKit: no privacy result, cannot find privacy timestamp, bundle = com.zhimingcool.padlink` |
+> | A | 2 | ✅ 未同意态下重启仍弹（取消不产生签署） | `docs/agc/privacy-verify/02-未同意重启仍弹.png` |
+> | A | 3 | ✅ 人工点「同意」后重启不再弹，直接进主控页 | `docs/agc/privacy-verify/03-同意后重启不弹.png` |
+> | A | 4 | ➖ 不适用：本应用未使用 `disableService`（无撤销入口） | — |
+> | A | 5 | ⚠️ 未完整验证：语音门控需「按住说话」，注入点击无法模拟按住手势 | 待人工 |
+> | B | 6 | ✅ **release 模式包同样弹窗**（预置在 release 生效，非 debug 专属） | `docs/agc/privacy-verify/04-release模式首启弹窗.png`；包内 `app.debug=false` |
+> | B2（补充对照） | — | ✅ **去掉预置后同包首启不弹**——复现 10-13 打回现场，证明预置即审核期弹窗的成因 | `docs/agc/privacy-verify/05-去掉预置首启不弹（对照）.png` |
+> | C | 7–9 | ⏳ 待账号侧邀请测试后执行 | — |
+>
+> ⚠️ **实测注意**：标准化隐私弹窗**不接受注入点击**（`devecocli ui click` 与 `uinput -T -c` 点「同意」「取消」均无效，日志始终 `no privacy result`），但注入系统键（HOME）有效——属系统防自动同意，非坐标问题。故该弹窗的按钮与政策链接**只能真人点按**：本次由用户手工完成，链接可打开政策全文（GitHub 加载正常）。
+> ⚠️ **B 组结论对提审包的含义**：预置在 release 模式下同样生效，因此**提审包保留预置即可让审核员在未上架状态下看到标准弹窗**，不再单靠云侧记录。建议顺序：先按第一节第 6 步发邀请测试建立云侧记录 → 用 C 组确认「预置 + 云侧记录」不会双弹 → 再提审；若 C 组出现双弹窗，则提审包移除预置，改纯云侧记录路径。
 
 ## 附录 A：演示视频分镜（约 60 秒）
 
