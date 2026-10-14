@@ -30,7 +30,7 @@
         // 须与 entry/src/main/resources/base/element/string.json 的 privacy_fallback_url 同值
         //（metadata.value 只接受字面量，无法引用 $string 资源）
         "name": "appgallery_privacy_link_privacy_statement",
-        "value": "https://github.com/Norman-pong/padlink/blob/main/PRIVACY.md"
+        "value": "https://agreement-drcn.hispace.dbankcloud.cn/index.html?lang=zh&agreementId=2059665914235774912"
       }
     ],
     // 局域网 UDP/TCP（FR-0/FR-6）。system_grant normal 级：无需 reason/usedScene
