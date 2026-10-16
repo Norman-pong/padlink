@@ -157,7 +157,7 @@ export class SettingsModel {
     return id;
   }
 
-  // upsert：按 ip+port 去重插入/更新并置默认；满 4 台新增抛 HostsFullError。
+  // upsert：hostId 优先去重（换 IP 主机原位更新），回退 ip+port；满 4 台新增抛 HostsFullError。
   public async saveLastHost(h: HostInfo): Promise<void> {
     const hs = this.hostsStore;
     if (hs === null) {

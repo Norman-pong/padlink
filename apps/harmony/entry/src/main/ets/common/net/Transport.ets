@@ -11,6 +11,7 @@ import { seal, verifyHmac } from '../proto/Auth';
 import type { HmacProvider } from '../proto/Auth';
 import { newMove, newScroll, newEcho, newRaw } from '../proto/Packet';
 import { CryptoHmacProvider } from './CryptoHmac';
+import { shouldDropUnsealed } from './EchoGuard';
 
 const TAG: string = 'PadLink.Transport';
 const DOMAIN: number = 0x5050;
@@ -221,6 +222,8 @@ export class Transport {
   public readonly tcp: TcpChannel = new TcpChannel();
   public readonly stats: TransportStats = new TransportStats();
   public onPacket: PacketHandler | null = null;
+  // 首个（及后续）验签通过报文的回调：IP 迁移据此确认对端持有 token（假主机伪造不出封签应答）。
+  public onVerified: (() => void) | null = null;
 
   public setToken(token: Uint8Array): void {
     this.provider = new CryptoHmacProvider(token);
@@ -325,7 +328,7 @@ export class Transport {
     this.sendReliable(pkt);
   }
 
-  // 收包管线：decode → FlagAuth 时常数时间验签 → 分发；两类失败分别计数。
+  // 收包管线：decode → 未封签拒收判据 → FlagAuth 时常数时间验签 → 分发；两类失败分别计数。
   // 无 token 时不做本地验签直接上抛：PAIR_OK 用的是本端尚未绑定的新 token，由 PairingModel 端到端自证。
   private handleWire(frame: ArrayBuffer): void {
     const r = decode(frame);
@@ -334,10 +337,18 @@ export class Transport {
       return;
     }
     const pkt: Packet = r.packet;
-    if ((pkt.flags & PacketFlag.AUTH) !== 0 && this.provider !== null) {
-      if (!verifyHmac(pkt, this.provider)) {
+    const provider = this.provider;
+    if (shouldDropUnsealed(pkt.type, pkt.flags, provider !== null)) {
+      this.stats.recvHmacFail++;
+      return;
+    }
+    if ((pkt.flags & PacketFlag.AUTH) !== 0 && provider !== null) {
+      if (!verifyHmac(pkt, provider)) {
         this.stats.recvHmacFail++;
         return;
+      }
+      if (this.onVerified !== null) {
+        this.onVerified();
       }
     }
     this.stats.recvOk++;

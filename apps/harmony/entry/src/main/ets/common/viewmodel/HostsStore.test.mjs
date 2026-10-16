@@ -2,7 +2,7 @@
 // upsert 去重与置默认、上限 4 拒绝、默认顺延、重命名/设默认/删除边界、名称 64B 校验。
 import assert from 'node:assert';
 import { HostInfo, HostsPolicy, HostsFullError,
-  HostsStore, parseHosts, validateHostName, hostKeyOf, findHost } from './HostsStore.ets';
+  HostsStore, parseHosts, validateHostName, hostKeyOf, findHost, findHostById } from './HostsStore.ets';
 
 let caseNo = 0;
 let failed = 0;
@@ -244,6 +244,92 @@ test('findHost：ip+port 精确命中，端口不同不误判', () => {
   assert.equal(findHost(list, '10.0.0.2', 53022), null);
   assert.equal(findHost(list, '10.0.0.3', 53021), null);
   assert.equal(findHost([], '10.0.0.2', 53021), null);
+});
+
+// ---- host_id 主机身份（换 IP 主机的档案判据） ----
+
+const HID = '00112233445566778899aabbccddeeff';
+
+function hostWithId(ip, hostId, name = '', tokenHex = 'aabb') {
+  const h = host(ip, 53021, name, tokenHex);
+  h.hostId = hostId;
+  return h;
+}
+
+test('hostKeyOf：有 hostId 用 id: 前缀，无 hostId 回落 ip:port', () => {
+  assert.equal(hostKeyOf('10.0.0.1', 53021, HID), `id:${HID}`);
+  assert.equal(hostKeyOf('10.0.0.1', 53021), '10.0.0.1:53021');
+});
+
+test('findHostById：身份命中；空 hostId / 未命中 / 空列表 → null', () => {
+  const list = [hostWithId('10.0.0.1', HID, 'a'), host('10.0.0.2')];
+  const hit = findHostById(list, HID);
+  assert.ok(hit !== null && hit.ip === '10.0.0.1');
+  assert.equal(findHostById(list, ''), null);
+  assert.equal(findHostById(list, 'ff'.repeat(16)), null);
+  assert.equal(findHostById([], HID), null);
+});
+
+test('upsert：同 hostId 换 IP → 原位更新不占新名额（换网络自愈的落盘形态）', () => {
+  const { store } = makeStore();
+  store.upsert(hostWithId('10.0.0.1', HID, 'office'));
+  store.upsert(hostWithId('192.168.5.9', HID, 'office', 'ccdd'));
+  const list = store.listHosts();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].ip, '192.168.5.9');
+  assert.equal(list[0].hostId, HID);
+  assert.equal(list[0].tokenHex, 'ccdd');
+  assert.equal(store.getDefault().ip, '192.168.5.9');
+});
+
+test('upsert：hostId 档案与旧档案（无 hostId）同 ip+port 视为同一主机', () => {
+  const { store } = makeStore();
+  store.upsert(host('10.0.0.1'));
+  store.upsert(hostWithId('10.0.0.1', HID));
+  assert.equal(store.listHosts().length, 1);
+  assert.equal(store.listHosts()[0].hostId, HID);
+});
+
+test('upsert：不同 hostId 不同 IP → 两台主机', () => {
+  const { store } = makeStore();
+  store.upsert(hostWithId('10.0.0.1', HID));
+  store.upsert(hostWithId('10.0.0.2', 'ff'.repeat(16)));
+  assert.equal(store.listHosts().length, 2);
+});
+
+test('parseHosts：hostId 非法形态（长度/大写/非 hex）按无身份解析，合法保留', () => {
+  const raw = JSON.stringify([
+    { ip: '10.0.0.1', port: 53021, hostId: HID },
+    { ip: '10.0.0.2', port: 53021, hostId: 'XYZ' },
+    { ip: '10.0.0.3', port: 53021, hostId: HID.toUpperCase() },
+    { ip: '10.0.0.4', port: 53021, hostId: 123 },
+  ]);
+  const list = parseHosts(raw);
+  assert.equal(list.length, 4);
+  assert.equal(list[0].hostId, HID);
+  assert.equal(list[1].hostId, '');
+  assert.equal(list[2].hostId, '');
+  assert.equal(list[3].hostId, '');
+});
+
+test('parseHosts：重复 hostId 保留首个（换 IP 旧档案迁移后只剩一条）', () => {
+  const raw = JSON.stringify([
+    { ip: '10.0.0.1', port: 53021, hostId: HID, tokenHex: 'aa' },
+    { ip: '192.168.5.9', port: 53021, hostId: HID, tokenHex: 'bb' },
+  ]);
+  const list = parseHosts(raw);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].ip, '10.0.0.1');
+  assert.equal(list[0].tokenHex, 'aa');
+});
+
+test('序列化往返：hostId 随档案持久化并可恢复', () => {
+  const { store, kv } = makeStore();
+  store.upsert(hostWithId('10.0.0.1', HID, 'office'));
+  const revived = new HostsStore(kv);
+  const list = revived.listHosts();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].hostId, HID);
 });
 
 finish();

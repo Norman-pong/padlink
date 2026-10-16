@@ -10,7 +10,9 @@ import { hexToBytes, bytesToHex } from '../net/HexCodec';
 import { OneShotWaiter } from '../net/OneShotWaiter';
 import type { SettingsModel } from './SettingsModel';
 import { HostInfo } from './SettingsModel';
-import { HostsFullError, hostKeyOf, findHost } from './HostsStore';
+import { HostsFullError, hostKeyOf, findHost, findHostById } from './HostsStore';
+import { pickHealCandidate, buildMigratedHost } from './HostHealCore';
+import { armMigrationPersist } from './HostHeal';
 import { nakReasonKey, validatePairCode, parsePairNakReason, pairOkToken,
   buildPairReqInitJson, buildPairReqCodeBytes, sanitizeDeviceName } from './PairingCore';
 import { PacketType } from '../proto/PacketType';
@@ -124,7 +126,8 @@ export class PairingModel {
     this.conn.exitDiscovering();
   }
 
-  // 选中主机：已配对（同一 ip+port 有 token）→ token 直连（不消耗电脑端名额）；token 失效 → 回落配对自愈。
+  // 选中主机：已配对（host_id 命中或同 ip+port 有 token）→ token 直连（不消耗电脑端名额）；
+  // host_id 命中但地址已变 → 迁移连接（封签确认后才落盘）；token 失效 → 回落配对自愈。
   public async selectHost(host: DiscoveredHost): Promise<void> {
     this.resetError();
     this.selected = host;
@@ -132,12 +135,26 @@ export class PairingModel {
     this.snapshot.code = '';
     const known: HostInfo | null = await this.findKnownHost(host);
     if (known !== null && known.tokenHex.length > 0) {
-      // 已配对主机：token 直连；连接成功即记为默认主机（自动重连才跟随用户选择）
-      if (await this.connectKnown(known)) {
-        return;
+      const moved: boolean = known.hostId.length > 0 && host.hostId.length > 0
+        && known.hostId === host.hostId && (known.ip !== host.ip || known.port !== host.port);
+      if (moved) {
+        // 已配对主机换了地址：直连新地址，档案待封签确认后由钩子落盘
+        const migrated = buildMigratedHost(known, host);
+        if (await this.connectKnown(migrated, true)) {
+          return;
+        }
+        hilog.warn(DOMAIN, TAG, '迁移连接失败，回落配对');
+        this.resetError();
+      } else {
+        if (known.hostId.length === 0 && host.hostId.length > 0) {
+          known.hostId = host.hostId; // 旧档案首次见到 daemon 身份：同地址即信任锚，直接回填
+        }
+        if (await this.connectKnown(known)) {
+          return;
+        }
+        hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对');
+        this.resetError();
       }
-      hilog.warn(DOMAIN, TAG, '已知主机 token 连接失败，回落配对');
-      this.resetError();
     }
     this.snapshot.phase = PairPhase.CONNECTING;
     try {
@@ -150,9 +167,10 @@ export class PairingModel {
     await this.startPairing();
   }
 
-  // 连接一台「已配对」主机（发现页选中、主机列表切换、快速连接三路共用）；成功后写成默认主机。
-  // 返回 false = 凭据不可用或连接失败（错误已写入快照）。
-  public async connectKnown(h: HostInfo): Promise<boolean> {
+  // 连接一台「已配对」主机（发现页选中、主机列表切换、快速连接、迁移自愈四路共用）。
+  // persistOnVerified=true（迁移连接）：地址变更未经确认，落盘推迟到对端封签报文验签通过。
+  // 成功后写成默认主机；返回 false = 凭据不可用或连接失败（错误已写入快照）。
+  public async connectKnown(h: HostInfo, persistOnVerified: boolean = false): Promise<boolean> {
     hilog.info(DOMAIN, TAG, 'connectKnown → %{public}s:%{public}d', h.ip, h.port);
     const token = hexToBytes(h.tokenHex);
     if (token === null || h.ip.length === 0) {
@@ -170,7 +188,12 @@ export class PairingModel {
       this.snapshot.phase = PairPhase.FAILED;
       return false;
     }
-    await this.markActiveHost(h);
+    if (persistOnVerified) {
+      // beginSession 已清旧钩子，此处（连接成功后）装本次迁移的落盘钩子
+      armMigrationPersist(this.conn, this.settings, h);
+    } else {
+      await this.markActiveHost(h);
+    }
     this.refreshQuickLabel();
     this.enterPaired();
     return true;
@@ -315,8 +338,29 @@ export class PairingModel {
     }
     // 与发现页选中、主机列表切换共用同一条连接路径（含「记为默认主机」语义）
     if (!await this.connectKnown(host)) {
+      // 有身份档案且旧地址连不上：静默发现一次，命中新地址则迁移连接
+      if (host.hostId.length > 0 && await this.healAndConnect(host)) {
+        return;
+      }
       this.snapshot.errorHintKey = 'pair_hint_auto_reconnect';
     }
+  }
+
+  // 发现自愈：扫描 → host_id 命中新地址 → 迁移连接（封签确认后落盘）。命中并连上返回 true。
+  private async healAndConnect(h: HostInfo): Promise<boolean> {
+    let hosts: DiscoveredHost[] = [];
+    try {
+      hosts = await this.discoverer.discover();
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'heal discover fail: %{public}s', (err as Error).message);
+      return false;
+    }
+    const cand = pickHealCandidate(hosts, h);
+    if (cand === null) {
+      return false;
+    }
+    hilog.info(DOMAIN, TAG, '快速连接自愈命中 %{public}s:%{public}d', cand.ip, cand.port);
+    return this.connectKnown(buildMigratedHost(h, cand), true);
   }
 
 
@@ -343,6 +387,7 @@ export class PairingModel {
     h.ip = this.selected.ip;
     h.port = this.selected.port;
     h.tokenHex = bytesToHex(token);
+    h.hostId = this.selected.hostId;
     this.settings.saveLastHost(h).catch((err: Error) => {
       if (err instanceof HostsFullError) {
         // 满 4 台未入库：本会话仍可用（token 已绑定），页面轻提示引导先删除
@@ -413,12 +458,13 @@ export class PairingModel {
     });
   }
 
-  // 本机已配对主机键集合（ip:port）：发现页标注与 selectHost 直连共用。
+  // 本机已配对主机键集合（id:hostId 与 ip:port 双形态）：发现页标注与 selectHost 直连共用。
   private refreshKnownHosts(): void {
     this.settings.listHosts().then((hosts: HostInfo[]) => {
       const keys: string[] = [];
       for (const h of hosts) {
-        keys.push(hostKeyOf(h.ip, h.port));
+        keys.push(hostKeyOf(h.ip, h.port, h.hostId));
+        keys.push(`${h.ip}:${h.port}`);
       }
       this.snapshot.knownHostKeys = keys;
     }).catch((err: Error) => {
@@ -428,11 +474,21 @@ export class PairingModel {
   }
 
   public isKnownHost(host: DiscoveredHost): boolean {
-    return this.snapshot.knownHostKeys.indexOf(hostKeyOf(host.ip, host.port)) >= 0;
+    const keys: string[] = this.snapshot.knownHostKeys;
+    if (host.hostId.length > 0 && keys.indexOf(`id:${host.hostId}`) >= 0) {
+      return true;
+    }
+    return keys.indexOf(`${host.ip}:${host.port}`) >= 0;
   }
 
   private findKnownHost(host: DiscoveredHost): Promise<HostInfo | null> {
     return this.settings.listHosts().then((hosts: HostInfo[]) => {
+      if (host.hostId.length > 0) {
+        const byId = findHostById(hosts, host.hostId);
+        if (byId !== null) {
+          return byId;
+        }
+      }
       return findHost(hosts, host.ip, host.port);
     }).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'findKnownHost fail: %{public}s', err.message);
