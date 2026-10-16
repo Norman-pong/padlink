@@ -61,8 +61,10 @@ builds:
     goos: [windows]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
+    # -H=windowsgui：daemon 无控制台窗口（关闭控制台=杀进程，实测踩坑）；
+    # 交互调试由 attachParentConsole 接回父控制台，--test 重定向句柄不受影响
     ldflags:
-      - -s -w -X main.daemonVersion={{ .Version }}
+      - -H=windowsgui -s -w -X main.daemonVersion={{ .Version }}
   - id: padlinkctl-windows
     dir: daemon
     main: ./cmd/padlinkctl

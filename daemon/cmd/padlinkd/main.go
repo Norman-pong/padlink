@@ -31,8 +31,15 @@ import (
 // daemonVersion 由发布流程以 ldflags -X 注入（goreleaser）；本地构建回落 0.1.0-dev。
 var daemonVersion = "0.1.0-dev"
 
+// fixConsoleHook windows 平台由 console_windows.go 的 init 注入（windowsgui 构建接回
+// 父控制台）；其他平台恒 nil。
+var fixConsoleHook func()
+
 func main() {
 	ensureUTF8Locale()
+	if fixConsoleHook != nil {
+		fixConsoleHook()
+	}
 	// 隐藏子命令：配对码弹窗（pairing.NotifyDesktop 自旋自身二进制，避免 osascript 桥接缺陷）。
 	// 必须在 flag.Parse 之前分流，避免未知 flag 报错。
 	if len(os.Args) > 1 && os.Args[1] == "_pairing-dialog" {
