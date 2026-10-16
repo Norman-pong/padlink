@@ -233,9 +233,9 @@ func ensureUTF8Locale() {
 }
 
 // defaultRestoreDelayMs 返回还原剪贴板的默认延迟：必须够目标应用读完粘贴板，
-// macOS 800ms / Linux 300ms，改小前须真机复测。
+// macOS 800ms / Windows 800ms（尖峰 C 实测）/ Linux 300ms，改小前须真机复测。
 func defaultRestoreDelayMs() int {
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		return 800
 	}
 	return int(textinject.DefaultRestoreDelay / time.Millisecond)

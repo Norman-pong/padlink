@@ -43,8 +43,12 @@ func textsForLocale(loc string) dialogTexts {
 	return textsEn
 }
 
+// sysLocaleHook 供 windows 注入系统 UI 语言探测（notify_windows.go 的 init 赋值，
+// GetUserDefaultUILanguage）；其他平台为 nil，走既有的 darwin defaults / LC_ALL/LANG 链。
+var sysLocaleHook func() string
+
 // pickTexts 检测当前用户语言：macOS 读全局 AppleLocale（launchd 环境无 locale 变量），
-// Linux 读 LC_ALL/LANG；全部缺失回落英文。
+// Windows 读系统 UI 语言，Linux 读 LC_ALL/LANG；全部缺失回落英文。
 func pickTexts() dialogTexts {
 	loc := ""
 	if runtime.GOOS == "darwin" {
@@ -53,6 +57,9 @@ func pickTexts() dialogTexts {
 		if out, err := exec.CommandContext(ctx, "defaults", "read", "-g", "AppleLocale").Output(); err == nil {
 			loc = string(out)
 		}
+	}
+	if loc == "" && sysLocaleHook != nil {
+		loc = sysLocaleHook()
 	}
 	if loc == "" {
 		loc = os.Getenv("LC_ALL")

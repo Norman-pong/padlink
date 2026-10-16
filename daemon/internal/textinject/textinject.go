@@ -211,6 +211,9 @@ func platformClipboard() clipboard {
 	if runtime.GOOS == "darwin" {
 		return pbClipboard
 	}
+	if runtime.GOOS == "windows" {
+		return winClipboard
+	}
 	return wlClipboard
 }
 
