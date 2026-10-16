@@ -188,6 +188,22 @@ func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(st
 	return p
 }
 
+// DaemonBinPath 返回按安装形态推断的 padlinkd 可执行文件路径（update 升级后的
+// 版本终验用：ctl 自身可能仍是旧进程，只有落盘的 padlinkd 能报出新版本）；
+// 未安装/未知形态返回空串。
+func (p Probe) DaemonBinPath() string {
+	switch p.Kind {
+	case KindLinuxTar:
+		return filepath.Join(p.UserBinDir, daemonBinName)
+	case KindDebRPM:
+		return filepath.Join("/usr/bin", daemonBinName)
+	case KindMacOSAgent:
+		return filepath.Join(p.Home, "Applications", "PadLink.app", "Contents", "MacOS", daemonBinName)
+	default:
+		return ""
+	}
+}
+
 // firstExisting 返回第一个存在的绝对路径；空串与相对路径一律忽略（探测结果不应受当前工作目录影响）。
 func firstExisting(exists func(string) bool, paths ...string) string {
 	for _, path := range paths {

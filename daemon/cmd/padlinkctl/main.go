@@ -1,5 +1,6 @@
 // padlinkctl 是 padlinkd 的控制 CLI：status / pair / clients / unpair 走 Unix socket 控制通道（行分隔 JSON）；
-// start / stop / restart / uninstall 由 internal/service 直接操作 systemd --user 或 launchd（daemon 未运行也可用）。
+// start / stop / restart / uninstall 由 internal/service 直接操作 systemd --user 或 launchd（daemon 未运行也可用）；
+// update 由 internal/update 从 GitHub Releases 取包验签后执行包内 install.sh。
 package main
 
 import (
@@ -8,11 +9,17 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"padlink/daemon/internal/control"
 	"padlink/daemon/internal/service"
+	"padlink/daemon/internal/update"
 )
+
+// ctlVersion 由发布流程以 ldflags -X 注入（goreleaser）；本地构建回落 0.1.0-dev。
+var ctlVersion = "0.1.0-dev"
 
 func usage() {
 	fmt.Fprint(os.Stderr, `用法: padlinkctl <命令>
@@ -26,6 +33,10 @@ func usage() {
   start           启动 padlinkd 服务（Linux systemd --user / macOS launchd）
   stop            停止 padlinkd 服务
   restart         重启 padlinkd 服务
+  update          升级到最新 release（下载 → SHA-256 校验 → 执行包内安装脚本）
+                  选项:
+                    --check    只检查是否有新版本，不下载不安装
+                    [vX.Y.Z]   指定目标版本（默认最新；可用于回退）
   uninstall       卸载 padlink：停服务、移除服务定义与用户级二进制
                   选项:
                     --purge    连配置与 token 一起删除（需二次确认）
@@ -52,6 +63,75 @@ func parseUninstallArgs(args []string) (service.UninstallOptions, error) {
 	return opts, nil
 }
 
+// runUpdate 处理 padlinkctl update [--check] [vX.Y.Z]。deb/rpm 与未安装形态不接管；
+// tar.gz / macOS 形态由 update 包取包验签后执行包内 install.sh（安装逻辑单源，含
+// macOS 的 bundle 重签与 launchd 重启）。Linux 安装后需显式重启服务——install.sh 的
+// enable --now 对已运行单元是 no-op；macOS 的 install.sh 自带 bootout+bootstrap 无需补手。
+func runUpdate(args []string) error {
+	check := false
+	var target string
+	for _, arg := range args {
+		switch arg {
+		case "--check":
+			check = true
+		case "-h", "--help":
+			fmt.Println("用法: padlinkctl update [--check] [vX.Y.Z]")
+			return nil
+		default:
+			if strings.HasPrefix(arg, "-") || target != "" {
+				return fmt.Errorf("未知选项 %q（用法: padlinkctl update [--check] [vX.Y.Z]）", arg)
+			}
+			target = arg
+		}
+	}
+
+	p := service.HostProbe()
+	switch p.Kind {
+	case service.KindDebRPM:
+		return fmt.Errorf("deb/rpm 安装由包管理器管理，请执行: sudo apt upgrade padlink（Debian/Ubuntu）或 sudo dnf upgrade padlink（Fedora/RHEL）")
+	case service.KindUnknown:
+		return fmt.Errorf("未检测到已知安装形态，请先用一行安装器安装: curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh")
+	}
+	fmt.Fprintf(os.Stdout, "安装形态: %s\n", p.Kind)
+
+	res, err := update.Run(update.Options{Target: target, Current: ctlVersion, CheckOnly: check, Out: os.Stdout})
+	if err != nil {
+		return err
+	}
+
+	if check {
+		switch res.Relation {
+		case update.RelSame:
+			fmt.Printf("已是最新: %s（当前 %s）\n", res.Tag, res.Current)
+		case update.RelUpgrade:
+			fmt.Printf("可升级: %s → %s（执行 padlinkctl update）\n", res.Current, res.Tag)
+		case update.RelDowngrade:
+			fmt.Printf("当前版本 %s 比最新 release %s 还新\n", res.Current, res.Tag)
+		case update.RelDev:
+			fmt.Printf("当前为开发构建（%s），最新 release: %s\n", res.Current, res.Tag)
+		}
+		return nil
+	}
+	if res.UpToDate {
+		fmt.Printf("已是最新: %s\n", res.Tag)
+		return nil
+	}
+
+	if p.Kind == service.KindLinuxTar {
+		if err := service.Control(service.ActionRestart, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stdout, "警告: 安装已完成，但重启服务失败: %v（手动执行: padlinkctl restart）\n", err)
+		}
+	}
+	// 终验：update 替换的是落盘文件，ctl 自身仍是旧进程，只有已安装的 padlinkd 能报出新版本
+	if bin := p.DaemonBinPath(); bin != "" {
+		if out, err := exec.Command(bin, "-version").Output(); err == nil {
+			fmt.Printf("已安装 padlinkd 版本: %s\n", strings.TrimSpace(string(out)))
+		}
+	}
+	fmt.Println("手机端会自动重连；APP 版本独立发布，不受本命令影响。")
+	return nil
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -61,6 +141,12 @@ func main() {
 	switch os.Args[1] {
 	case "start", "stop", "restart":
 		if err := service.Control(service.ControlAction(os.Args[1]), os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "padlinkctl: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	case "update":
+		if err := runUpdate(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "padlinkctl: %v\n", err)
 			os.Exit(1)
 		}

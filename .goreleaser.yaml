@@ -34,7 +34,7 @@ builds:
     goos: [linux]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
-    ldflags: [-s, -w]
+    ldflags: [-s, -w, -X main.ctlVersion={{ .Version }}]
   - id: padlinkctl-darwin
     dir: daemon
     main: ./cmd/padlinkctl
@@ -42,7 +42,7 @@ builds:
     goos: [darwin]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
-    ldflags: [-s, -w]
+    ldflags: [-s, -w, -X main.ctlVersion={{ .Version }}]
   - id: padlinktoy
     dir: daemon
     main: ./cmd/padlinktoy

@@ -99,16 +99,23 @@ padlinkd --test -v   # Linux：光标画圆 → 点击 → 打字 → 滚动，�
 同一台电脑可以同时连多台手机，但**同一时刻只有一台在控制**：另一台手机操作时会被忽略并提示「另一台设备正在控制」，
 需等 15 秒冷静期且当前控制的那台停下后才能接管（防止两台手机同时抢光标）。
 
-## 五、启停与卸载（电脑端）
+## 五、启停、升级与卸载（电脑端）
 
 ```sh
 padlinkctl stop                  # 停止 padlinkd 服务（下次登录/start 恢复）
 padlinkctl start                 # 启动
 padlinkctl restart               # 重启
+padlinkctl update                # 升级到最新版（下载 → SHA-256 校验 → 安装 → 重启服务）
+padlinkctl update --check        # 只看有没有新版本
+padlinkctl update v1.4.0         # 升级/回退到指定版本
 padlinkctl uninstall             # 卸载：停服 + 移除服务定义与二进制（保留配对记录）
 padlinkctl uninstall --purge     # 连配对记录/配置一起删（会二次确认；--yes 跳过）
 padlinkctl uninstall --dry-run   # 先看会做什么，不实际执行
 ```
+
+- `update` 只管 tar.gz 与 macOS LaunchAgent 两种安装形态（升级后配对记录与手机自动重连不受影响）；
+  deb/rpm 安装的请用 `sudo apt upgrade padlink` / `sudo dnf upgrade padlink`。
+- 升级前会做 SHA-256 校验，校验不过不会动系统任何文件。
 
 - deb/rpm 装的（`sudo apt install padlink`）请用 `sudo apt remove padlink` / `sudo dnf remove padlink`；
   `padlinkctl uninstall` 会提示，但不会去删 `/usr` 下的文件。

@@ -557,3 +557,27 @@ func TestBuildUninstallPlansOnlyGuardCheckedPaths(t *testing.T) {
 		}
 	}
 }
+
+// TestProbeDaemonBinPath：update 升级后终验用——各形态落盘 padlinkd 的推断路径。
+func TestProbeDaemonBinPath(t *testing.T) {
+	exists := setExists()
+	lin := BuildInstallProbe("linux", "/home/u", "", 1000, exists)
+	lin.Kind = KindLinuxTar
+	if got := lin.DaemonBinPath(); got != filepath.Join("/home/u/.local/bin", "padlinkd") {
+		t.Errorf("linux-tar = %q", got)
+	}
+	lin.Kind = KindDebRPM
+	if got := lin.DaemonBinPath(); got != "/usr/bin/padlinkd" {
+		t.Errorf("deb-rpm = %q", got)
+	}
+	mac := BuildInstallProbe("darwin", "/Users/u", "", 501, exists)
+	mac.Kind = KindMacOSAgent
+	want := filepath.Join("/Users/u/Applications/PadLink.app/Contents/MacOS", "padlinkd")
+	if got := mac.DaemonBinPath(); got != want {
+		t.Errorf("macos-agent = %q, want %q", got, want)
+	}
+	mac.Kind = KindUnknown
+	if got := mac.DaemonBinPath(); got != "" {
+		t.Errorf("unknown = %q, want 空串", got)
+	}
+}
