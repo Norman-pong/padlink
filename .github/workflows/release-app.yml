@@ -1,0 +1,36 @@
+# 打 app-v* tag 触发：校验 app.json5 与 tag 一致，并创建 GitHub Release 作为发布记录。
+# APP 的分发渠道是 AppGallery——构建与提审在本地 DevEco 完成后打本 tag 留档；
+# daemon 发布是独立的 v* 轨（release.yml），两端版本对照台账见 docs/RELEASES.md。
+name: release-app
+
+on:
+  push:
+    tags:
+      - 'app-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: 校验 APP 版本与 tag 一致
+        run: node tools/check-version.mjs "${GITHUB_REF_NAME}"
+
+      - name: 创建发布记录
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#app-v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "APP v${VERSION}" \
+            --notes "手机端（HarmonyOS APP）发布记录，分发渠道为 AppGallery；daemon 版本独立发布，对照台账见 docs/RELEASES.md。"

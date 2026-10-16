@@ -225,7 +225,7 @@ for out, src in SRC.items():
 
 ## 八、版本更新说明
 
-> 按实际提审版本填写；当前 `apps/harmony/AppScope/app.json5` = 1.3.1（versionCode 1030100）。1.3.0 未上架，故内容沿用。
+> 按实际提审版本填写；当前 `apps/harmony/AppScope/app.json5` = 1.3.2（versionCode 1030200，版本以文件为准）。1.3.0/1.3.1 未上架，故内容沿用并追加本轮功能。
 
 ```
 本次更新：

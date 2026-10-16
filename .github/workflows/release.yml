@@ -1,5 +1,6 @@
-# 打 v* tag 触发：goreleaser 出 tar.gz（linux/darwin）+ deb + rpm 并发布到 GitHub Releases。
-# 发版步骤：git tag v1.0.0 && git push origin v1.0.0（tag 打在 main 上）。
+# 打 v* tag 触发（daemon 轨）：goreleaser 出 tar.gz（linux/darwin）+ deb + rpm 并发布到 GitHub Releases。
+# 发版步骤：git tag v1.4.0 && git push origin v1.4.0（tag 打在 main 上）。
+# 双轨版本：APP 独立发版（app-v* → release-app.yml），两端版本对照台账见 docs/RELEASES.md；本轨不要求与 APP 同号。
 # macos-latest 单 runner 承载全部产物：darwin 注入后端需 cgo 本机构建；
 # linux 纯 Go 交叉编译与 nfpm（纯 Go）在 macOS 上照常工作（docs/PLAN-MACOS.md §2.6）。
 name: release
@@ -32,7 +33,7 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: 校验 APP 版本与 tag 一致
+      - name: 校验版本门禁（daemon 轨；APP 版本独立记录）
         run: node tools/check-version.mjs "${GITHUB_REF_NAME}"
 
       - uses: goreleaser/goreleaser-action@v6
