@@ -34,7 +34,9 @@ builds:
     goos: [linux]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
-    ldflags: [-s, -w, -X main.ctlVersion={{ .Version }}]
+    # ldflags 用块列表：模板 {{ }} 的花括号在行内序列 [] 里会被 YAML 当嵌套 mapping
+    ldflags:
+      - -s -w -X main.ctlVersion={{ .Version }}
   - id: padlinkctl-darwin
     dir: daemon
     main: ./cmd/padlinkctl
@@ -42,7 +44,8 @@ builds:
     goos: [darwin]
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
-    ldflags: [-s, -w, -X main.ctlVersion={{ .Version }}]
+    ldflags:
+      - -s -w -X main.ctlVersion={{ .Version }}
   - id: padlinktoy
     dir: daemon
     main: ./cmd/padlinktoy
