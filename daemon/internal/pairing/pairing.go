@@ -26,9 +26,9 @@ const (
 // 哨兵错误：会话层据此映射 PAIR_NAK reason（0..4），ctl 据此出文案。
 var (
 	ErrNoSession       = errors.New("无进行中的配对")
-	ErrExpired         = errors.New("确认码已过期")
+	ErrExpired         = errors.New("配对码已过期")
 	ErrTooManyAttempts = errors.New("尝试次数超限，本轮配对已作废")
-	ErrWrongCode       = errors.New("确认码错误")
+	ErrWrongCode       = errors.New("配对码错误")
 	ErrClientsFull     = errors.New("已配对客户端已达上限")
 	ErrNameTooLong     = errors.New("客户端名超过 64 字节")
 	ErrBadDevID        = errors.New("设备指纹格式非法（应为 32 个小写 hex 字符或空）")

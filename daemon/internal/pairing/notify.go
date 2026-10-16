@@ -3,72 +3,100 @@ package pairing
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
-// NotifyDesktop 展示确认码：优先系统弹窗（macOS osascript 对话框 / Linux zenity），
-// 弹窗存活与确认码 TTL 对齐后自动消失；弹窗不可用回落桌面通知横幅。
-// 全部失败静默忽略——无桌面环境属正常，确认码仍经返回值/日志/padlinkctl 可见。
-func NotifyDesktop(code string) {
-	name, args, ok := dialogCmd(runtime.GOOS, code, DefaultCodeTTL, exec.LookPath)
-	if !ok {
-		notify(code)
-		return
+// dialogTexts 弹窗/通知的本地化文案（中英）。
+type dialogTexts struct {
+	ok        string // 确认按钮
+	hintLine  string // 单行说明（fallback 弹窗/zenity/通知用，含 code 与秒数两个占位）
+	hintPre   string // 倒计时前缀（弹窗用）
+	hintSuf   string // 倒计时后缀
+	noticePre string // 通知横幅前缀
+}
+
+var textsZh = dialogTexts{
+	ok:        "好的",
+	hintLine:  "配对码：%s（%d 秒内有效）",
+	hintPre:   "配对码 · 剩余 ",
+	hintSuf:   " 秒",
+	noticePre: "配对码: ",
+}
+
+var textsEn = dialogTexts{
+	ok:        "OK",
+	hintLine:  "Pairing code: %s (valid for %ds)",
+	hintPre:   "Pairing code · ",
+	hintSuf:   "s left",
+	noticePre: "Pairing code: ",
+}
+
+// textsForLocale 按 locale 前缀选文案；未知/空回落英文（国际化惯例）。
+func textsForLocale(loc string) dialogTexts {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(loc)), "zh") {
+		return textsZh
 	}
-	// 弹窗进程放行到 TTL 之外再杀：ctx 只兜底挂死，不承担正常关闭。
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultCodeTTL+dialogGrace)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	if err := cmd.Start(); err != nil {
-		notify(code)
-		return
-	}
-	go func() {
-		if err := cmd.Wait(); err != nil {
-			notify(code) // 无 GUI 会话等失败：横幅兜底
+	return textsEn
+}
+
+// pickTexts 检测当前用户语言：macOS 读全局 AppleLocale（launchd 环境无 locale 变量），
+// Linux 读 LC_ALL/LANG；全部缺失回落英文。
+func pickTexts() dialogTexts {
+	loc := ""
+	if runtime.GOOS == "darwin" {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if out, err := exec.CommandContext(ctx, "defaults", "read", "-g", "AppleLocale").Output(); err == nil {
+			loc = string(out)
 		}
-	}()
-}
-
-func notify(code string) {
-	name, args := notifyCmd(code)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	if err := cmd.Start(); err != nil {
-		return
 	}
-	go func() { _ = cmd.Wait() }() // 后台收尸，不阻塞调用方
+	if loc == "" {
+		loc = os.Getenv("LC_ALL")
+	}
+	if loc == "" {
+		loc = os.Getenv("LANG")
+	}
+	return textsForLocale(loc)
 }
 
-// dialogGrace 弹窗进程的额外存活余量（正常路径由 giving up after / --timeout 自行退出）。
+// 弹窗存活余量：弹窗自身按 TTL 退出的正常路径不受影响，仅兜底挂死进程。
 const dialogGrace = 5 * time.Second
 
-// dialogCmd 组装确认码弹窗命令；lookPath 注入（Linux zenity 探测），ok=false 表示平台无弹窗可用。
-func dialogCmd(goos, code string, ttl time.Duration, lookPath func(string) (string, error)) (string, []string, bool) {
-	secs := int(ttl / time.Second)
-	switch goos {
-	case "darwin":
-		script := fmt.Sprintf(`display dialog "配对确认码：%s" with title "PadLink" buttons {"好的"} default button "好的" giving up after %d`, code, secs)
-		return "osascript", []string{"-e", script}, true
-	case "linux":
-		if _, err := lookPath("zenity"); err != nil {
-			return "", nil, false
-		}
-		return "zenity", []string{
-			"--info", "--title=PadLink",
-			"--text=" + fmt.Sprintf("配对确认码：%s", code),
-			fmt.Sprintf("--timeout=%d", secs),
-		}, true
+// runSilently 启动命令并后台收尸；返回 Start 是否成功。
+// 超时（ctx 到点杀进程）属正常消失路径，不触发 onFail；非零退出（且非超时）触发。
+func runSilently(name string, args []string, timeout time.Duration, onFail func()) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	cmd := exec.CommandContext(ctx, name, args...)
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return false
 	}
-	return "", nil, false
+	go func() {
+		defer cancel()
+		if err := cmd.Wait(); err != nil && ctx.Err() == nil && onFail != nil {
+			onFail()
+		}
+	}()
+	return true
 }
 
-func notifyCmd(code string) (string, []string) {
-	if runtime.GOOS == "darwin" {
-		return "osascript", []string{"-e", `display notification "配对确认码: ` + code + `" with title "PadLink"`}
+// dialogCmdLinux 组装配对码弹窗命令；lookPath 注入（zenity 探测），ok=false 表示无弹窗可用。
+func dialogCmdLinux(code string, ttl time.Duration, lookPath func(string) (string, error), texts dialogTexts) (string, []string, bool) {
+	if _, err := lookPath("zenity"); err != nil {
+		return "", nil, false
 	}
-	return "notify-send", []string{"PadLink", "配对确认码: " + code}
+	secs := int(ttl / time.Second)
+	return "zenity", []string{
+		"--info", "--title=PadLink",
+		"--text=" + fmt.Sprintf(texts.hintLine, code, secs),
+		fmt.Sprintf("--timeout=%d", secs),
+	}, true
+}
+
+func notifyCmdLinux(texts dialogTexts, code string) (string, []string) {
+	return "notify-send", []string{"PadLink", texts.noticePre + code}
 }

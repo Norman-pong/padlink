@@ -19,7 +19,7 @@ func usage() {
 
 命令:
   status          查看 daemon 状态（版本/uptime/配对/会话/计数/控制权抢占/accel-profile）
-  pair            发起配对，终端显示 4 位确认码（60 秒内有效，最多 5 次尝试）
+  pair            发起配对，终端显示 4 位配对码（60 秒内有效，最多 5 次尝试）
   clients         列出已配对客户端（id/名称/配对时间/设备指纹/在线）
   unpair <id>     解除指定客户端配对并踢下线
 
@@ -153,7 +153,7 @@ func printResult(req control.Request, resp control.Response) {
 		if mustUnmarshal(resp.Data, &st) {
 			pairing := "无"
 			if st.Pairing.Active {
-				pairing = fmt.Sprintf("确认码 %s（%d 秒后过期）", st.Pairing.Code, st.Pairing.ExpiresInSec)
+				pairing = fmt.Sprintf("配对码 %s（%d 秒后过期）", st.Pairing.Code, st.Pairing.ExpiresInSec)
 			}
 			accel := st.AccelProfile
 			if accel == "" {
@@ -168,7 +168,7 @@ func printResult(req control.Request, resp control.Response) {
 			Code string `json:"code"`
 		}
 		if mustUnmarshal(resp.Data, &d) {
-			fmt.Printf("配对确认码: %s（60 秒内有效，最多 5 次尝试；主机桌面通知已尝试发送）\n", d.Code)
+			fmt.Printf("配对码: %s（60 秒内有效，最多 5 次尝试；主机弹窗已尝试显示）\n", d.Code)
 		}
 	case "clients":
 		var clients []control.ClientInfo

@@ -11,41 +11,39 @@ func found(path string) func(string) (string, error) {
 	return func(name string) (string, error) { return path, nil }
 }
 
-func TestDialogCmdDarwin(t *testing.T) {
-	name, args, ok := dialogCmd("darwin", "1234", 60*time.Second, nil)
-	if !ok || name != "osascript" {
-		t.Fatalf("darwin 应走 osascript: %q %v %v", name, args, ok)
+func TestTextsForLocale(t *testing.T) {
+	for _, loc := range []string{"zh_CN", "zh-Hans-CN", "ZH_cn", "zh"} {
+		if got := textsForLocale(loc); got.ok != "好的" {
+			t.Errorf("%q 应为中文文案，得到 %+v", loc, got)
+		}
 	}
-	script := args[1]
-	for _, want := range []string{`display dialog`, "1234", "giving up after 60"} {
-		if !strings.Contains(script, want) {
-			t.Errorf("脚本缺 %q: %s", want, script)
+	for _, loc := range []string{"en_US", "ja_JP", "", "  "} {
+		if got := textsForLocale(loc); got.ok != "OK" {
+			t.Errorf("%q 应回落英文文案，得到 %+v", loc, got)
 		}
 	}
 }
 
 func TestDialogCmdLinuxZenity(t *testing.T) {
-	name, args, ok := dialogCmd("linux", "1234", 60*time.Second, found("/usr/bin/zenity"))
+	name, args, ok := dialogCmdLinux("1234", 60*time.Second, found("/usr/bin/zenity"), textsZh)
 	if !ok || name != "zenity" {
 		t.Fatalf("linux 有 zenity 应走 zenity: %q %v %v", name, args, ok)
 	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "1234") || !strings.Contains(joined, "--timeout=60") {
-		t.Errorf("zenity 参数缺确认码或超时: %v", args)
+	if !strings.Contains(joined, "配对码：1234") || !strings.Contains(joined, "--timeout=60") {
+		t.Errorf("zenity 参数缺配对码或超时: %v", args)
+	}
+	_, enArgs, _ := dialogCmdLinux("1234", 60*time.Second, found("/usr/bin/zenity"), textsEn)
+	if !strings.Contains(strings.Join(enArgs, " "), "Pairing code: 1234") {
+		t.Errorf("zenity 英文文案缺失: %v", enArgs)
 	}
 }
 
 func TestDialogCmdLinuxNoZenity(t *testing.T) {
-	_, _, ok := dialogCmd("linux", "1234", 60*time.Second, func(string) (string, error) {
+	_, _, ok := dialogCmdLinux("1234", 60*time.Second, func(string) (string, error) {
 		return "", errors.New("not found")
-	})
+	}, textsZh)
 	if ok {
 		t.Error("无 zenity 应返回不可用（调用方回落通知）")
-	}
-}
-
-func TestDialogCmdUnknownGOOS(t *testing.T) {
-	if _, _, ok := dialogCmd("windows", "1234", 60*time.Second, found("x")); ok {
-		t.Error("未知平台应返回不可用")
 	}
 }

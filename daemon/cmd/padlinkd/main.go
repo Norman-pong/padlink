@@ -32,6 +32,11 @@ var daemonVersion = "0.1.0-dev"
 
 func main() {
 	ensureUTF8Locale()
+	// 隐藏子命令：配对码弹窗（pairing.NotifyDesktop 自旋自身二进制，避免 osascript 桥接缺陷）。
+	// 必须在 flag.Parse 之前分流，避免未知 flag 报错。
+	if len(os.Args) > 1 && os.Args[1] == "_pairing-dialog" {
+		os.Exit(pairing.RunDialogHelper(os.Args[2:]))
+	}
 	test := flag.Bool("test", false, "运行注入链路自测（画圆/点击/敲键/滚动，无手机）")
 	verbose := flag.Bool("v", false, "verbose 输出（逐包调试行）")
 	port := flag.Int("port", session.DefaultPort, "TCP/UDP 服务端口")

@@ -70,11 +70,11 @@
     },
     {
       "name": "pair_code_hint",
-      "value": "请在电脑上查看确认码（桌面通知，或终端运行 padlinkctl pair）"
+      "value": "请在电脑上查看配对码（电脑弹窗，或终端运行 padlinkctl pair）"
     },
     {
       "name": "pair_verifying",
-      "value": "正在验证确认码…"
+      "value": "正在验证配对码…"
     },
     {
       "name": "pair_success",
@@ -98,15 +98,15 @@
     },
     {
       "name": "pair_code_invalid",
-      "value": "确认码须为 4 位数字"
+      "value": "配对码须为 4 位数字"
     },
     {
       "name": "pair_nak_wrong_code",
-      "value": "确认码错误，请重新输入"
+      "value": "配对码错误，请重新输入"
     },
     {
       "name": "pair_nak_expired",
-      "value": "确认码已过期，请重新发起配对"
+      "value": "配对码已过期，请重新发起配对"
     },
     {
       "name": "pair_nak_too_many",
@@ -638,7 +638,7 @@
     },
     {
       "name": "pair_code_input_a11y",
-      "value": "确认码输入框，四位数字"
+      "value": "配对码输入框，四位数字"
     },
     {
       "name": "settings_version_a11y_hint",
@@ -798,7 +798,7 @@
     },
     {
       "name": "guide_step3_body",
-      "value": "装好后服务端会在电脑上常驻运行。回到发现页点「重新扫描」，点搜索到的主机发起配对，4 位确认码会显示在电脑屏幕的通知上（也可以在电脑终端运行 padlinkctl pair 查看）。"
+      "value": "装好后服务端会在电脑上常驻运行。回到发现页点「重新扫描」，点搜索到的主机发起配对，4 位配对码会显示在电脑屏幕的弹窗上（也可以在电脑终端运行 padlinkctl pair 查看）。"
     },
     {
       "name": "guide_trouble_title",
