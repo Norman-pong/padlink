@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"padlink/daemon/internal/proto"
@@ -160,17 +159,6 @@ func legalFramePool(tok []byte) [][]byte {
 		pool = append(pool, b)
 	}
 	return pool
-}
-
-// enableBroadcast 尽力开启 SO_BROADCAST；失败只影响广播路径，不算 fuzz 失败。
-func enableBroadcast(uc *net.UDPConn) {
-	rc, err := uc.SyscallConn()
-	if err != nil {
-		return
-	}
-	_ = rc.Control(func(fd uintptr) {
-		_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-	})
 }
 
 // sendBroadcastHello 尽力向广播地址发 HELLO，失败静默忽略；回环目标须用定向广播 127.255.255.255。

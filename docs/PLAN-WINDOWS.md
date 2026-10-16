@@ -4,6 +4,13 @@
 动机：padlinkd 三层（协议/会话/注入编排）按「换平台只换 DeviceWriter 后端」设计，
 Windows 是纯 daemon 侧新后端 + 安装/发版链路扩展，协议与手机端零改动。
 
+## 进度
+
+- M1 ✅（2026-10-16）SendInput 注入后端：`uinput_windows.go`（绝对定位 move / 扫描码按键 / HI_RES 跨帧累积整格滚动 / CapsLock 走 GetAsyncKeyState 复用 XOR 补偿）+ `keymap_windows.go`（KEY_* → PS/2 set-1，覆盖面与 darwin 键表同源）+ Pause VK 例外；`padlinkd --test` 实机 PASSED（画圆/左键/'pl'/+2-1 滚动）；键表/归一化/滚轮纯逻辑测试在实机 12/12 PASS。附平台化小修：padlinktoy 广播开关于 unix/windows 分文件（Go 的 Windows UDP 默认已设 SO_BROADCAST）。
+- M2 ⬜ 文本注入（Win32 剪贴板 + Ctrl+V）+ 配对弹窗（TaskDialog 倒计时）
+- M3 ⬜ install.ps1 + HKCU Run 键 + 防火墙 + goreleaser 双架构 + `padlinkctl update` Windows 形态
+- M4 ⬜ 手机 ↔ Win11 端到端联调 + 文档平台矩阵
+
 ## 已定决策（2026-10-16，与维护者逐项确认）
 
 | # | 决策点 | 定案 | 理由 |
