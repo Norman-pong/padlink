@@ -1,6 +1,6 @@
-// HexCodec 纯函数单测：hex↔bytes 往返、非法输入、大小写兼容。
+// HexCodec 纯函数单测：hex↔bytes 往返、非法输入、大小写兼容、定长小写 hex 校验。
 import assert from 'node:assert';
-import { hexToBytes, bytesToHex } from './HexCodec.ets';
+import { hexToBytes, bytesToHex, isLowerHex } from './HexCodec.ets';
 
 let caseNo = 0;
 let failed = 0;
@@ -59,6 +59,14 @@ test('bytesToHex 输出小写并解码往返一致', () => {
   const back = hexToBytes(hex);
   assert.ok(back !== null);
   assert.deepEqual(Array.from(back), Array.from(bytes));
+});
+
+test('isLowerHex：长度、大小写、字符集逐项拒绝', () => {
+  assert.equal(isLowerHex('00112233445566778899aabbccddeeff', 32), true);
+  assert.equal(isLowerHex('00112233445566778899aabbccddeef', 32), false); // 短一位
+  assert.equal(isLowerHex('00112233445566778899AABBCCDDEEFF', 32), false); // 大写
+  assert.equal(isLowerHex('00112233445566778899aabbccddeegf', 32), false); // g 非 hex
+  assert.equal(isLowerHex('', 32), false);
 });
 
 finish();

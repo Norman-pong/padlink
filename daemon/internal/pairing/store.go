@@ -51,16 +51,26 @@ type Store struct {
 	permWarnings []string
 }
 
-// DefaultPath 返回默认存储路径（遵循 XDG_CONFIG_HOME，回落 ~/.config）。
-func DefaultPath() (string, error) {
+// ConfigDir 返回配置目录路径（遵循 XDG_CONFIG_HOME，回落 ~/.config）。
+// 主机身份等跨 IP 持久化的daemon 级文件与 clients.json 同目录。
+func ConfigDir() (string, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "padlink", "clients.json"), nil
+		return filepath.Join(dir, "padlink"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("pairing: 无法定位用户主目录: %w", err)
 	}
-	return filepath.Join(home, ".config", "padlink", "clients.json"), nil
+	return filepath.Join(home, ".config", "padlink"), nil
+}
+
+// DefaultPath 返回默认存储路径（遵循 XDG_CONFIG_HOME，回落 ~/.config）。
+func DefaultPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "clients.json"), nil
 }
 
 // Load 加载（或初始化）token 存储；文件不存在视为空存储。

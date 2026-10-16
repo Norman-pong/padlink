@@ -57,6 +57,7 @@ type Config struct {
 	RateBurst     int
 	RateDropMax   int
 	Hostname      string // DISCOVER_RESP 的 name（默认 os.Hostname()）
+	HostID        string // DISCOVER_RESP 的 host_id（空 = 省略字段，兼容旧手机）
 	DaemonVersion string
 	Verbose       bool
 	Log           *log.Logger // nil 时用标准 logger
@@ -477,6 +478,8 @@ type discoverResp struct {
 	Ver    int    `json:"ver"`
 	Paired int    `json:"paired"`
 	Port   int    `json:"port"`
+	// HostID 未认证通道里的候选提示（PROTOCOL.md §4.10），空时省略字段。
+	HostID string `json:"host_id,omitempty"`
 }
 
 func (s *Server) discoverBody() []byte {
@@ -487,6 +490,7 @@ func (s *Server) discoverBody() []byte {
 		Ver:    proto.Ver,
 		Paired: s.store.Count(),
 		Port:   s.Port(),
+		HostID: s.cfg.HostID,
 	})
 	return b
 }

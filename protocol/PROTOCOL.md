@@ -46,7 +46,7 @@ daemon → 手机的下行事件：**DISCOVER_RESP / PAIR_OK / PAIR_NAK / ERR**�
 | 值 | 名称 | 通道 | payload |
 | --- | --- | --- | --- |
 | 1 | HELLO | TCP | 版本协商（双端交换支持的 ver，取交集） |
-| 2 | DISCOVER_RESP | UDP | 发现应答：主机名/系统/daemon 版本/配对状态（JSON，v1 约定见 daemon discovery 模块） |
+| 2 | DISCOVER_RESP | UDP | 发现应答：主机名/系统/daemon 版本/配对状态/主机身份（JSON 契约见 §4.10） |
 | 3 | PAIR_REQ | TCP/UDP | 4 位确认码尝试 |
 | 4 | PAIR_OK | TCP/UDP | 配对成功，签发 32B token |
 | 5 | PAIR_NAK | TCP/UDP | 配对拒绝（码错/过期/超次数） |
@@ -102,6 +102,8 @@ hid_usage 为 **USB HID 键盘页 usage ID**（手机端键盘区直接发 HID �
 int64 ts_ms (BE)
 ```
 发送方 Unix 毫秒时间戳；对端原样回传同 payload，发起方算 RTT（不做跨机时钟同步）。
+ECHO 应答自 v1 起恒随该客户端 token 封 FlagAuth（UDP 与 TCP 同口径）；已绑定 token 的接收端
+**必须拒收未封签的 ECHO 应答**——未封签应答无法证明应答方持有 token，放行会被假主机维持假会话。
 
 ### 4.7 NOTICE（2B）——daemon → 手机提示
 
@@ -144,6 +146,21 @@ u8 code | u8 arg
   该设备的控制事件才放行，并成为新的持权设备；若持权设备仍在操作，则重新进入 15 秒冷静期。
 - 持权设备断开即释放控制权，任一设备的首个控制事件立刻取得控制权。
 - 被拒设备若此刻仍持有按键/按钮（异常时序兜底），daemon 先补发其释放事件再丢弃其输入（PRD §11.2 零残留红线）。
+
+### 4.10 DISCOVER_RESP（JSON）——发现应答契约
+
+应答为未认证 UDP 单播，payload 为 UTF-8 JSON：
+
+```json
+{"name":"<主机名>","os":"<系统>","daemon":"<版本>","ver":<协议 ver>,"paired":<已配对客户端数>,"port":<TCP/UDP 端口>,"host_id":"<32 小写 hex>"}
+```
+
+- 除 `port`（1..65535，缺失/非法整体丢弃）外字段均可缺省；未知字段忽略（向前兼容）。
+- `host_id`：**可选**主机稳定身份 = daemon 首次启动生成的 16 字节随机值 hex（32 个小写 hex 字符），
+  持久化于主机配置目录，跨网络环境/跨 IP 不变。旧 daemon 不带该字段（按缺省处理）。
+- **安全约束**：发现应答不认证，`host_id` 可被局域网内任意主机获取并冒用。接收方只能把它当作
+  「已配对主机换地址」的**候选提示**；据此迁移已配对主机的地址前，必须先在该地址建立会话并
+  验证 daemon 能产出随 token 封签的报文（如 ECHO 应答，见 §4.6），验证通过方可持久化新地址。
 
 ## 5. 认证（HMAC）
 

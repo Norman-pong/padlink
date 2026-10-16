@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"padlink/daemon/internal/control"
+	"padlink/daemon/internal/hostid"
 	"padlink/daemon/internal/hostinfo"
 	"padlink/daemon/internal/inject"
 	"padlink/daemon/internal/pairing"
@@ -119,6 +120,12 @@ func run(cfg config) error {
 	mgr := pairing.NewManager(store)
 	mgr.Log = logf.Printf
 
+	// 主机身份：不可用时降级为发现应答不带 host_id（手机端回落 ip:port 匹配），不阻断启动。
+	hostID, err := hostid.LoadOrCreate(cfg.stateDir)
+	if err != nil {
+		logf.Printf("警告[hostid] %v", err)
+	}
+
 	// 粘贴组合键按平台选：Linux Ctrl+V，macOS Cmd+V。
 	pasteKey := inj.CtrlV
 	if runtime.GOOS == "darwin" {
@@ -137,6 +144,7 @@ func run(cfg config) error {
 	}
 	srv = session.New(session.Config{
 		Port:          cfg.port,
+		HostID:        hostID,
 		DaemonVersion: daemonVersion,
 		Verbose:       cfg.verbose,
 	}, store, mgr, inj, onText)

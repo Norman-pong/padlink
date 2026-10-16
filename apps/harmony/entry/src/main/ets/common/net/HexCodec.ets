@@ -27,6 +27,20 @@ export function bytesToHex(bytes: Uint8Array): string {
   return out;
 }
 
+// 严格小写 hex 定长校验（16B 随机身份的 32 字符形态：设备指纹与主机身份共用）。
+export function isLowerHex(s: string, expectLen: number): boolean {
+  if (s.length !== expectLen) {
+    return false;
+  }
+  for (let i = 0; i < s.length; i++) {
+    const c: number = s.charCodeAt(i);
+    if ((c < 0x30 || c > 0x39) && (c < 0x61 || c > 0x66)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function hexVal(c: number): number {
   if (c >= 0x30 && c <= 0x39) {
     return c - 0x30; // '0'..'9'

@@ -106,4 +106,54 @@ test('upsert 不改入参数组（@Trace 重赋值语义）', () => {
   assert.equal(src.length, 1);
 });
 
+// ---- host_id 主机身份解析与按身份去重 ----
+
+const HID = '00112233445566778899aabbccddeeff';
+
+function mkHost(ip, hostId = '') {
+  const d = new DiscoveredHost();
+  d.ip = ip;
+  d.port = 53021;
+  d.hostId = hostId;
+  return d;
+}
+
+test('host_id 合法（32 小写 hex）→ 解析进 hostId', () => {
+  const h = parseDiscoverRespJson(`{"port":53021,"host_id":"${HID}"}`, '10.0.0.1');
+  assert.ok(h !== null);
+  assert.equal(h.hostId, HID);
+});
+
+test('host_id 非法（大写/短/非字符串）→ 按无身份处理不崩', () => {
+  const upper = parseDiscoverRespJson(`{"port":53021,"host_id":"${HID.toUpperCase()}"}`, '10.0.0.1');
+  assert.ok(upper !== null && upper.hostId === '');
+  const short = parseDiscoverRespJson('{"port":53021,"host_id":"abcdef"}', '10.0.0.1');
+  assert.ok(short !== null && short.hostId === '');
+  const wrongType = parseDiscoverRespJson('{"port":53021,"host_id":42}', '10.0.0.1');
+  assert.ok(wrongType !== null && wrongType.hostId === '');
+});
+
+test('旧 daemon 不带 host_id → hostId 为空（回落 ip:port 匹配）', () => {
+  const h = parseDiscoverRespJson('{"port":53021}', '10.0.0.1');
+  assert.ok(h !== null && h.hostId === '');
+});
+
+test('upsert 同 host_id 不同 IP（多网卡多应答）→ 合并为一行，后到覆盖', () => {
+  const out = upsertHost([mkHost('10.0.0.1', HID)], mkHost('192.168.5.9', HID));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].ip, '192.168.5.9');
+  assert.equal(out[0].hostId, HID);
+});
+
+test('upsert 同 IP 一方无 host_id → 仍按 IP 合并（旧 daemon 混布）', () => {
+  const out = upsertHost([mkHost('10.0.0.1', HID)], mkHost('10.0.0.1'));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].hostId, '');
+});
+
+test('upsert 不同 host_id 不同 IP → 两行互不吞并', () => {
+  const out = upsertHost([mkHost('10.0.0.1', HID)], mkHost('10.0.0.2', 'ff'.repeat(16)));
+  assert.equal(out.length, 2);
+});
+
 finish();

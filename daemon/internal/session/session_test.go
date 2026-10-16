@@ -590,6 +590,7 @@ func TestUDPDiscoverResp(t *testing.T) {
 		Ver    int    `json:"ver"`
 		Paired int    `json:"paired"`
 		Port   int    `json:"port"`
+		HostID string `json:"host_id"`
 	}
 	if err := json.Unmarshal(pkt.Payload, &resp); err != nil {
 		t.Fatalf("JSON 解析: %v", err)
@@ -599,6 +600,49 @@ func TestUDPDiscoverResp(t *testing.T) {
 	}
 	if resp.Ver != proto.Ver || resp.Paired != 0 || resp.Port != ts.srv.Port() {
 		t.Errorf("发现应答数值字段不符: %+v (port want %d)", resp, ts.srv.Port())
+	}
+	if resp.HostID != "" {
+		t.Errorf("未配置 HostID 时应省略 host_id 字段（旧手机兼容），得到 %q", resp.HostID)
+	}
+}
+
+func TestUDPDiscoverRespHostID(t *testing.T) {
+	const id = "00112233445566778899aabbccddeeff"
+	ts := newTestServer(t, func(c *Config) { c.HostID = id })
+	uc, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: ts.srv.Port()})
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	t.Cleanup(func() { uc.Close() })
+
+	pl := make([]byte, 2)
+	binary.BigEndian.PutUint16(pl, proto.Ver)
+	hello := proto.NewRaw(proto.TypeHello, 1, pl)
+	helloBytes, err := proto.Encode(&hello)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if _, err := uc.Write(helloBytes); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	buf := make([]byte, 2048)
+	uc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err := uc.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("ReadFromUDP: %v", err)
+	}
+	pkt, err := proto.Decode(buf[:n])
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	var resp struct {
+		HostID string `json:"host_id"`
+	}
+	if err := json.Unmarshal(pkt.Payload, &resp); err != nil {
+		t.Fatalf("JSON 解析: %v", err)
+	}
+	if resp.HostID != id {
+		t.Errorf("host_id = %q, want %q", resp.HostID, id)
 	}
 }
 

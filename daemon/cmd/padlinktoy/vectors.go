@@ -276,6 +276,13 @@ func buildVectors() ([]vectorOut, error) {
 	if err != nil {
 		return nil, err
 	}
+	discoverJsonHostID := `{"name":"office","os":"darwin","daemon":"0.1.0","ver":1,"paired":1,"port":53021,"host_id":"00112233445566778899aabbccddeeff"}`
+	v23, err := mk(23, "DISCOVER_RESP host descriptor JSON with optional host_id (stable host identity hint, see PROTOCOL.md 4.10), daemon->phone, unsealed",
+		proto.NewRaw(proto.TypeDiscoverResp, 20, []byte(discoverJsonHostID)), "DISCOVER_RESP", 20, false,
+		semDiscoverResp{PayloadHex: hex.EncodeToString([]byte(discoverJsonHostID))})
+	if err != nil {
+		return nil, err
+	}
 	out = append(out, v1, v2, v3, v4, v5, v6, v7, v8,
 		vectorOut{ID: 9, Desc: "INVALID: magic is 'XL' not 'PL' — receiver must drop+count",
 			Hex: "584c010600000900040000000000000000000000010001", Valid: false, ExpectError: "bad_magic"},
@@ -283,7 +290,7 @@ func buildVectors() ([]vectorOut, error) {
 			Hex: "504c010b00000a0800000000000000000000000000000000000001", Valid: false, ExpectError: "len_out_of_range"},
 		vectorOut{ID: 11, Desc: "INVALID: payload truncated (payload_len=4 but only 2 bytes follow) — drop+count",
 			Hex: "504c010600000b0004000000000000000000000007", Valid: false, ExpectError: "truncated"},
-		v12, v13, v14, v15, v16, v17, v18, v19, v20, v21, v22)
+		v12, v13, v14, v15, v16, v17, v18, v19, v20, v21, v22, v23)
 	return out, nil
 }
 

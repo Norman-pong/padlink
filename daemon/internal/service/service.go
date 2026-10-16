@@ -26,6 +26,7 @@ const (
 	daemonBinName = "padlinkd"
 	ctlBinName    = "padlinkctl"
 	clientsFile   = "clients.json"
+	hostIDFile    = "host_id"
 	daemonLogName = "padlinkd.log"
 
 	stateDirName = "padlink"
@@ -143,8 +144,10 @@ func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(st
 	if configRoot != "" {
 		if dir := filepath.Join(configRoot, stateDirName); exists(dir) {
 			p.ConfigDir = dir
-			if f := filepath.Join(dir, clientsFile); exists(f) {
-				p.ConfigFiles = append(p.ConfigFiles, f)
+			for _, name := range []string{clientsFile, hostIDFile} {
+				if f := filepath.Join(dir, name); exists(f) {
+					p.ConfigFiles = append(p.ConfigFiles, f)
+				}
 			}
 		}
 	}

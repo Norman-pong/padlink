@@ -140,6 +140,8 @@ go -C daemon run ./cmd/padlinktoy <子命令> -h
 ## 安全约定
 
 - token 存 `clients.json`，写入后显式 Chmod **0600**（防宽松 umask）；加载时权限宽于 0600 打警告。
+- 主机身份存 `host_id`（与 `clients.json` 同目录、同权限）：16B 随机值，随 DISCOVER_RESP 明文广播，
+  仅作手机端「已配对主机换地址」的候选提示——未认证通道可被冒用，地址迁移以 token 封签报文验签通过为准（PROTOCOL.md §4.10）。
 - 确认码与 token 查找均用常数时间比较。
 - token 与剪贴板内容（备份/注入文本）一律不进日志，日志只记长度与计数。
 - DISCOVER_RESP 不含敏感信息；配对发起成功不回包，确认码只出现在主机侧；文本注入备份仅驻内存。

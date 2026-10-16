@@ -280,6 +280,7 @@ export class ConnectionManager {
     }
     this.transport.tcp.onClosed = null; // 先摘回调：紧随其后的 teardown 会关旧 socket
     this.transport.tcp.onError = null;
+    this.transport.onVerified = null; // 迁移落盘钩子只属于装它的那个会话，换会话即作废
     this.manualClose = false;
     this.missed = 0;
     this.awaitingReply = false;
