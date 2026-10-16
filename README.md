@@ -12,7 +12,7 @@
 curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
 ```
 
-手机端进入 APP 的「发现与配对」页，选中电脑，输入电脑屏幕上弹出的 4 位确认码即可。
+手机端进入 APP 的「发现与配对」页，选中电脑，输入电脑屏幕上弹出的 4 位配对码即可。
 
 完整步骤 —— 安装收尾、主控页用法、管理已配对电脑、连不上时的排查表 —— 见 **[docs/SETUP.md](docs/SETUP.md)**。
 
