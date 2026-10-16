@@ -27,6 +27,13 @@ irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps
 
 管理命令与 Ubuntu/macOS 相同：`padlinkctl status / start / stop / restart / update / uninstall`。
 
+两个边界（远程/代理场景）：
+
+- **经 SSH 执行 `padlinkctl update`**：更新完成后重启的 daemon 会被 SSH 会话的作业树一并
+  终止（KILL_ON_JOB_CLOSE）——请在普通终端里跑 update，或更新后用 `padlinkctl start` 重新拉起。
+- **经代理访问 GitHub**：`padlinkctl update` 读环境变量（Go 惯例），不读系统代理——
+  `cmd /c "set HTTPS_PROXY=http://127.0.0.1:12700&& padlinkctl update"`。
+
 ### 一行命令安装（Ubuntu / macOS，推荐）
 
 在电脑终端执行：
