@@ -12,7 +12,7 @@ import (
 )
 
 // NotifyDesktop 展示配对码（macOS）：一级为自身二进制的隐藏子命令 _pairing-dialog
-//（原生 ObjC 弹窗，倒计时每秒刷新、归零自关；osascript 的 ASOC 脚本对象做 timer
+// （原生 ObjC 弹窗，倒计时每秒刷新、归零自关；osascript 的 ASOC 脚本对象做 timer
 // target 会因桥接缺陷全部失败，故不走脚本）；二级回落系统 display dialog（无倒计时）；
 // 最后回落通知横幅。全部失败静默忽略——配对码仍经返回值/日志/padlinkctl 可见。
 func NotifyDesktop(code string) {
