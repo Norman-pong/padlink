@@ -10,9 +10,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -49,6 +51,14 @@ var (
 	procGetMessageW      = user32.NewProc("GetMessageW")
 	procDestroyWindow    = user32.NewProc("DestroyWindow")
 	procPostQuitMessage  = user32.NewProc("PostQuitMessage")
+	procWindowFromPoint  = user32.NewProc("WindowFromPoint")
+	procGetClassNameW    = user32.NewProc("GetClassNameW")
+	procPostMessageW     = user32.NewProc("PostMessageW")
+	procTranslateMessage = user32.NewProc("TranslateMessage")
+	procDispatchMessageW = user32.NewProc("DispatchMessageW")
+	procFindWindowW      = user32.NewProc("FindWindowW")
+	procSendMessageW     = user32.NewProc("SendMessageW")
+	procEnumChildWindows = user32.NewProc("EnumChildWindows")
 )
 
 // INPUT 结构按 x64/arm64 布局（windows 目标全为 64 位）：type(4)+pad(4)+联合体，
@@ -104,11 +114,14 @@ const (
 	wmLButtonUp     = 0x0202
 	wmLButtonDblClk = 0x0203
 	wmDestroy       = 0x0002
+	wmUser          = 0x0400
 	csDblClks       = 0x0008
 	wsVisible       = 0x10000000
 	wsOverlapped    = 0x00CF0000
 	vkControl       = 0x11
 	vkV             = 0x56
+	wmGetTextLength = 0x000E
+	wmGetText       = 0x000D
 )
 
 func init() {
@@ -215,6 +228,11 @@ func testPointerAccel() {
 }
 
 func socketRoundtrip(path string) {
+	// AF_UNIX bind 不建父目录：实测父目录缺失时报 "dead network"，先补目录再探长度
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Printf("  路径(%d 字符) 建目录失败: %v\n", len(path), err)
+		return
+	}
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		fmt.Printf("  路径(%d 字符) bind 失败: %v\n", len(path), err)
@@ -376,10 +394,13 @@ func testClipboardEcho() {
 }
 
 func testClipboardPaste() {
-	fmt.Println("=== 测试 C2：Ctrl+V 上屏（手动确认） ===")
+	fmt.Println("=== 测试 C2：Ctrl+V 上屏（自动拉起记事本） ===")
 	delay := *pasteDelay
-	fmt.Printf("请把记事本置为前台光标在文本区，%d 秒后开始粘贴…\n", 3)
-	time.Sleep(3 * time.Second)
+	// 经计划任务投到交互桌面时无人在旁置焦点，自己拉起记事本（新窗口默认持焦点）
+	if err := exec.Command("notepad").Start(); err != nil {
+		fmt.Printf("启动记事本失败: %v（请手动开记事本后重跑 -paste）\n", err)
+	}
+	time.Sleep(2 * time.Second)
 
 	orig, hadOrig := "", false
 	if r, _, _ := procOpenClipboard.Call(0); r != 0 {
@@ -410,17 +431,32 @@ func testClipboardPaste() {
 		}
 		procCloseClipboard.Call()
 	}
-	fmt.Printf("已注入 Ctrl+V 并在 %d ms 后恢复原剪贴板。检查记事本：应为「padlink粘贴测试-无多余换行」，无多余换行。\n", delay)
+	fmt.Printf("已注入 Ctrl+V 并在 %d ms 后恢复原剪贴板。\n", delay)
+	// 上屏验证：枚举记事本全部子控件读文本（Win11 新记事本无经典 Edit 控件，
+	// 枚举法两种代次都覆盖）
+	time.Sleep(500 * time.Millisecond)
+	clsNP, _ := syscall.UTF16PtrFromString("Notepad")
+	np, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(clsNP)), 0)
+	if np == 0 {
+		fmt.Println("上屏验证：未找到记事本窗口，请人工核对")
+		return
+	}
+	enumChildCb = syscall.NewCallback(enumChildFn)
+	procEnumChildWindows.Call(np, enumChildCb, 0)
+	fmt.Printf("上屏验证结论：命中 = %v\n", pasteHit.Load())
 }
 
 var (
 	downCount atomic.Int32
 	dblCount  atomic.Int32
 	upCount   atomic.Int32
+	userCount atomic.Int32
 	wndProcCb uintptr
 )
 
-func wndProc(hwnd syscall.Handle, msg uint32, wp, lp uintptr) uintptr {
+// 签名必须全指针尺寸（syscall.NewCallback 的硬约束）：msg 用 uint32 会错位读参，
+// 消息码对不上号——首轮实测 DOWN 恒 0 的根因。
+func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch msg {
 	case wmLButtonDown:
 		downCount.Add(1)
@@ -428,11 +464,37 @@ func wndProc(hwnd syscall.Handle, msg uint32, wp, lp uintptr) uintptr {
 		upCount.Add(1)
 	case wmLButtonDblClk:
 		dblCount.Add(1)
+	case wmUser:
+		userCount.Add(1)
 	case wmDestroy:
 		procPostQuitMessage.Call(0)
 	}
-	r, _, _ := procDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wp, lp)
+	r, _, _ := procDefWindowProcW.Call(hwnd, msg, wp, lp)
 	return r
+}
+
+// pasteHit 由枚举回调置位：任一子控件文本包含测试串即算上屏成功
+var pasteHit atomic.Bool
+var enumChildCb uintptr
+
+// enumChildCb 必须全指针尺寸（同 wndProc 的 NewCallback 约束）。
+func enumChildFn(hwnd, lp uintptr) uintptr {
+	var cls [64]uint16
+	procGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&cls[0])), 64)
+	n, _, _ := procSendMessageW.Call(hwnd, wmGetTextLength, 0, 0)
+	if n == 0 {
+		return 1
+	}
+	buf := make([]uint16, n+1)
+	procSendMessageW.Call(hwnd, wmGetText, uintptr(len(buf)), uintptr(unsafe.Pointer(&buf[0])))
+	text := syscall.UTF16ToString(buf)
+	if strings.Contains(text, "padlink粘贴测试-无多余换行") {
+		pasteHit.Store(true)
+		fmt.Printf("  子控件 %q 命中: %q\n", syscall.UTF16ToString(cls[:]), text)
+	} else {
+		fmt.Printf("  子控件 %q: %q\n", syscall.UTF16ToString(cls[:]), text)
+	}
+	return 1
 }
 
 type wndClassEx struct {
@@ -480,30 +542,59 @@ func testDoubleClick() {
 		return
 	}
 	title, _ := syscall.UTF16PtrFromString("winspike")
-	hwnd, _, err := procCreateWindowExW.Call(0, uintptr(unsafe.Pointer(clsName)),
-		uintptr(unsafe.Pointer(title)), wsOverlapped|wsVisible,
-		100, 100, 260, 260, 0, 0, inst, 0)
-	if hwnd == 0 {
-		fmt.Printf("CreateWindowExW 失败: %v\n", err)
-		return
-	}
+	// 窗口必须「创建线程 == 泵消息线程」（Win32 窗口消息投递到创建线程的队列），
+	// goroutine 会漂移线程，所以创建+泵都锁在同一个 LockOSThread goroutine 里；
+	// 位置放屏幕中央，光标点窗口客户区中心——否则点击落在窗外测不到事件。
+	w, h := screenWH()
+	wx, wy := (w-260)/2, (h-260)/2
+	ready := make(chan syscall.Handle, 1)
 	pumped := make(chan struct{})
 	go func() {
-		// 消息泵线程亲和：GetMessage 循环跑在独立 goroutine（窗口消息不分线程，回调经 NewCallback 进泵线程）
+		runtime.LockOSThread()
+		// WS_EX_TOPMOST(8)：计划任务起的进程受前台锁限制抢不到前台，非置顶会被
+		// 用户正在用的窗口盖住——点击就落不到测试窗上（首轮实测踩坑）。
+		hwnd, _, err := procCreateWindowExW.Call(8, uintptr(unsafe.Pointer(clsName)),
+			uintptr(unsafe.Pointer(title)), wsOverlapped|wsVisible,
+			uintptr(wx), uintptr(wy), 260, 260, 0, 0, inst, 0)
+		if hwnd == 0 {
+			fmt.Printf("CreateWindowExW 失败: %v\n", err)
+			ready <- 0
+			return
+		}
+		ready <- syscall.Handle(hwnd)
 		var m msg
 		for {
 			r, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 			if r == 0 || uintptr(r) == ^uintptr(0) {
 				break
 			}
+			// 取到消息必须 Dispatch，wndProc 才会被调（首轮实测漏了这步，
+			// 连 PostMessage 的自检计数都停在 0）
+			procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+			procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 		}
 		close(pumped)
 	}()
+	hwnd := <-ready
+	if hwnd == 0 {
+		return
+	}
 	time.Sleep(300 * time.Millisecond)
 
-	w, h := screenWH()
-	moveAbs(w/2, h/2-60)
+	moveAbs(wx+130, wy+150)
 	time.Sleep(100 * time.Millisecond)
+	// 诊断：这个点最顶层窗口是谁（POINT 8 字节按值传参，x64/arm64 均占单个寄存器槽）
+	ptArg := uintptr(uint32(wx+130)) | uintptr(uint32(wy+150))<<32
+	wh, _, _ := procWindowFromPoint.Call(ptArg)
+	var cls [64]uint16
+	procGetClassNameW.Call(wh, uintptr(unsafe.Pointer(&cls[0])), 64)
+	fmt.Printf("点击点顶层窗口类 = %q（hwnd=%#x，应为 PLSpike）\n", syscall.UTF16ToString(cls[:]), wh)
+
+	// 泵自检：PostMessage USER 上来，先证明「窗口+回调+消息泵」链路本身通，
+	// 把泵故障与 SendInput 投递故障隔离开
+	procPostMessageW.Call(uintptr(hwnd), wmUser, 0x123, 0)
+	time.Sleep(200 * time.Millisecond)
+	fmt.Printf("泵自检（PostMessage WM_USER）：userCount=%d（应=1）\n", userCount.Load())
 
 	// 双击：4 段事件间隔远小于阈值
 	click := func(down bool) {
@@ -542,7 +633,8 @@ func testDoubleClick() {
 	fmt.Printf("慢速两次单击（间隔 > %dms 阈值）：DOWN=%d UP=%d DBLCLK=%d\n",
 		dblTime, downCount.Load(), upCount.Load(), dblCount.Load())
 
-	procDestroyWindow.Call(hwnd)
+	procDestroyWindow.Call(uintptr(hwnd))
+	<-pumped
 	fmt.Println("（判定：双击时 DBLCLK 替换第二次 DOWN → 系统已代管点击计数，注入端无需自合成；")
 	fmt.Println("        接收窗口未开 CS_DBLCLKS 时只收普通 DOWN，两种应用都能正常工作）")
 }
@@ -551,7 +643,33 @@ var pasteDelay = flag.Duration("paste-delay", 800, "Ctrl+V 后恢复剪贴板的
 
 func main() {
 	paste := flag.Bool("paste", false, "只跑剪贴板 Ctrl+V 手动验证（其余测试跳过）")
+	out := flag.String("out", "", "输出同时写入该文件（计划任务投递用：schtasks 起的进程有独立控制台，stdout 无人看见）")
 	flag.Parse()
+	if *out != "" {
+		f, err := os.Create(*out)
+		if err != nil {
+			fmt.Printf("打开输出文件失败: %v\n", err)
+			os.Exit(1)
+		}
+		// os.Stdout 是 *os.File 具体类型，不能塞 MultiWriter；改用管道：
+		// 换上新写端，goroutine 从读端向「原终端 + 文件」双写（测试函数都走 fmt→os.Stdout）
+		r, w, err := os.Pipe()
+		if err != nil {
+			fmt.Printf("创建管道失败: %v\n", err)
+			os.Exit(1)
+		}
+		orig := os.Stdout
+		os.Stdout = w
+		go func() {
+			io.Copy(io.MultiWriter(orig, f), r)
+			r.Close()
+		}()
+		defer func() {
+			w.Close()
+			time.Sleep(200 * time.Millisecond) // 排空管道再退出，防尾段丢失
+			f.Close()
+		}()
+	}
 	fmt.Printf("winspike  target=windows/%s  tmp=%s\n", runtime.GOARCH, os.TempDir())
 	if *paste {
 		testClipboardPaste()
@@ -561,5 +679,5 @@ func main() {
 	testUnixSocket()
 	testClipboardEcho()
 	testDoubleClick()
-	fmt.Println("\n=== 全部自动测试完成，请把以上输出整体贴回 ===")
+	fmt.Println("\n=== 全部自动测试完成 ===")
 }

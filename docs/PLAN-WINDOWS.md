@@ -29,18 +29,24 @@ Windows 是纯 daemon 侧新后端 + 安装/发版链路扩展，协议与手机
 | 9 | 防火墙 | 安装脚本一次性 `netsh advfirewall` 放行 UDP/TCP 53021（管理员一步，同 Linux udev 模式） | M3 |
 | 10 | 控制通道 | `net "unix"`（AF_UNIX，Win11 原生），路径 `%TEMP%\padlinkd\control.sock` | 尖峰 B 待实测 |
 
-## M0 尖峰（`daemon/cmd/winspike`，实机一次性出数）
+## M0 尖峰结论（2026-10-16 实机实测，Win11 amd64，经 SSH + 计划任务投递交互桌面）
 
-上机方法：下载 `winspike_<arch>.exe` → PowerShell 执行 `.\winspike.exe`（四测连跑约 30 秒，
-期间屏幕上会自己画圆/弹测试窗，不要动鼠标）；剪贴板粘贴手动验证另跑 `.\winspike.exe -paste`
-（先开记事本置前台）。输出整体回填下表。
+上机方法：`winspike.exe`（四测连跑约 30 秒，屏幕会自己画圆/弹测试窗）；剪贴板粘贴验证 `winspike.exe -paste`。
+原始输出已核对归档于本表；尖峰程序保留作 Windows 端排障工具（`daemon/cmd/winspike`）。
 
-| 尖峰 | 问题 | 方法 | 结果（待实机回填） |
+| 尖峰 | 问题 | 实测结果 | 结论 |
 | --- | --- | --- | --- |
-| A | 绝对定位是否绕开「提高指针精确度」 | SPI_SETMOUSE 三种加速配置各画一个 r=220px/96 段圆，采样实际落点比最大半径偏差与收尾误差 | TBD |
-| B | AF_UNIX 控制通道可用性 | `net unix` bind/accept/dial 往返 + 逐级加深路径探长度上限 + close 后文件残留检查 | TBD |
-| C | 剪贴板时序 | C1 写读往返 20 轮计时；C2 手动：置串 → Ctrl+V → 默认 800ms 后恢复，肉眼核对上屏与还原 | TBD |
-| D | 系统双击合成 | CS_DBLCLKS 测试窗 + SendInput 快速双击/慢速单击，数 DOWN/UP/DBLCLK 事件序列 | TBD |
+| A | 绝对定位是否绕开「提高指针精确度」 | 三种 SPI 加速配置（当前 [6,10,1] / 关 [0,0,0] / 开 [6,10,1]）各画 r=220px/96 段圆：最大半径偏差**全部 1.0 px**，末点精确回到圆周起点 | **✅ SendInput 绝对定位完全绕开弹道加速**——触摸板手感不受用户加速设置污染，增量→绝对坐标换算即可 |
+| B | AF_UNIX 控制通道可用性 | `net "unix"` bind/accept/dial 往返全通过；路径 ≤91 字符 OK、108 字符起 bind 报 invalid argument（即 sun_path 108 字节含 NUL 上限）；close 后**无文件残留** | **✅ 直接用 net "unix"**；控制 socket 放 `%TEMP%\padlinkd\control.sock`（约 68 字符，安全余量充足） |
+| C | 剪贴板时序 | C1 写读往返 20/20 成功，写 ≤1.6ms、读 ≤0.5ms；C2 置串→Ctrl+V→800ms 后恢复：**上屏精确匹配、原剪贴板恢复正确** | **✅ Win32 剪贴板无 wl-clipboard 类陷阱**；800ms 恢复延迟作为 Windows 默认值起步（M2 真机联调再校） |
+| D | 系统双击合成 | CS_DBLCLKS 窗口收到：快速双击（80ms<500ms 阈值）**DOWN=1 UP=2 DBLCLK=1**（第二次 DOWN 被替换为 DBLCLK）；慢速两击 DOWN=2 DBLCLK=0 | **✅ 系统按接收窗口类样式自动合成连击**——注入端只发裸 down/up，`SetPointerState` 的点击计数在 Windows 为空实现（同 Linux） |
+
+实测过程中的平台事实（M1 实装注意）：
+
+- **SSH 会话在 Session 0**，SendInput/SPI_SETMOUSE/交互桌面窗口全部无效——远程调试须 `schtasks /run` 投递到交互桌面（进程 stdout 无人可见，用 `-out` 落盘回读）。
+- 计划任务起的进程受**前台锁**限制抢不到前台，测试窗必须 `WS_EX_TOPMOST` 才能保证点击落点。
+- Win32 三条硬规矩（尖峰程序踩过）：`syscall.NewCallback` 回调签名**必须全指针尺寸**（`msg uint32` 会错位读参）；窗口必须**创建线程 == 泵消息线程**（goroutine 会漂移线程，须 LockOSThread）；**GetMessage 后必须 DispatchMessage**，否则回调永远不执行。
+- Win11 新记事本无经典 Edit 子控件（是 `RichEditD2DPT`），且有**会话恢复**行为——自动化验证用 `EnumChildWindows` 枚举读文本；新记事本对 Ctrl+V 疑似加速器双发（一次粘贴出两段），M2 实装 textinject 时用真实注入链路复核。
 
 ## 里程碑
 
