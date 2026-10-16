@@ -23,10 +23,15 @@ type Result struct {
 	Warnings []string // 失败但未中断的步骤
 }
 
-// HostProbe 读取真实环境（$HOME、$XDG_CONFIG_HOME、uid）与文件系统，返回本机安装形态。
+// HostProbe 读取真实环境（$HOME、配置根、uid）与文件系统，返回本机安装形态。
+// 配置根口径：Linux/macOS $XDG_CONFIG_HOME；Windows $LOCALAPPDATA（与 pairing.ConfigDir 一致）。
 func HostProbe() Probe {
 	home, _ := os.UserHomeDir()
-	return BuildInstallProbe(runtime.GOOS, home, os.Getenv("XDG_CONFIG_HOME"), os.Getuid(), pathExists)
+	configRoot := os.Getenv("XDG_CONFIG_HOME")
+	if runtime.GOOS == "windows" {
+		configRoot = os.Getenv("LOCALAPPDATA")
+	}
+	return BuildInstallProbe(runtime.GOOS, home, configRoot, os.Getuid(), pathExists)
 }
 
 // pathExists 报告路径是否存在；悬空符号链接也算存在（需清理的残留）。
@@ -53,6 +58,9 @@ func Run(plan Plan, dryRun bool, out io.Writer) (Result, error) {
 				continue
 			}
 			cmd := exec.Command(st.Cmd, st.Args...)
+			if st.Detach {
+				setDetached(cmd)
+			}
 			cmd.Stdout, cmd.Stderr = out, out
 			if err := cmd.Run(); err != nil {
 				msg := fmt.Sprintf("%s 执行失败: %v", line, err)

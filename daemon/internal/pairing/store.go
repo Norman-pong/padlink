@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -51,9 +52,15 @@ type Store struct {
 	permWarnings []string
 }
 
-// ConfigDir 返回配置目录路径（遵循 XDG_CONFIG_HOME，回落 ~/.config）。
-// 主机身份等跨 IP 持久化的daemon 级文件与 clients.json 同目录。
+// ConfigDir 返回配置目录路径：Linux/macOS 遵循 XDG_CONFIG_HOME 回落 ~/.config，
+// Windows 为 %LOCALAPPDATA%\padlink（与 service 探测、安装脚本同一口径）。
+// 主机身份等跨 IP 持久化的 daemon 级文件与 clients.json 同目录。
 func ConfigDir() (string, error) {
+	if runtime.GOOS == "windows" {
+		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
+			return filepath.Join(dir, "padlink"), nil
+		}
+	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "padlink"), nil
 	}

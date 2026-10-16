@@ -30,6 +30,11 @@ const (
 	daemonLogName = "padlinkd.log"
 
 	stateDirName = "padlink"
+
+	// Windows 安装布局：二进制 %LOCALAPPDATA%\padlink\bin，日志与配置同根
+	// （配置目录与 pairing.ConfigDir 的 LOCALAPPDATA 口径一致）。
+	winRunValueName = "PadLink"
+	winRunKeyPath   = `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 )
 
 // InstallKind 是探测到的 padlink 安装形态。
@@ -42,6 +47,8 @@ const (
 	KindDebRPM InstallKind = "deb-rpm"
 	// KindMacOSAgent 是 macOS LaunchAgent 安装：plist 在 ~/Library/LaunchAgents，二进制在 ~/.local/bin。
 	KindMacOSAgent InstallKind = "macos-agent"
+	// KindWindowsRun 是 Windows 安装：二进制在 %LOCALAPPDATA%\padlink\bin，HKCU Run 键自启。
+	KindWindowsRun InstallKind = "windows-run"
 	// KindUnknown 表示未检测到已知安装形态（可能未安装或已卸载）。
 	KindUnknown InstallKind = "unknown"
 )
@@ -55,6 +62,8 @@ func (k InstallKind) String() string {
 		return "Linux deb/rpm 包安装"
 	case KindMacOSAgent:
 		return "macOS LaunchAgent 安装"
+	case KindWindowsRun:
+		return "Windows 用户级安装（HKCU Run 自启）"
 	default:
 		return "未检测到已知安装形态"
 	}
@@ -136,7 +145,14 @@ func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(st
 		XDGConfigHome: configRoot,
 		UserBinDir:    filepath.Join(home, ".local", "bin"),
 	}
+	if goos == "windows" {
+		// Windows 布局：bin 在 %LOCALAPPDATA%\padlink\bin（configRoot 即 %LOCALAPPDATA%）
+		p.UserBinDir = filepath.Join(configRoot, stateDirName, "bin")
+	}
 	for _, name := range []string{daemonBinName, ctlBinName} {
+		if goos == "windows" {
+			name += ".exe"
+		}
 		if path := filepath.Join(p.UserBinDir, name); exists(path) {
 			p.Bins = append(p.Bins, path)
 		}
@@ -182,10 +198,24 @@ func BuildInstallProbe(goos, home, xdgConfigHome string, uid int, exists func(st
 		} else {
 			p.Kind = KindUnknown
 		}
+	case "windows":
+		// Run 键非路径无法走 exists 探测，二进制在位即视为已安装（与「单元丢失但二进制
+		// 残留」同语义）；键的增删由 install/uninstall 的 reg 命令负责，幂等。
+		p.LogFile = firstExisting(exists, filepath.Join(configRoot, stateDirName, "logs", daemonLogName))
+		if len(p.Bins) > 0 {
+			p.Kind = KindWindowsRun
+		} else {
+			p.Kind = KindUnknown
+		}
 	default:
 		p.Kind = KindUnknown
 	}
 	return p
+}
+
+// hasDriveLetter 报告路径是否带盘符前缀（"X:"）。
+func hasDriveLetter(path string) bool {
+	return len(path) >= 2 && path[1] == ':'
 }
 
 // DaemonBinPath 返回按安装形态推断的 padlinkd 可执行文件路径（update 升级后的
@@ -199,15 +229,19 @@ func (p Probe) DaemonBinPath() string {
 		return filepath.Join("/usr/bin", daemonBinName)
 	case KindMacOSAgent:
 		return filepath.Join(p.Home, "Applications", "PadLink.app", "Contents", "MacOS", daemonBinName)
+	case KindWindowsRun:
+		return filepath.Join(p.UserBinDir, daemonBinName+".exe")
 	default:
 		return ""
 	}
 }
 
 // firstExisting 返回第一个存在的绝对路径；空串与相对路径一律忽略（探测结果不应受当前工作目录影响）。
+// 盘符路径（C:/…）在非 windows 平台 filepath.IsAbs 恒 false（VolumeName 也恒空），用第 2 字符
+// 为冒号显式补判——本函数须可跨平台吃 windows 路径（纯逻辑测试与 install 布局都在用）。
 func firstExisting(exists func(string) bool, paths ...string) string {
 	for _, path := range paths {
-		if path == "" || !filepath.IsAbs(path) {
+		if path == "" || (!filepath.IsAbs(path) && !hasDriveLetter(path)) {
 			continue
 		}
 		if exists(path) {

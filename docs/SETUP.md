@@ -8,6 +8,25 @@
 
 ## 一、在电脑上安装服务端
 
+### Windows 11 安装
+
+管理员 PowerShell 一行安装：
+
+```powershell
+irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex
+```
+
+装完即登录自启（HKCU Run 键，免管理员）。注意三件事：
+
+1. **防火墙**：安装脚本会自动放行 53021 端口（UDP/TCP 入站）；若装有第三方安全软件
+   （联想电脑管家/火绒、360 等），其包过滤会接管系统防火墙——需在其防护中心放行
+   `padlinkd` 或 53021 端口，否则手机搜不到本机。
+2. **SmartScreen**：未签名 exe 首次运行会提示「更多信息 → 仍要运行」。
+3. **提权窗口**：以管理员身份运行的窗口无法被注入（Windows UIPI 机制，同类边界同
+   macOS 辅助功能），普通窗口不受影响。
+
+管理命令与 Ubuntu/macOS 相同：`padlinkctl status / start / stop / restart / update / uninstall`。
+
 ### 一行命令安装（Ubuntu / macOS，推荐）
 
 在电脑终端执行：
@@ -135,6 +154,8 @@ padlinkctl uninstall --dry-run   # 先看会做什么，不实际执行
 | 电脑换了 WiFi/网段后连不上 | 电脑 IP 已变 | 新版两端自动迁移（打开 APP 或发现页即可）；旧版 daemon 需发现页重新配对一次，并在「设置 → 已配对主机」删除旧地址记录 |
 | 操作没反应，页面顶部常驻「另一台设备正在控制 / N 秒后可接管」 | 同一台电脑同时连了多台手机，控制权在另一台 | 等倒计时结束且另一台停下后再操作（会自动接管），或让另一台断开 |
 | 双击打不开文件 / 拖不动文件 | 旧版 padlinkd（合成事件缺点击序号与拖拽类型） | 电脑端升级到最新 Release 后重启 padlinkd |
+| Windows：手机搜不到本机 | 第三方安全软件（火绒/联想管家等）接管包过滤，拦了 53021 入站 | 在其防护中心放行 padlinkd 或 53021 端口（UDP+TCP）；`netstat -ano | findstr 53021` 确认 daemon 在听 |
+| Windows：滚动一格一跳 | 无 hi-res 注入通道，整格（1/120 累积）滚动 | 已知限制，属平台能力边界 |
 | 语音上屏的瞬间鼠标卡一下 | 文本走剪贴板注入，期间键鼠事件排队（最坏数秒） | 属已知行为，说完松手后即恢复 |
 
 ## 网络与端口一览

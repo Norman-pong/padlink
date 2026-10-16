@@ -52,7 +52,9 @@ padlinkd -v               # 前台 verbose（逐包调试行）
 ```
 
 flags：`--port`（默认 53021）、`-v`、`--state-dir`（覆盖 token 存储目录）、`--restore-delay-ms`、`--version`。
-日志走 stdout（systemd 接管进 journald）。SIGINT/SIGTERM 优雅退出：关全部会话（补发未释放按键）、控制 socket、uinput 设备。
+日志走 stdout（systemd 接管进 journald；macOS launchd 重定向 plist；Windows 分离启动另落 `%LOCALAPPDATA%\padlink\logs\padlinkd.log`）。SIGINT/SIGTERM 优雅退出：关全部会话（补发未释放按键）、控制 socket、uinput 设备。
+
+平台注入后端：Linux=uinput（无 cgo）、macOS=Quartz CGEvent（cgo，`internal/quartz`）、Windows=SendInput 绝对定位（无 cgo，纯 syscall）；安装形态探测与启停见 `internal/service`（systemd user 单元 / LaunchAgent / HKCU Run 键）。
 
 ### 注入自测序列
 

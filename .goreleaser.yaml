@@ -54,6 +54,24 @@ builds:
     goarch: [amd64, arm64]
     env: [CGO_ENABLED=0]
     ldflags: [-s, -w]
+  - id: padlinkd-windows
+    dir: daemon
+    main: ./cmd/padlinkd
+    binary: padlinkd
+    goos: [windows]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.daemonVersion={{ .Version }}
+  - id: padlinkctl-windows
+    dir: daemon
+    main: ./cmd/padlinkctl
+    binary: padlinkctl
+    goos: [windows]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w -X main.ctlVersion={{ .Version }}
 
 archives:
   - id: tgz-linux
@@ -88,6 +106,14 @@ archives:
         dst: packaging/macos/make-appicon.m
       - src: daemon/packaging/macos/com.zhimingcool.padlink.plist
         dst: packaging/macos/com.zhimingcool.padlink.plist
+  - id: tgz-windows
+    formats: [tar.gz]
+    ids: [padlinkd-windows, padlinkctl-windows]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - src: daemon/packaging/windows/install.ps1
+        dst: install.ps1
 
 nfpms:
   - id: padlink
@@ -116,11 +142,13 @@ checksum:
 
 release:
   extra_files:
-    # 一行安装脚本随版本入资产（不可变副本）；脚本只取包验签，安装逻辑单源在包内 install.sh
+    # 一行安装脚本随版本入资产（不可变副本）；脚本只取包验签，安装逻辑单源在包内 install.sh / install.ps1
     - glob: script/install.sh
+    - glob: script/install.ps1
   footer: |
     ---
     一行安装（Linux/macOS）：`curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh`
+    一行安装（Windows，管理员 PowerShell）：`irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex`
 
 changelog:
   use: git

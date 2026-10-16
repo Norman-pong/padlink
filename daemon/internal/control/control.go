@@ -31,9 +31,10 @@ var ErrDisabled = errors.New("无运行目录（XDG_RUNTIME_DIR 未设置），�
 func SocketPath() (string, error) {
 	rd := os.Getenv("XDG_RUNTIME_DIR")
 	if rd == "" {
-		if runtime.GOOS == "darwin" {
+		switch runtime.GOOS {
+		case "darwin", "windows":
 			rd = os.TempDir()
-		} else {
+		default:
 			return "", ErrDisabled
 		}
 	}

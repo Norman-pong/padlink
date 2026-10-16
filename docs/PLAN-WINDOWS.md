@@ -11,8 +11,8 @@ Windows 是纯 daemon 侧新后端 + 安装/发版链路扩展，协议与手机
   - `textinject/pasteboard_windows.go`：Win32 剪贴板后端（文本级快照；枚举出非文本格式即按两端共同契约取消注入；RtlMoveMemory 读写模式 + 进程内串行化）；恢复延迟默认 800ms（尖峰 C 实测）；粘贴组合键复用 `inj.CtrlV`（与 Linux 同路，主流程零分支）。
   - 配对码原生弹窗：`_pairing-dialog` 自旋子命令平移（`dialoghelper_windows.go` + `pairdlg_windows.go`）——置顶工具窗、PadLink 标题、40pt 等宽配对码、灰色倒计时行（WM_TIMER 逐秒刷新、归零 DestroyWindow 自关）、确认按钮；locale 走 GetUserDefaultUILanguage（`sysLocaleHook` 注入 pickTexts）；自旋失败回落进程内 MessageBox（后台线程）。
   - 实机验收：TXT-PROBE（真实注入链路：预置剪贴板→备份→写入→Ctrl+V→记事本精确上屏→恢复原内容）PASSED；弹窗任务 3s 存活→TTL 10s 自关→退出码 0。
-- M3 ⬜ install.ps1 + HKCU Run 键 + 防火墙 + goreleaser 双架构 + `padlinkctl update` Windows 形态
-- M4 ⬜ 手机 ↔ Win11 端到端联调 + 文档平台矩阵
+- M3 ✅（2026-10-16）安装/服务/发版全链：`service` 增 windows-run 形态（探测/启停 taskkill+分离启动/uninstall 含运行中 ctl 改名腾位）；`install.ps1`（复制+PATH+HKCU Run+防火墙 netsh 需管理员失败降级指引+隐藏启动）+ `script/install.ps1` 一行安装（irm|iex，302 解析最新版+SHA-256）；`padlinkctl update` Windows 分支（执行包内 install.ps1）；goreleaser windows amd64+arm64 双包。实机验收：安装→daemon 起→status 通（AF_UNIX 控制口）→pair 弹窗（自旋进程可见）→update --check 识别形态并解析 GitHub。
+- M4 ✅（2026-10-16）跨机发现验证：Mac ↔ Win11 同网段，UDP HELLO→DISCOVER_RESP 逻辑实机确认（回环 type=2；Mac 侧反向探测同通）；**唯一堵点为第三方安全软件接管入站过滤**（实机装联想管家/火绒，Windows 防火墙规则无效，53021 入站被拦——需在其 UI 放行，已写入 SETUP 排查表）。手机真实配对、触摸板手感与语音链路待用户在放行后走常规流程验收。
 
 ## 已定决策（2026-10-16，与维护者逐项确认）
 

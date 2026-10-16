@@ -2,19 +2,25 @@
 
 把 HarmonyOS 手机变成电脑的低延迟无线外设：**触摸板 + 全键盘 + 语音听写**，三指滑动切换。手机与电脑只需在同一局域网内，不经过任何云端。
 
-支持平台：**macOS 13+**、**Ubuntu 26.04（GNOME Wayland）**。其他 Linux 发行版可用但不承诺兼容；明确不做 X11 适配与公网/内网穿透。
+支持平台：**macOS 13+**、**Ubuntu 26.04（GNOME Wayland）**、**Windows 11**（amd64 / arm64）。其他 Linux 发行版可用但不承诺兼容；明确不做 X11 适配与公网/内网穿透。
 
 ## 开始使用
 
-电脑端一行安装（Ubuntu / macOS）：
+电脑端一行安装：
 
 ```sh
+# Ubuntu / macOS
 curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh
+```
+
+```powershell
+# Windows 11（管理员 PowerShell；装完按提示放行防火墙）
+irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex
 ```
 
 手机端进入 APP 的「发现与配对」页，选中电脑，输入电脑屏幕上弹出的 4 位配对码即可。
 
-已安装的电脑端升级：`padlinkctl update`（下载 → SHA-256 校验 → 安装 → 重启服务；`--check` 只看不动）。
+已安装的电脑端升级：`padlinkctl update`（下载 → SHA-256 校验 → 安装 → 重启服务；`--check` 只看不动；三平台同命令）。
 
 完整步骤 —— 安装收尾、主控页用法、管理已配对电脑、连不上时的排查表 —— 见 **[docs/SETUP.md](docs/SETUP.md)**。
 

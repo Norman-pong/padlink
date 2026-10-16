@@ -162,10 +162,22 @@ func TestBuildInstallProbe(t *testing.T) {
 			wantKind: KindUnknown,
 		},
 		{
-			name: "其他平台",
-			goos: "windows", home: "C:/Users/u",
-			paths:    []string{"C:/Users/u/.local/bin/padlinkd"},
-			wantKind: KindUnknown, wantBins: 1,
+			name: "Windows 已安装（bin 在 LOCALAPPDATA 下）",
+			goos: "windows", home: "C:/Users/u", xdg: "C:/Users/u/AppData/Local",
+			paths:    []string{"C:/Users/u/AppData/Local/padlink", "C:/Users/u/AppData/Local/padlink/bin/padlinkd.exe", "C:/Users/u/AppData/Local/padlink/bin/padlinkctl.exe", "C:/Users/u/AppData/Local/padlink/logs/padlinkd.log", "C:/Users/u/AppData/Local/padlink/clients.json"},
+			wantKind: KindWindowsRun, wantBins: 2,
+			wantCfgDir: "C:/Users/u/AppData/Local/padlink", wantCl: 1,
+			wantLog: "C:/Users/u/AppData/Local/padlink/logs/padlinkd.log",
+		},
+		{
+			name: "Windows bin 缺失为未安装",
+			goos: "windows", home: "C:/Users/u", xdg: "C:/Users/u/AppData/Local",
+			wantKind: KindUnknown,
+		},
+		{
+			name: "plan9 不支持",
+			goos: "plan9", home: "/home/u",
+			wantKind: KindUnknown,
 		},
 	}
 	for _, tc := range tests {
@@ -282,7 +294,7 @@ func TestBuildControlErrors(t *testing.T) {
 			wantSub: []string{"未找到 LaunchAgent", "./install.sh"},
 		},
 		{
-			name: "不支持的平台", probe: BuildInstallProbe("windows", "C:/Users/u", "", 1, setExists()), action: ActionStart,
+			name: "不支持的平台", probe: BuildInstallProbe("plan9", "/home/u", "", 1, setExists()), action: ActionStart,
 			wantSub: []string{"不支持的平台"},
 		},
 		{
@@ -430,7 +442,7 @@ func TestBuildUninstallGuardRejectsBadPaths(t *testing.T) {
 	}
 	mustContain(t, "错误消息", err.Error(), "绝对路径")
 
-	if _, err := BuildUninstall(BuildInstallProbe("windows", "C:/Users/u", "", 1, setExists()), false); err == nil {
+	if _, err := BuildUninstall(BuildInstallProbe("plan9", "/home/u", "", 1, setExists()), false); err == nil {
 		t.Fatal("期望不支持的平台报错")
 	}
 }

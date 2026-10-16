@@ -50,6 +50,7 @@
 | 电脑 | Ubuntu 26.04 LTS（Resolute Raccoon，GNOME 50，kernel 7.0；桌面会话仅 Wayland 后端），**仅 GNOME Wayland**（受支持且受测的唯一环境）；**明确不做 X11 适配**——daemon 启动时校验 WAYLAND_DISPLAY，缺失打印不支持警告〔溯源：RESEARCH-WAYLAND.md §5〕 |
 | 其他 Linux 发行版 | **可用不承诺**：uinput 为内核级能力，指针/键盘注入天然跨发行版与桌面；但语音文本注入依赖 wl-clipboard（Wayland 合成器），X11 会话下不可用。社区自用可以，不进 v1 测试与验收 |
 | macOS（v2 扩展，已实现） | macOS 13+：CGEvent 注入后端（需辅助功能权限授权引导），文本注入 pbcopy + Cmd+V（比 Wayland 更简单，无 wl-clipboard 类陷阱）；方案与实测见 `docs/PLAN-MACOS.md` |
+| Windows（v2 扩展，已实现） | Windows 11（amd64/arm64）：SendInput 绝对定位注入（尖峰实证绕开指针弹道加速）、HKCU Run 键自启（免管理员，不做 SCM 服务）；限制与实测见 `docs/PLAN-WINDOWS.md` |
 
 ### 1.4 v1 范围外（Non-goals）
 

@@ -49,6 +49,9 @@ type Step struct {
 
 	Text   string     // StepNotice：提示文本
 	Notice NoticeKind // StepNotice：归类
+
+	// Detach 分离启动（Windows）：daemon 不得继承 ctl 的控制台——用户关窗即带走 daemon。
+	Detach bool
 }
 
 // CommandLine 返回可复制执行的命令行文本；非命令步骤返回空串。
@@ -146,8 +149,21 @@ func BuildControl(p Probe, action ControlAction) (Plan, error) {
 				Args: []string{"bootstrap", "gui/" + strconv.Itoa(p.UID), p.Plist}, Optional: true},
 			Step{Kind: StepRunCommand, Cmd: "launchctl", Args: args},
 		)
+	case "windows":
+		bin := filepath.Join(p.UserBinDir, daemonBinName+".exe")
+		switch action {
+		case ActionStart:
+			plan.Steps = append(plan.Steps, Step{Kind: StepRunCommand, Cmd: bin, Detach: true})
+		case ActionStop:
+			// console 子系统无窗口可收 WM_CLOSE，只能强杀；daemon 状态在变更时已落盘，无丢失面
+			plan.Steps = append(plan.Steps, Step{Kind: StepRunCommand, Cmd: "taskkill", Args: []string{"/F", "/IM", daemonBinName + ".exe"}, Optional: true})
+		case ActionRestart:
+			plan.Steps = append(plan.Steps,
+				Step{Kind: StepRunCommand, Cmd: "taskkill", Args: []string{"/F", "/IM", daemonBinName + ".exe"}, Optional: true},
+				Step{Kind: StepRunCommand, Cmd: bin, Detach: true})
+		}
 	default:
-		return Plan{}, fmt.Errorf("不支持的平台 %q（仅支持 linux / darwin）", p.GOOS)
+		return Plan{}, fmt.Errorf("不支持的平台 %q（仅支持 linux / darwin / windows）", p.GOOS)
 	}
 	return plan, nil
 }
@@ -211,20 +227,40 @@ func BuildUninstall(p Probe, purge bool) (Plan, error) {
 		} else {
 			tail = append(tail, Step{Kind: StepNotice, Notice: NoticeInfo, Text: "未找到 LaunchAgent（可能已卸载）"})
 		}
+	case "windows":
+		if len(p.Bins) == 0 {
+			tail = append(tail, Step{Kind: StepNotice, Notice: NoticeInfo, Text: "未检测到 padlink 安装（可能已卸载）"})
+		} else {
+			add(optionalRun("taskkill", "/F", "/IM", daemonBinName+".exe"))
+			add(optionalRun("reg", "delete", winRunKeyPath, "/v", winRunValueName, "/f"))
+			// 运行中的 padlinkctl 受 Windows 镜像锁保护删不掉：改名腾位（改名允许），
+			// 旧文件留待进程退出后手动清理
+			ctl := filepath.Join(p.UserBinDir, ctlBinName+".exe")
+			if containsPath(p.Bins, ctl) {
+				add(Step{Kind: StepRunCommand, Cmd: "cmd",
+					Args:     []string{"/c", "ren", ctl, ctlBinName + ".exe.old"},
+					Optional: true})
+				tail = append(tail, Step{Kind: StepNotice, Notice: NoticeManual,
+					Text: ctlBinName + ".exe.old 为卸载时正在运行的副本，退出终端后可手动删除"})
+			}
+		}
 	default:
-		return Plan{}, fmt.Errorf("不支持的平台 %q（仅支持 linux / darwin）", p.GOOS)
+		return Plan{}, fmt.Errorf("不支持的平台 %q（仅支持 linux / darwin / windows）", p.GOOS)
 	}
 
-	// 用户级二进制（tar.gz / macOS 形态）：逐个删；padlinkctl 自身正在运行也可删
+	// 用户级二进制（tar.gz / macOS 形态）：逐个删；padlinkctl 自身正在运行也可删（windows 已在上面单独处理）
 	for _, bin := range p.Bins {
+		if p.GOOS == "windows" {
+			continue
+		}
 		if err := remove(StepRemoveFile, bin, p.UserBinDir); err != nil {
 			return Plan{}, err
 		}
 	}
 
-	// 配置与 token（含 macOS 日志）只在 --purge（且确认）后删除
+	// 配置与 token（含 macOS/Windows 日志）只在 --purge（且确认）后删除
 	if purge {
-		if p.GOOS == "darwin" && p.LogFile != "" {
+		if (p.GOOS == "darwin" || p.GOOS == "windows") && p.LogFile != "" {
 			if err := remove(StepRemoveFile, p.LogFile, filepath.Dir(p.LogFile)); err != nil {
 				return Plan{}, err
 			}
@@ -235,8 +271,18 @@ func BuildUninstall(p Probe, purge bool) (Plan, error) {
 			}
 		}
 		if p.ConfigDir != "" {
-			if err := remove(StepRemoveDir, p.ConfigDir, p.XDGConfigHome); err != nil {
-				return Plan{}, err
+			if p.GOOS == "windows" {
+				// 目录含 bin/logs 子目录，os.Remove 拒绝非空目录；rmdir /s 一步递归，
+				// 构建期先过与删除同款的路径守卫
+				if err := CheckRemovable(p.ConfigDir, p.XDGConfigHome); err != nil {
+					return Plan{}, err
+				}
+				add(Step{Kind: StepRunCommand, Cmd: "cmd",
+					Args: []string{"/c", "rmdir", "/s", "/q", p.ConfigDir}})
+			} else {
+				if err := remove(StepRemoveDir, p.ConfigDir, p.XDGConfigHome); err != nil {
+					return Plan{}, err
+				}
 			}
 		}
 	} else {
@@ -249,6 +295,16 @@ func BuildUninstall(p Probe, purge bool) (Plan, error) {
 	}
 	add(tail...)
 	return plan, nil
+}
+
+// containsPath 报告 paths 中是否含 path（BuildUninstall 无 exists 回调，用探测结果判定）。
+func containsPath(paths []string, path string) bool {
+	for _, v := range paths {
+		if v == path {
+			return true
+		}
+	}
+	return false
 }
 
 // ConfirmPurge 处理 --purge 的二次确认：assumeYes（--yes）直接通过，否则向 out 打印提示并

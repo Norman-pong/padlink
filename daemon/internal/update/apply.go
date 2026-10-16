@@ -153,11 +153,17 @@ func Run(opts Options) (Result, error) {
 	if err := extractTarGz(assetPath, pkgDir); err != nil {
 		return res, err
 	}
-	if _, err := os.Stat(filepath.Join(pkgDir, "install.sh")); err != nil {
-		return res, fmt.Errorf("release 包内缺少 install.sh，拒绝安装")
+	// 安装逻辑单源在包内安装脚本：unix 为 install.sh，windows 为 install.ps1
+	// （复制二进制 + HKCU Run 键 + 防火墙 + 重启 daemon，见 packaging/windows/install.ps1）
+	installScript, cmd := "install.sh", exec.Command("sh", "./install.sh")
+	if runtime.GOOS == "windows" {
+		installScript = "install.ps1"
+		cmd = exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./install.ps1")
 	}
-	fmt.Fprintln(out, "SHA-256 校验通过，执行 install.sh …")
-	cmd := exec.Command("sh", "./install.sh")
+	if _, err := os.Stat(filepath.Join(pkgDir, installScript)); err != nil {
+		return res, fmt.Errorf("release 包内缺少 %s，拒绝安装", installScript)
+	}
+	fmt.Fprintf(out, "SHA-256 校验通过，执行 %s …\n", installScript)
 	cmd.Dir = pkgDir
 	// install.sh 的 sudo（Linux 首装 udev）需要读终端；update 路径下规则已存在一般不会走到
 	cmd.Stdin = os.Stdin

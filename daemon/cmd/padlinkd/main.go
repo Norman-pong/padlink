@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -89,6 +90,13 @@ type config struct {
 
 func run(cfg config) error {
 	logf := log.New(os.Stdout, "padlinkd ", log.LstdFlags)
+	if runtime.GOOS == "windows" {
+		// 分离启动（HKCU Run / padlinkctl start）后无控制台，stdout 写入丢失；
+		// 同步落日志文件，控制台可用时双写便于前台调试。
+		if f, err := winLogFile(); err == nil {
+			logf = log.New(io.MultiWriter(os.Stdout, f), "padlinkd ", log.LstdFlags)
+		}
+	}
 
 	// 主机自检仅 Linux 有意义：非 Linux 保持 rep 零值（AccelProfile 空 = 未检测到）。
 	var rep hostinfo.Report
@@ -187,6 +195,20 @@ func run(cfg config) error {
 	inj.Close()
 	logf.Printf("已退出")
 	return nil
+}
+
+// winLogFile 打开 Windows 日志文件 %LOCALAPPDATA%\padlink\logs\padlinkd.log（追加）。
+// 目录结构与 service 探测、安装脚本同一口径；打开失败退回纯 stdout（不阻断启动）。
+func winLogFile() (*os.File, error) {
+	root := os.Getenv("LOCALAPPDATA")
+	if root == "" {
+		return nil, fmt.Errorf("LOCALAPPDATA 未设置")
+	}
+	dir := filepath.Join(root, "padlink", "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(dir, "padlinkd.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 }
 
 func storePath(stateDir string) (string, error) {
