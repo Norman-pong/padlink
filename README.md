@@ -46,13 +46,21 @@ node tools/etstest/run.mjs .        # 全量；可传单目录名（默认 gestu
 
 开发与运维细节（模块划分、安装形态、控制通道、联调工具）见 **[daemon/README.md](daemon/README.md)**。
 
-## 发版
+## 发版（双轨）
 
-打 `v*` tag 触发 GitHub Actions 跑 GoReleaser，产出 tar.gz（三二进制 + install.sh）、deb 与 rpm 并发布到 GitHub Releases：
+服务端与手机端独立发版、独立版本号，对照台账见 [docs/RELEASES.md](docs/RELEASES.md)：
 
-```sh
-git tag v1.0.0 && git push origin v1.0.0
-```
+- **服务端（daemon）**：打 `v*` tag → GoReleaser 出 tar.gz（三二进制 + install.sh）、deb 与 rpm 并发布到 GitHub Releases：
+
+  ```sh
+  git tag v1.4.0 && git push origin v1.4.0
+  ```
+
+- **手机端（APP）**：先 bump `apps/harmony/AppScope/app.json5` 的 versionName/versionCode（公式见文件内注释），本地 DevEco 构建提审 AppGallery 后，打 `app-v*` tag 留档（CI 校验版本一致并建 Release 记录）：
+
+  ```sh
+  git tag app-v1.3.2 && git push origin app-v1.3.2
+  ```
 
 ## 文档
 

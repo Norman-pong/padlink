@@ -82,8 +82,8 @@ App 必须配合 PC 端 daemon 才有功能，审核员环境里没有——**�
 
 ### 版本号规则
 
-- `versionName` 与 git tag 对齐（`v1.2.0` ↔ `1.2.0`）；`versionCode = major×1e6 + minor×1e4 + patch×1e2`（1.2.0 → 1020000）。
-- 发版 CI 强校验两处一致（`tools/check-version.mjs`）：打 tag 前先同步 bump `apps/harmony/AppScope/app.json5`。
+- `versionName` 与 APP 发布 tag 对齐（`app-v1.3.2` ↔ `1.3.2`）；`versionCode = major×1e6 + minor×1e4 + patch×1e2`（1.3.2 → 1030200）。daemon 版本独立发版（`v*`），两端对照台账见 `docs/RELEASES.md`。
+- 发版 CI 强校验（`tools/check-version.mjs`）：打 `app-v*` tag 前先 bump `apps/harmony/AppScope/app.json5`；daemon 轨只校验 app.json5 内部一致性、不要求同号。
 
 ## 三、App 侧合规实现（托管模式）
 
