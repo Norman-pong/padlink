@@ -59,6 +59,38 @@ test('位移 8.1vp > 8 → 轻点出局转光标，抬起无按键命令', () =>
   assert.equal(eng.currentState(), IDLE);
 });
 
+test('同一匀速轨迹拆成多次报点，起步光标总位移一致', () => {
+  for (const duration of [10, 100]) {
+    for (const direction of [-1, 1]) {
+      const totals = [];
+      for (const count of [1, 2, 10]) {
+        const eng = newEngine();
+        const samples = [down(1, 0, 0, 0)];
+        for (let i = 1; i <= count; i++) {
+          samples.push(move(1, direction * 10 * i / count, 0, duration * i / count));
+        }
+        samples.push(up(1, direction * 10, 0, duration + 1));
+        const cmds = feedAll(eng, samples);
+        assert.equal(cmds.filter((c) => c.type === BUTTON).length, 0);
+        totals.push(cmds.reduce((sum, c) => sum + c.dx, 0));
+      }
+      assert.deepEqual(totals, [totals[0], totals[0], totals[0]], `${duration}ms，方向 ${direction}`);
+      assert.ok(Math.abs(totals[0]) >= 12);
+    }
+  }
+});
+
+test('起步只结算一次判定期位移，后续匀速移动保留亚像素余量', () => {
+  const eng = newEngine();
+  const samples = [down(1, 0, 0, 0)];
+  for (let x = 1; x <= 20; x++) {
+    samples.push(move(1, x, 0, x * 10));
+  }
+  const cmds = feedAll(eng, samples);
+  assert.equal(cmds.reduce((sum, c) => sum + c.dx, 0), 24);
+  assert.equal(cmds.filter((c) => c.type === BUTTON).length, 0);
+});
+
 test('双指轻点按下时间差 39ms ≤ 40 → 右键 down+up', () => {
   const eng = newEngine();
   const cmds = feedAll(eng, [
@@ -477,6 +509,50 @@ test('慢速双指滑动抬指 → 不起滑（无惯性）', () => {
     up(2, 30, 20, 430),
   ]);
   assert.ok(!eng.hasFling(), '慢速抬指不应起滑');
+});
+
+test('快速滚动后静止再抬指，不使用过期末速启动惯性', () => {
+  for (const idleMs of [200, 960]) {
+    const eng = newEngine();
+    feedAll(eng, [
+      down(1, 0, 0, 0), down(2, 30, 0, 10),
+      move(1, 0, 40, 100), move(2, 30, 40, 110),
+      move(1, 0, 80, 130), move(2, 30, 80, 140),
+      up(1, 0, 80, 140 + idleMs), up(2, 30, 80, 150 + idleMs),
+    ]);
+    assert.equal(eng.hasFling(), false, `静止 ${idleMs}ms 后不得起滑`);
+    assert.deepEqual(eng.tick(16), []);
+  }
+});
+
+test('零位移报点不保活旧速度，静止抬指保持停止', () => {
+  const eng = newEngine();
+  feedAll(eng, [
+    down(1, 0, 0, 0), down(2, 30, 0, 10),
+    move(1, 0, 40, 100), move(2, 30, 40, 110),
+    move(1, 0, 80, 130), move(2, 30, 80, 140),
+    move(1, 0, 80, 400), move(2, 30, 80, 800),
+    up(1, 0, 80, 810), up(2, 30, 80, 820),
+  ]);
+  assert.equal(eng.hasFling(), false);
+});
+
+test('同一匀速滚动按不同间隔报点，惯性首帧一致', () => {
+  const firstFrames = [];
+  for (const interval of [8, 16, 32]) {
+    const cfg = defaultGestureConfig();
+    cfg.tapMaxVp = 0;
+    const eng = new GestureEngine(cfg);
+    feedAll(eng, [down(1, 0, 0, 0), down(2, 30, 0, 0)]);
+    for (let t = interval; t <= 64; t += interval) {
+      feedAll(eng, [move(1, 0, t / 2, t), move(2, 30, t / 2, t)]);
+    }
+    feedAll(eng, [up(1, 0, 32, 74), up(2, 30, 32, 74)]);
+    assert.ok(eng.hasFling());
+    firstFrames.push(eng.tick(16).reduce((sum, c) => sum + c.dyHiRes, 0));
+  }
+  assert.ok(firstFrames[0] > 0);
+  assert.deepEqual(firstFrames, [firstFrames[0], firstFrames[0], firstFrames[0]]);
 });
 
 test('CANCEL 终止惯性滑行', () => {

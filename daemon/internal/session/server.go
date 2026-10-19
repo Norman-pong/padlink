@@ -290,28 +290,6 @@ func (s *Server) KickClient(id string) int {
 	return len(targets)
 }
 
-// admitControl 裁决一次控制事件（MOVE/SCROLL/BUTTON/KEY/TEXT，TCP 与 UDP 共用）；
-// 被拒时下发一次 NOTICE 并兜底释放该设备残留的按键（异常时序防御）。
-func (s *Server) admitControl(clientID string) bool {
-	if clientID == "" {
-		return true // 未绑定：不参与多设备裁决
-	}
-	res := s.arb.admit(clientID, time.Now())
-	if res.Allowed {
-		return true
-	}
-	s.stats.Preempted.Add(1)
-	if res.FirstDenied {
-		s.vlogf("控制权在设备 %s，已拒绝 %s 的输入并进入冷静期（剩余 %.0fs）",
-			s.arb.primaryID(), clientID, res.RetryAfter.Seconds())
-		s.notifyControlBusy(clientID, res.RetryAfter)
-		if s.arb.isHeld(clientID) {
-			s.dropHeld(clientID) // 被拒设备若仍按住按键/按钮（竞态兜底），先补发释放
-		}
-	}
-	return false
-}
-
 // notifyControlBusy 向被拒设备下发 NOTICE(控制被占用, 剩余秒数)，手机端据此 toast。
 func (s *Server) notifyControlBusy(clientID string, retryAfter time.Duration) {
 	secs := uint8(0)
@@ -366,43 +344,6 @@ func (s *Server) sessionOf(clientID string) *tcpSession {
 	return fallback
 }
 
-// releaseInputs 兜底补发按住未释放的按键/按钮 up；what 标记来源（零残留红线，入注入队列保序）。
-func (s *Server) releaseInputs(keys []uint16, btns []uint8, what string) {
-	if len(keys) == 0 && len(btns) == 0 {
-		return
-	}
-	s.enqueueBlocking(func() {
-		for _, hid := range keys {
-			if err := s.inj.Key(hid, false); err != nil {
-				s.logf("%s：按键释放失败 hid=0x%04X: %v", what, hid, err)
-			}
-		}
-		for _, b := range btns {
-			if err := s.inj.Button(b, false); err != nil {
-				s.logf("%s：按钮释放失败 btn=%d: %v", what, b, err)
-			}
-		}
-	})
-}
-
-// dropHeld 释放某设备残留的按键/按钮（被拒时的防御路径，零残留红线）。
-func (s *Server) dropHeld(clientID string) {
-	s.mu.Lock()
-	targets := make([]*tcpSession, 0, 1)
-	for sess := range s.sessions {
-		if sess.bound() == clientID {
-			targets = append(targets, sess)
-		}
-	}
-	s.mu.Unlock()
-	for _, sess := range targets {
-		if keys, btns := sess.takeHeld(); len(keys) > 0 || len(btns) > 0 {
-			s.releaseInputs(keys, btns, "被拒设备残留")
-			s.logf("设备 %s 被拒控制权时仍按住输入，已补发释放", clientID)
-		}
-	}
-}
-
 func (s *Server) logf(format string, args ...any) {
 	s.cfg.Log.Printf(format, args...)
 }
@@ -410,41 +351,6 @@ func (s *Server) logf(format string, args ...any) {
 func (s *Server) vlogf(format string, args ...any) {
 	if s.cfg.Verbose {
 		s.cfg.Log.Printf(format, args...)
-	}
-}
-
-func (s *Server) injectLoop() {
-	defer s.internalWG.Done()
-	for f := range s.injCh {
-		f()
-	}
-}
-
-// enqueueBlocking 在注入队列入队（TCP 路径：背压保序；服务停止时放行）。
-func (s *Server) enqueueBlocking(f func()) {
-	select {
-	case s.injCh <- f:
-	case <-s.closed:
-	}
-}
-
-// tryEnqueue 非阻塞入队（UDP 路径：满即丢弃计数）。
-func (s *Server) tryEnqueue(f func()) bool {
-	select {
-	case s.injCh <- f:
-		return true
-	default:
-		s.stats.Dropped.Add(1)
-		return false
-	}
-}
-
-// doInj 包装注入调用，失败记录日志（token/文本内容不进日志）。
-func (s *Server) doInj(what string, f func() error) func() {
-	return func() {
-		if err := f(); err != nil {
-			s.logf("注入 %s 失败: %v", what, err)
-		}
 	}
 }
 

@@ -30,10 +30,17 @@ struct KeyCap {
   @Param hint: string = '';
   @Param active: boolean = false;
   @Param checkable: boolean = false;
+  @Param inputEpoch: number = 0;
   @Param onPress: () => void = () => {};
   @Param onRelease: () => void = () => {};
   @Local private pressed: boolean = false;
   @Local private pointerId: number = -1; // 只认自己按下的指针
+
+  @Monitor('inputEpoch')
+  resetPress(): void {
+    this.pointerId = -1;
+    this.pressed = false;
+  }
 
   private lit(): boolean {
     return this.active || this.pressed;
@@ -88,10 +95,13 @@ struct KeyCap {
 export struct KeyboardPage {
   @Require @Param model: KeyboardModel;
   @Param onClose: () => void = () => {};
+  @Param compact: boolean = false;
+  @Param inputEpoch: number = 0;
   @Local inputText: string = '';
   private lastStable: string = ''; // 增量 diff 基准，组合态期间不改写
   private textCtrl: TextAreaController = new TextAreaController();
   private a11yTexts: Map<string, string> = new Map();
+  private zoneEntered: boolean = false;
   private kbPrev: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
 
   aboutToAppear(): void {
@@ -122,7 +132,11 @@ export struct KeyboardPage {
   }
 
   private doZoneEnter(): void {
+    if (this.zoneEntered) {
+      return;
+    }
     this.kbPrev = enterKeyboardAvoidResize(this.getUIContext());
+    this.zoneEntered = true;
     try {
       this.getUIContext().getFocusController().requestFocus('kb_input');
     } catch (_e) {
@@ -145,7 +159,10 @@ export struct KeyboardPage {
   }
 
   private restoreAvoid(): void {
-    restoreKeyboardAvoidMode(this.getUIContext(), this.kbPrev);
+    if (this.zoneEntered) {
+      restoreKeyboardAvoidMode(this.getUIContext(), this.kbPrev);
+      this.zoneEntered = false;
+    }
   }
 
   private str(key: string): string {
@@ -167,6 +184,7 @@ export struct KeyboardPage {
   private tapKey(label: string, a11y: string, hid: number) {
     KeyCap({
       label: label, a11y: a11y,
+      inputEpoch: this.inputEpoch,
       onPress: () => {
         this.model.beginKey(hid, false);
       },
@@ -180,6 +198,7 @@ export struct KeyboardPage {
   private modKey(label: string, a11yKey: string, mod: number, latched: boolean) {
     KeyCap({
       label: label, a11y: this.str(a11yKey), hint: this.str('kb_a11y_modifier_hint'),
+      inputEpoch: this.inputEpoch,
       active: latched, checkable: true,
       onPress: () => {
         this.model.toggleModifier(mod);
@@ -193,7 +212,7 @@ export struct KeyboardPage {
         placeholder: this.str('kb_input_placeholder') })
         .id('kb_input')
         .width('100%')
-        .constraintSize({ maxHeight: INPUT_MAX_HEIGHT_VP })
+        .constraintSize({ maxHeight: this.compact ? 48 : INPUT_MAX_HEIGHT_VP })
         .fontSize($r('sys.float.ohos_id_text_size_body1'))
         .fontColor($r('sys.color.font_primary'))
         .placeholderColor($r('sys.color.font_tertiary'))
@@ -232,6 +251,7 @@ export struct KeyboardPage {
 
         KeyCap({
           label: this.str('kb_key_collapse'), a11y: this.str('kb_key_collapse_a11y'),
+          inputEpoch: this.inputEpoch,
           onPress: () => {
             this.onClose();
           }

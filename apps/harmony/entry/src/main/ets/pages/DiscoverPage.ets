@@ -133,7 +133,7 @@ export struct DiscoverPage {
   @Builder
   codeSlot(index: number) {
     Text(this.pairing.snapshot.code.length > index ? this.pairing.snapshot.code.charAt(index) : '')
-      .width(56)
+      .layoutWeight(1)
       .height(64)
       .fontSize(32)
       .fontWeight(FontWeight.Bold)
@@ -147,26 +147,33 @@ export struct DiscoverPage {
 
   build() {
     HdsNavDestination() {
-      Column({ space: 16 }) {
-        if (this.pairing.snapshot.phase === PairPhase.DISCOVERING) {
-          this.progressView($r('app.string.discover_searching'))
-        } else if (this.pairing.snapshot.phase === PairPhase.CONNECTING) {
-          this.progressView($r('app.string.discover_connecting'))
-        } else if (this.pairing.snapshot.phase === PairPhase.VERIFYING) {
-          this.progressView($r('app.string.pair_verifying'))
-        } else if (this.pairing.snapshot.phase === PairPhase.PENDING_CODE) {
-          this.pairingView()
-        } else if (this.pairing.snapshot.phase === PairPhase.PAIRED) {
-          this.successView()
-        } else if (this.pairing.snapshot.phase === PairPhase.FAILED) {
-          this.failedView()
-        } else {
-          this.listView()
+      Scroll(this.scroller) {
+        Column({ space: 16 }) {
+          if (this.pairing.snapshot.phase === PairPhase.DISCOVERING) {
+            this.progressView($r('app.string.discover_searching'))
+          } else if (this.pairing.snapshot.phase === PairPhase.CONNECTING) {
+            this.progressView($r('app.string.discover_connecting'))
+          } else if (this.pairing.snapshot.phase === PairPhase.VERIFYING) {
+            this.progressView($r('app.string.pair_verifying'))
+          } else if (this.pairing.snapshot.phase === PairPhase.PENDING_CODE) {
+            this.pairingView()
+          } else if (this.pairing.snapshot.phase === PairPhase.PAIRED) {
+            this.successView()
+          } else if (this.pairing.snapshot.phase === PairPhase.FAILED) {
+            this.failedView()
+          } else {
+            this.listView()
+          }
         }
+        .width('100%')
+        .constraintSize({ minHeight: '100%' })
+        .justifyContent(this.pairing.snapshot.phase === PairPhase.IDLE ? FlexAlign.Start : FlexAlign.Center)
+        .padding(16)
       }
       .width('100%')
       .height('100%')
-      .padding(16)
+      .align(Alignment.Top)
+      .clip(false)
     }
     .titleBar({
       // 仅 avoidLayoutSafeArea 内容会钻栏下、仅 enableComponentSafeArea 栏高塌陷，双开缺一不可。
@@ -209,7 +216,6 @@ export struct DiscoverPage {
         .fontColor($r('sys.color.font_secondary'))
     }
     .width('100%')
-    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
   }
 
@@ -225,7 +231,6 @@ export struct DiscoverPage {
         .fontColor($r('sys.color.font_secondary'))
     }
     .width('100%')
-    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
   }
 
@@ -253,7 +258,6 @@ export struct DiscoverPage {
         })
     }
     .width('100%')
-    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
   }
 
@@ -293,56 +297,50 @@ export struct DiscoverPage {
             })
         }
         .width('100%')
-        List({ space: 8, scroller: this.scroller }) {
+        Column({ space: 8 }) {
           ForEach(this.pairing.snapshot.hosts, (h: DiscoveredHost) => {
-            ListItem() {
-              PressedRow({
-                a11yText: `${h.name.length > 0 ? h.name : h.ip}，${this.hostInfo(h)}`
-                  + (this.pairing.isKnownHost(h) ? `，${this.resStr('discover_paired_tag')}` : ''),
-                onActivated: (): void => {
-                  this.pairing.selectHost(h);
-                }
-              }) {
-                Row({ space: 12 }) {
-                  SymbolGlyph($r('sys.symbol.computer'))
-                    .fontSize(22)
-                    .fontColor([$r('sys.color.icon_secondary')])
-                  Column({ space: 4 }) {
-                    Text(h.name.length > 0 ? h.name : h.ip)
-                      .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                      .fontColor($r('sys.color.font_primary'))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(this.hostInfo(h))
-                      .fontSize($r('sys.float.ohos_id_text_size_body2'))
-                      .fontColor($r('sys.color.font_secondary'))
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  }
-                  .alignItems(HorizontalAlign.Start)
-                  .layoutWeight(1)
-                  // 本机有该主机 token：点击直接连，不再重新配对。
-                  if (this.pairing.isKnownHost(h)) {
-                    Text($r('app.string.discover_paired_tag'))
-                      .fontSize($r('sys.float.ohos_id_text_size_body3'))
-                      .fontColor($r('sys.color.brand'))
-                      .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-                      .borderRadius(10)
-                      .backgroundColor($r('sys.color.comp_background_tertiary'))
-                      .accessibilityLevel('no') // 行的播报已含该语义
-                  }
-                }
-                .width('100%')
-                .alignItems(VerticalAlign.Center)
+            PressedRow({
+              a11yText: `${h.name.length > 0 ? h.name : h.ip}，${this.hostInfo(h)}`
+                + (this.pairing.isKnownHost(h) ? `，${this.resStr('discover_paired_tag')}` : ''),
+              onActivated: (): void => {
+                this.pairing.selectHost(h);
               }
+            }) {
+              Row({ space: 12 }) {
+                SymbolGlyph($r('sys.symbol.computer'))
+                  .fontSize(22)
+                  .fontColor([$r('sys.color.icon_secondary')])
+                Column({ space: 4 }) {
+                  Text(h.name.length > 0 ? h.name : h.ip)
+                    .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                    .fontColor($r('sys.color.font_primary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(this.hostInfo(h))
+                    .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                    .fontColor($r('sys.color.font_secondary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                // 本机有该主机 token：点击直接连，不再重新配对。
+                if (this.pairing.isKnownHost(h)) {
+                  Text($r('app.string.discover_paired_tag'))
+                    .fontSize($r('sys.float.ohos_id_text_size_body3'))
+                    .fontColor($r('sys.color.brand'))
+                    .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+                    .borderRadius(10)
+                    .backgroundColor($r('sys.color.comp_background_tertiary'))
+                    .accessibilityLevel('no') // 行的播报已含该语义
+                }
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
             }
           }, (h: DiscoveredHost) => `${h.ip}:${h.name}`)
         }
         .width('100%')
-        .layoutWeight(1)
-        // 关闭列表裁剪让滚出视口的内容仍渲染进栏区显影模糊；cachedCount 保穿透项不因虚拟化消失。
-        .clip(false)
-        .cachedCount(3, true)
       } else {
         Column({ space: 12 }) {
           Text($r('app.string.discover_empty_title'))
@@ -364,7 +362,6 @@ export struct DiscoverPage {
             })
         }
         .width('100%')
-        .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       }
       // 调试入口：手工输入 IP 走与列表选中同一条 selectHost 流程（不新增协议路径）。
@@ -373,7 +370,6 @@ export struct DiscoverPage {
       }
     }
     .width('100%')
-    .layoutWeight(1)
   }
 
   @Builder
@@ -441,6 +437,8 @@ export struct DiscoverPage {
           this.codeSlot(2)
           this.codeSlot(3)
         }
+        .width('100%')
+        .constraintSize({ maxWidth: 260 })
         TextInput({ text: this.pairing.snapshot.code })
           .maxLength(4)
           .type(InputType.Number)
@@ -483,7 +481,6 @@ export struct DiscoverPage {
       }
     }
     .width('100%')
-    .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
   }
 }

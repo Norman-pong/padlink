@@ -33,6 +33,7 @@ const DOCK_BTN_ICON_FP: number = 26;
 const DOCK_GAP_VP: number = 10;
 const DOCK_SIDE_MARGIN_VP: number = 8; // 与键盘层内 4vp 合计 12vp 到屏缘
 const CTRL_BUSY_TOP_GAP_VP: number = 12;
+const SHORT_WINDOW_HEIGHT_VP: number = 480;
 
 @ComponentV2
 export struct MainControlPage {
@@ -43,17 +44,41 @@ export struct MainControlPage {
   @Require @Param settings: SettingsModel;
   @Require @Param pathStack: NavPathStack;
 
+  @Param pageVisible: boolean = true;
+
   @Local bottomAvoidVp: number = 0;
+  @Local keyboardAvoidVp: number = 0;
   @Local topAvoidVp: number = 0; // 压入状态栏会被系统窗口拦截点击
   @Local guideOpacity: number = 1;
   @Local kbVisible: boolean = false;
+  @Local compactWindow: boolean = false;
+  @Local inputEpoch: number = 0;
   private win: window.Window | null = null;
   private avoidCb: ((data: window.AvoidAreaOptions) => void) | null = null;
   private sizeCb: ((data: window.Size) => void) | null = null;
   // getLastWindow 异步返回晚于 aboutToDisappear 时（快速进出页），据此丢弃迟到的窗口操作。
   private disposed: boolean = false;
+  private statusBarHidden: boolean = false;
+  private barUpdates: Promise<void> = Promise.resolve();
   aboutToAppear(): void {
+    this.disposed = false;
     this.setupWindow();
+  }
+
+  @Monitor('pageVisible')
+  onPageVisibilityChanged(): void {
+    if (!this.pageVisible) {
+      this.cancelActiveInput();
+    }
+    this.refreshAvoid();
+  }
+
+  private cancelActiveInput(): void {
+    this.touchpad.cancelGesture();
+    this.keyboard.releaseAll();
+    this.voice.cancelSession();
+    this.inputEpoch++;
+    this.guideOpacity = 1;
   }
 
   aboutToDisappear(): void {
@@ -73,6 +98,7 @@ export struct MainControlPage {
     if (this.kbVisible) {
       return;
     }
+    this.cancelActiveInput();
     this.kbVisible = true;
     this.keyboard.zoneEnter();
   }
@@ -101,12 +127,17 @@ export struct MainControlPage {
       });
       this.refreshAvoid();
       this.avoidCb = (data: window.AvoidAreaOptions) => {
-        if (data.type === window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR) {
+        if (data.type === window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR
+          || data.type === window.AvoidAreaType.TYPE_SYSTEM
+          || data.type === window.AvoidAreaType.TYPE_KEYBOARD) {
           this.refreshAvoid();
         }
       };
       win.on('avoidAreaChange', this.avoidCb);
       this.sizeCb = (data: window.Size) => {
+        if (this.pageVisible) {
+          this.cancelActiveInput();
+        }
         this.refreshAvoid();
       };
       win.on('windowSizeChange', this.sizeCb);
@@ -120,6 +151,7 @@ export struct MainControlPage {
       return;
     }
     const win = this.win;
+    this.setStatusBarHidden(false);
     this.win = null;
     if (this.avoidCb !== null) {
       win.off('avoidAreaChange', this.avoidCb);
@@ -147,6 +179,31 @@ export struct MainControlPage {
     const sys: window.AvoidArea =
       this.win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
     this.topAvoidVp = this.getUIContext().px2vp(sys.topRect.height);
+    const rect = this.win.getWindowProperties().windowRect;
+    const keyboardArea = this.win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);
+    this.keyboardAvoidVp = this.getUIContext().px2vp(keyboardArea.bottomRect.height);
+    if (rect.height > 0 && rect.width > 0) {
+      this.compactWindow = this.getUIContext().px2vp(rect.height) <= SHORT_WINDOW_HEIGHT_VP;
+      this.setStatusBarHidden(this.pageVisible && this.compactWindow
+        && this.getUIContext().px2vp(rect.width) <= SHORT_WINDOW_HEIGHT_VP);
+    }
+  }
+
+  private setStatusBarHidden(hidden: boolean): void {
+    if (this.win === null || this.statusBarHidden === hidden) {
+      return;
+    }
+    const win = this.win;
+    this.statusBarHidden = hidden;
+    // 按请求顺序执行：离页恢复不得被迟到的隐藏请求覆盖。
+    this.barUpdates = this.barUpdates.then(() => win.setSpecificSystemBarEnabled('status', !hidden))
+      .then(() => {
+        if (this.win === win) {
+          this.refreshAvoid();
+        }
+      }).catch((err: BusinessError) => {
+        hilogWarn('statusBar fail', err);
+      });
   }
 
   private resStr(name: string): string {
@@ -292,6 +349,7 @@ export struct MainControlPage {
         .width('100%')
         .padding({ left: CAPSULE_MARGIN_VP, right: CAPSULE_MARGIN_VP })
         .margin({ top: this.topAvoidVp + CAPSULE_MARGIN_VP })
+        .visibility(this.compactWindow && this.kbVisible ? Visibility.None : Visibility.Visible)
 
         Stack({ alignContent: Alignment.Center }) {
           Column()
@@ -322,29 +380,34 @@ export struct MainControlPage {
 
         // 底部停靠簇：行宽恒定（键盘召唤键经尾闭包注入停靠位），卡片出现只顶高不停键位。
         Column({ space: DOCK_GAP_VP }) {
-          VoiceDock({ voice: this.voice, conn: this.conn }) {
-            if (!this.kbVisible) {
-              Stack({ alignContent: Alignment.Center }) {
-                SymbolGlyph($r('sys.symbol.keyboard'))
-                  .fontSize(DOCK_BTN_ICON_FP)
-                  .fontColor([$r('sys.color.icon_primary')])
+          if (!this.compactWindow || !this.kbVisible) {
+            VoiceDock({ voice: this.voice, conn: this.conn, inputEpoch: this.inputEpoch,
+              compact: this.compactWindow }) {
+              if (!this.kbVisible) {
+                Stack({ alignContent: Alignment.Center }) {
+                  SymbolGlyph($r('sys.symbol.keyboard'))
+                    .fontSize(DOCK_BTN_ICON_FP)
+                    .fontColor([$r('sys.color.icon_primary')])
+                }
+                .width(DOCK_BTN_SIZE_VP)
+                .height(DOCK_BTN_SIZE_VP)
+                .borderRadius(DOCK_BTN_SIZE_VP / 2)
+                .backgroundColor($r('sys.color.comp_background_tertiary'))
+                .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+                .onClick(() => {
+                  this.openKeyboard();
+                })
+                .accessibilityLevel('yes')
+                .accessibilityText($r('app.string.main_kb_toggle_a11y'))
               }
-              .width(DOCK_BTN_SIZE_VP)
-              .height(DOCK_BTN_SIZE_VP)
-              .borderRadius(DOCK_BTN_SIZE_VP / 2)
-              .backgroundColor($r('sys.color.comp_background_tertiary'))
-              .border({ width: 0.5, color: $r('sys.color.comp_divider') })
-              .onClick(() => {
-                this.openKeyboard();
-              })
-              .accessibilityLevel('yes')
-              .accessibilityText($r('app.string.main_kb_toggle_a11y'))
             }
           }
 
           if (this.kbVisible) {
             KeyboardPage({
               model: this.keyboard,
+              compact: this.compactWindow,
+              inputEpoch: this.inputEpoch,
               onClose: () => {
                 this.closeKeyboard();
               }
@@ -353,12 +416,13 @@ export struct MainControlPage {
         }
         .alignItems(HorizontalAlign.End)
         .width('100%')
-        // IME 起（RESIZE 下窗口底边即 IME 顶边）时底边距归零，否则手势条避让成死空隙。
+        // RESIZE 仅缩去实际键盘高度；硬件键盘或浮动键盘仍需避让底部手势区。
         .padding({ left: DOCK_SIDE_MARGIN_VP, right: DOCK_SIDE_MARGIN_VP,
-          bottom: this.kbVisible && this.keyboard.imeVisible ? 0 : this.bottomAvoidVp })
+          bottom: Math.max(0, this.bottomAvoidVp - (this.kbVisible ? this.keyboardAvoidVp : 0)) })
       }
       .width('100%')
       .height('100%')
+      .padding({ top: this.compactWindow && this.kbVisible ? this.topAvoidVp : 0 })
     }
     .hideTitleBar(true)
     .width('100%')
@@ -397,34 +461,42 @@ export struct MainControlPage {
   touchGuide() {
     Column({ space: 12 }) {
       if (this.connected()) {
-        SymbolGlyph($r('sys.symbol.touchpad'))
-          .fontSize(32)
-          .fontColor([$r('sys.color.icon_tertiary')])
-          .accessibilityLevel('no')
+        if (!this.compactWindow) {
+          SymbolGlyph($r('sys.symbol.touchpad'))
+            .fontSize(32)
+            .fontColor([$r('sys.color.icon_tertiary')])
+            .accessibilityLevel('no')
+        }
         Text($r('app.string.main_hint_move'))
           .fontSize($r('sys.float.ohos_id_text_size_body2'))
           .fontColor($r('sys.color.font_tertiary'))
           .accessibilityLevel('no')
-        Text($r('app.string.main_hint_scroll'))
-          .fontSize($r('sys.float.ohos_id_text_size_body2'))
-          .fontColor($r('sys.color.font_tertiary'))
-          .accessibilityLevel('no')
-        Text($r('app.string.main_hint_keyboard'))
-          .fontSize($r('sys.float.ohos_id_text_size_body2'))
-          .fontColor($r('sys.color.font_tertiary'))
-          .accessibilityLevel('no')
+        if (!this.compactWindow) {
+          Text($r('app.string.main_hint_scroll'))
+            .fontSize($r('sys.float.ohos_id_text_size_body2'))
+            .fontColor($r('sys.color.font_tertiary'))
+            .accessibilityLevel('no')
+          Text($r('app.string.main_hint_keyboard'))
+            .fontSize($r('sys.float.ohos_id_text_size_body2'))
+            .fontColor($r('sys.color.font_tertiary'))
+            .accessibilityLevel('no')
+        }
       } else {
-        SymbolGlyph($r('sys.symbol.computer'))
-          .fontSize(40)
-          .fontColor([$r('sys.color.icon_tertiary')])
-          .accessibilityLevel('no')
+        if (!this.compactWindow) {
+          SymbolGlyph($r('sys.symbol.computer'))
+            .fontSize(40)
+            .fontColor([$r('sys.color.icon_tertiary')])
+            .accessibilityLevel('no')
+        }
         Text(this.resStr(connStateKey(this.conn.snapshot.state)))
           .fontSize($r('sys.float.ohos_id_text_size_body1'))
           .fontColor($r('sys.color.font_secondary'))
-        Text($r('app.string.main_guide_offline_hint'))
-          .fontSize($r('sys.float.ohos_id_text_size_body2'))
-          .fontColor($r('sys.color.font_tertiary'))
-          .textAlign(TextAlign.Center)
+        if (!this.compactWindow) {
+          Text($r('app.string.main_guide_offline_hint'))
+            .fontSize($r('sys.float.ohos_id_text_size_body2'))
+            .fontColor($r('sys.color.font_tertiary'))
+            .textAlign(TextAlign.Center)
+        }
         Button($r('app.string.main_connect_host'))
           .margin({ top: 8 })
           .onClick(() => {

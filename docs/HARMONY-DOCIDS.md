@@ -9,7 +9,7 @@
 
 | 完整路径 | 关键事实 |
 | --- | --- |
-| `API参考/ArkUI_方舟UI框架/ArkTS组件/通用事件/基础输入事件/触摸事件/ts-universal-events-touch` | TouchObject.id = 手指唯一标识；**touches 按器件刷新率上报、changedTouches 按屏幕刷新率重采样**（低延迟光标必须消费 touches）；`getHistoricalPoints()` 取帧内被合并报点；TouchType.Cancel 触发场景（Home 返回、折叠切换） |
+| `API参考/ArkUI_方舟UI框架/ArkTS组件/通用事件/基础输入事件/触摸事件/ts-universal-events-touch` | TouchObject.id = 手指唯一标识；**touches 按器件刷新率上报、changedTouches 按屏幕刷新率重采样**（低延迟光标必须消费 touches）；`getHistoricalPoints()` 取帧内被合并报点，`HistoricalPoint.timestamp` 为系统启动以来的纳秒时间戳，与当前触摸事件同时间基准；TouchType.Cancel 触发场景（Home 返回、折叠切换） |
 | `FAQ/UI框架/组件使用/多指touch中move事件下发时机问题/faqs-arkui-907` | move 事件由 vsync 按帧刷新下发，两帧间的多个报点只下发最新一个；**第二指按下会短暂丢失其 move 信息**（双指滚动起始段抖动的根因） |
 | `FAQ/UI框架/组件使用/自定义组件拦截父组件的滚动/faqs-arkui-1397` | onTouch 通用事件与 enableScrollInteraction（滚动容器交互开关） |
 
@@ -44,6 +44,10 @@
 | `FAQ/UI框架/组件使用/如何获取状态栏和导航栏高度/faqs-arkui-202` | getWindowAvoidArea 返回值结构，**单位 px** |
 | `FAQ/UI框架/UI界面/如何获取状态栏等避让区进行避让/faqs-arkui-1114` | setWindowLayoutFullScreen + avoidAreaChange 动态监听完整范式 |
 | `FAQ/UI框架/窗口管理/如何实现沉浸式页面_包括沉浸式状态栏_沉浸式导航条/faqs-arkui-370` | 沉浸式两步法（setWindowLayoutFullScreen 或 expandSafeArea） |
+| `API参考/ArkUI_方舟UI框架/ArkTS_API/窗口管理/ohos_window_窗口_/Interface_Window/arkts-apis-window-window` | `setSpecificSystemBarEnabled('status', false)` 单独隐藏状态栏，保留底部导航；Promise 完成不等于栏动画已结束，避让区仍需动态监听；`getWindowProperties().windowRect` 为窗口 px 尺寸 |
+| `FAQ/UI框架/窗口管理/应用未显示系统导航栏/faqs-arkui-1191` | `setWindowSystemBarEnable` 的 status 同时影响顶部与底部导航，不能用于仅隐藏顶部状态栏 |
+| `API参考/UI_Design_Kit_UI设计套件/ArkTS组件/HdsNavigation_导航根视图容器/ui-design-hdsnavigation` | `onNavBarStateChange` 监听根导航页显示/隐藏；主控页作为 HdsNavigation 首页内容时，由宿主转交可见性，而非依赖未注册路由的内层 NavDestination 生命周期 |
+| `FAQ/UI框架/UI界面/如何解决键盘弹出后原UI布局错乱问题/faqs-arkui-1571` | RESIZE 下百分比高度与 layoutWeight 可随键盘压缩；该模式下 expandSafeArea 不生效；实际键盘高度不足以覆盖底部导航区域时仍需保留剩余避让 |
 
 ## 五、工程脚手架与基建（M0 建工程 / HDS 合规）
 
@@ -80,6 +84,9 @@
 | --- | --- |
 | `FAQ/UI框架/UI界面/Builder装饰器参数传递限制与使用方式介绍/faqs-arkui-1078` | **@Builder 按值传递参数时，参数（含状态变量）改变不会引起 @Builder 内 UI 刷新**；要刷新必须按引用传递（单参数 + 调用处直接传对象字面量）或按回调传递（UIUtils.makeBinding，API20+）。DebugPanelPage statRow 双参按值会致 Realtime 区自打开起冻结，须改单参对象字面量 |
 | `开发指南/ArkUI_方舟UI框架/UI开发_ArkTS声明式开发范式/学习UI范式基本语法/组件扩展/Builder装饰器_自定义构建函数/arkts-builder` | 按引用传递仅「单参数且调用处直接传对象字面量」生效（≥2 参数或值/引用混传均不刷新）；@ObservedV2/@Trace 类实例**按值**传参仍具深度观测（改 @Trace 属性可刷新 Builder 内 UI）；@ComponentV2 下全局 Builder 传 @ObservedV2 实例必须按值（引用传递会被 ArkTS 语法拦截） |
+| `开发指南/ArkUI_方舟UI框架/UI开发_ArkTS声明式开发范式/学习UI范式状态管理/状态管理_V2/管理数据对象的状态/Monitor装饰器_状态变量修改异步监听/arkts-new-monitor` | @Monitor 可监听 @Param 变化；窗口或导航切换后复位键条、语音浮键的按压态 |
+
+外屏实测范围与待验收项见 [外屏适配验证](HARMONY-COVER-SCREEN.md)。
 
 ---
 

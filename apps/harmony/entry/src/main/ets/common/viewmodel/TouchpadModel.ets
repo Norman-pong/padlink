@@ -1,6 +1,6 @@
 // 触摸板 ViewModel：UI 触摸事件 → TouchSample 流 → GestureEngine → Transport。
 // 触摸数据消费必须用 event.touches + getHistoricalPoints()：changedTouches 按屏幕刷新率重采样，会丢
-// 帧内合并报点；历史点无时间戳，按上一事件与当前事件间隔线性内插。Up/Cancel 的被抬指只在
+// 帧内合并报点；历史点取 HistoricalPoint.timestamp（ns，系统启动时间）。Up/Cancel 的被抬指只在
 // changedTouches（touches 已不含该指）。tMs 取 BaseEvent.timestamp（ns，单调）/1e6。
 import { GestureEngine, GestureCommandType } from '../gesture/GestureEngine';
 import type { GestureCommand } from '../gesture/GestureEngine';
@@ -18,9 +18,9 @@ export class TouchpadModel {
   private cfg: GestureConfig = defaultGestureConfig();
   private engine: GestureEngine = new GestureEngine(this.cfg);
   private transport: Transport | null = null;
-  // 活跃指集合（DOWN 登记 / UP 注销 / CANCEL 清空），供指位升格判定。
-  private activeIds: Set<number> = new Set<number>();
+  private activeSamples: Map<number, TouchSample> = new Map<number, TouchSample>();
   private lastEventTms: number = 0;
+  private awaitingDown: boolean = false;
   // 时钟留在本层：触摸样本用系统启动时间、定时器用 Date.now()，两者不同基，
   // 故引擎只认「距上次 tick 的增量」。
   private flingTimer: number = -1;
@@ -56,24 +56,29 @@ export class TouchpadModel {
   }
 
   public onTouch(ev: TouchEvent): void {
+    if (this.awaitingDown) {
+      if (ev.type !== TouchType.Down) {
+        return;
+      }
+      this.awaitingDown = false;
+    }
     const tms: number = ev.timestamp / 1000000; // ns → ms（单调时钟）
-    const span: number = tms - this.lastEventTms;
     const hist: Array<HistoricalPoint> = ev.getHistoricalPoints();
     for (let i = 0; i < hist.length; i++) {
       const t: TouchObject = hist[i].touchObject;
-      const histTms: number = this.lastEventTms + span * (i + 1) / (hist.length + 1);
+      const histTms: number = hist[i].timestamp / 1000000;
       this.feedSample(t.id, t.x, t.y, TouchKind.MOVE, histTms);
     }
     if (ev.type === TouchType.Down) {
       for (const t of ev.touches) {
-        if (!this.activeIds.has(t.id)) {
+        if (!this.activeSamples.has(t.id)) {
           this.feedSample(t.id, t.x, t.y, TouchKind.DOWN, tms);
         }
       }
     } else if (ev.type === TouchType.Move) {
       for (const t of ev.touches) {
         // 未知指升格为 DOWN 自愈（帧合并极端情况下 Down 丢失，防该指永久失联）
-        const known: boolean = this.activeIds.has(t.id);
+        const known: boolean = this.activeSamples.has(t.id);
         this.feedSample(t.id, t.x, t.y, known ? TouchKind.MOVE : TouchKind.DOWN, tms);
       }
     } else if (ev.type === TouchType.Up) {
@@ -83,25 +88,36 @@ export class TouchpadModel {
     } else if (ev.type === TouchType.Cancel) {
       // TouchType.Cancel（Home 返回、折叠切换等）：任意 CANCEL 即全局复位
       this.feedSample(0, 0, 0, TouchKind.CANCEL, tms);
+      this.awaitingDown = true;
     }
     this.lastEventTms = tms;
   }
 
   // 切页/退出主控页时调用：CANCEL 复位引擎（释放按键、冲账滚动、终止惯性），不残留。
   public cancelGesture(): void {
-    this.feedSample(0, 0, 0, TouchKind.CANCEL, new Date().getTime());
+    this.feedSample(0, 0, 0, TouchKind.CANCEL, this.lastEventTms);
+    this.awaitingDown = true;
     this.stopFlingTimer();
   }
 
   private feedSample(pointerId: number, x: number, y: number, kind: number, tMs: number): void {
-    if (kind === TouchKind.DOWN) {
-      this.activeIds.add(pointerId);
-    } else if (kind === TouchKind.UP) {
-      this.activeIds.delete(pointerId);
-    } else if (kind === TouchKind.CANCEL) {
-      this.activeIds.clear();
-    }
     const s: TouchSample = { pointerId: pointerId, x: x, y: y, kind: kind, tMs: tMs };
+    if (kind === TouchKind.MOVE) {
+      const previous: TouchSample | undefined = this.activeSamples.get(pointerId);
+      if (previous === undefined || tMs < previous.tMs) {
+        return;
+      }
+      if (tMs === previous.tMs && x === previous.x && y === previous.y) {
+        return;
+      }
+      this.activeSamples.set(pointerId, s);
+    } else if (kind === TouchKind.DOWN) {
+      this.activeSamples.set(pointerId, s);
+    } else if (kind === TouchKind.UP) {
+      this.activeSamples.delete(pointerId);
+    } else if (kind === TouchKind.CANCEL) {
+      this.activeSamples.clear();
+    }
     const cmds: GestureCommand[] = this.engine.feed(s);
     this.noteSample(tMs);
     this.dispatch(cmds);
@@ -115,9 +131,9 @@ export class TouchpadModel {
     if (this.flingTimer >= 0) {
       return;
     }
-    this.flingWallMs = new Date().getTime();
+    this.flingWallMs = Date.now();
     this.flingTimer = setInterval(() => {
-      const now: number = new Date().getTime();
+      const now: number = Date.now();
       const dt: number = now - this.flingWallMs;
       this.flingWallMs = now;
       const cmds: GestureCommand[] = this.engine.tick(dt);
@@ -172,7 +188,7 @@ export class TouchpadModel {
   }
 
   private noteSend(): void {
-    const tMs: number = new Date().getTime();
+    const tMs: number = Date.now();
     if (tMs - this.sendSecStart >= 1000) {
       this.sendRate = this.sendsInSec;
       this.sendsInSec = 0;

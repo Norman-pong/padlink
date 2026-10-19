@@ -27,6 +27,7 @@ const DOMAIN: number = 0x5050;
 @Entry
 @ComponentV2
 struct Index {
+  @Local controlVisible: boolean = true;
   pathStack: NavPathStack = new NavPathStack();
   conn: ConnectionManager = new ConnectionManager();
   settings: SettingsModel = new SettingsModel();
@@ -70,7 +71,7 @@ struct Index {
 
   build() {
     HdsNavigation(this.pathStack) {
-      MainControlPage({ conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard,
+      MainControlPage({ pageVisible: this.controlVisible, conn: this.conn, touchpad: this.touchpad, keyboard: this.keyboard,
         voice: this.voice, settings: this.settings, pathStack: this.pathStack })
     }
     .mode(NavigationMode.Stack)
@@ -78,6 +79,9 @@ struct Index {
     .hideBackButton(true)
     .hideTitleBar(true)
     .navDestination(this.pageMap)
+    .onNavBarStateChange((visible: boolean) => {
+      this.controlVisible = visible;
+    })
   }
 
   @Builder

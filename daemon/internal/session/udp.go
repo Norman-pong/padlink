@@ -81,12 +81,8 @@ func (s *Server) handleUDP(data []byte, addr *net.UDPAddr) {
 		return
 	}
 	switch pkt.Type {
-	case proto.TypeMove:
-		dx, dy := pkt.Move.DX, pkt.Move.DY
-		s.tryEnqueue(s.doInj("UDP MOVE", func() error { return s.inj.Move(dx, dy) }))
-	case proto.TypeScroll:
-		dy := pkt.Scroll.DyHiRes
-		s.tryEnqueue(s.doInj("UDP SCROLL", func() error { return s.inj.Scroll(dy) }))
+	case proto.TypeMove, proto.TypeScroll:
+		s.tryEnqueue(s.inputAction(pkt, client.ID, "UDP "))
 	case proto.TypeEcho:
 		reply := proto.NewEcho(uint16(s.udpSeq.Add(1)), pkt.Echo.TsMs)
 		proto.Seal(&reply, tok)

@@ -49,7 +49,7 @@ export class GestureStateName {
   public static readonly IDLE: number = 0;
   // 单指按下待定型：轻点/长按候选。
   public static readonly SINGLE_PENDING: number = 1;
-  // 单指光标移动（≤8vp 窗口内的移动不发光标，越界样本起才发）。
+  // 单指光标移动（≤8vp 窗口内静默，越界时结算判定期位移）。
   public static readonly CURSOR: number = 2;
   // 长按拖拽：引擎持有左键（down 已发，必须配对释放）。
   public static readonly DRAGGING: number = 3;
@@ -72,7 +72,7 @@ interface PointerTrack {
   lastTMs: number;
 }
 
-const SCROLL_VELOCITY_ALPHA: number = 0.35;
+const SCROLL_VELOCITY_TAU_MS: number = -16 / Math.log(1 - 0.35);
 
 export class GestureEngine {
   private cfg: GestureConfig;
@@ -91,6 +91,7 @@ export class GestureEngine {
   private lastTapUpY: number = 0;
   private tapDragArmed: boolean = false;
   private scrollVelVp: number = 0; // 滚动速度估计（vp/ms，指数平滑）
+  private scrollVelTMs: number = -1;
   private flingV: number = 0; // 惯性初速（vp/ms；0 = 无惯性）
   private flingElapsedMs: number = 0; // 惯性已滑行时长
 
@@ -216,8 +217,8 @@ export class GestureEngine {
           out.push(cmdButton(HidButton.LEFT, true));
           return;
         }
-        this.state = GestureStateName.CURSOR; // 超位移：轻点/长按出局，越界样本起发光标
-        this.emitCursor(prevX, prevY, prevT, s, out);
+        this.state = GestureStateName.CURSOR;
+        this.emitCursor(tr.startX, tr.startY, tr.downTMs, s, out);
       } else if (s.tMs - tr.downTMs >= this.cfg.longPressMs) {
         // 惰性长按：位移未超且已到 300ms（无后台定时器，靠样本时间差）
         this.state = GestureStateName.DRAGGING;
@@ -237,12 +238,12 @@ export class GestureEngine {
       if (this.anyPointerOverTapDist() || this.tapWindowExpired(s.tMs)) {
         this.state = GestureStateName.SCROLLING; // 判滚：右键轻点出局
         this.tapCandidate = false;
-        this.accumulateScroll(s.y - prevY, s.tMs - prevT, out);
+        this.accumulateScroll(s.y - prevY, s.tMs - prevT, s.tMs, out);
       }
       return;
     }
     if (this.state === GestureStateName.SCROLLING) {
-      this.accumulateScroll(s.y - prevY, s.tMs - prevT, out);
+      this.accumulateScroll(s.y - prevY, s.tMs - prevT, s.tMs, out);
       return;
     }
   }
@@ -315,7 +316,7 @@ export class GestureEngine {
       this.pointers.delete(s.pointerId);
       if (this.pointers.size === 0) {
         // 末指抬起：按末速起滑（惯性滑行），无资格则冲账余量收尾
-        this.startFling();
+        this.startFling(s.tMs);
         if (this.flingV === 0) {
           this.flushScroll(out);
         }
@@ -345,10 +346,15 @@ export class GestureEngine {
 
   // 滚动累积：整数部分即时发出，余量留待冲账；速度做指数平滑（惯性初速来源，抖动不进初速）。
   // 自然滚动：手指下滑 → 内容随手指 → HI_RES 正值；非自然取反。
-  private accumulateScroll(dyVp: number, dtMs: number, out: GestureCommand[]): void {
+  private accumulateScroll(dyVp: number, dtMs: number, tMs: number, out: GestureCommand[]): void {
     if (dtMs > 0) {
-      const inst: number = dyVp / dtMs;
-      this.scrollVelVp = this.scrollVelVp * (1 - SCROLL_VELOCITY_ALPHA) + inst * SCROLL_VELOCITY_ALPHA;
+      const elapsed: number = this.scrollVelTMs < 0 ? dtMs : tMs - this.scrollVelTMs;
+      if (elapsed > 0) {
+        const decay: number = Math.exp(-elapsed / SCROLL_VELOCITY_TAU_MS);
+        const inst: number = dyVp / dtMs;
+        this.scrollVelVp = this.scrollVelVp * decay + inst * (1 - decay);
+        this.scrollVelTMs = tMs;
+      }
     }
     this.scrollByVp(dyVp, out);
   }
@@ -365,9 +371,11 @@ export class GestureEngine {
   }
 
   // 末速低于阈值不起滑；超上限截断（防甩飞）。
-  private startFling(): void {
-    const v: number = this.scrollVelVp;
+  private startFling(tMs: number): void {
+    const idleMs: number = this.scrollVelTMs < 0 ? 0 : Math.max(0, tMs - this.scrollVelTMs);
+    const v: number = this.scrollVelVp * Math.exp(-idleMs / SCROLL_VELOCITY_TAU_MS);
     this.scrollVelVp = 0;
+    this.scrollVelTMs = -1;
     if (Math.abs(v) < this.cfg.flingMinVpPerMs) {
       return;
     }
@@ -427,6 +435,7 @@ export class GestureEngine {
     this.cursorResX = 0;
     this.cursorResY = 0;
     this.scrollVelVp = 0;
+    this.scrollVelTMs = -1;
     // 惯性跨 IDLE 存活：滑行中不得清累积器（余量留到 stopFling 冲账）。
     if (this.flingV === 0) {
       this.scrollAccUnits = 0;

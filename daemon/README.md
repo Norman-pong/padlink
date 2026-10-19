@@ -23,6 +23,25 @@ PadLink 的桌面守护进程：Go 单二进制，零第三方依赖（macOS 经
 | `cmd/padlinktoy` | 联调工具：record / replay / fuzz / latency |
 | `packaging/` | 安装物与发版脚本（Linux：udev 规则、两种 user 级 service 变体、install.sh、deb/rpm 钩子；macOS：launchd plist 与 install.sh） |
 
+### 会话与输入内核
+
+输入链路：`proto` 解码 → `session` 认证与控制权裁决 → 串行注入队列 → `inject` 事件编排 → `uinput` 平台后端。
+`uinput` 是历史包名，实际覆盖 Linux uinput、macOS Quartz 与 Windows SendInput；文本由同一队列调用 `textinject`，粘贴组合键仍经 `inject`。
+
+`session` 内部按职责组织，外部装配入口仍为 `New` / `Start` / `Stop`：
+
+| 文件 | 职责 |
+| --- | --- |
+| `internal/session/server.go` | 服务装配与生命周期、会话注册表、发现应答、客户端通知与状态查询 |
+| `internal/session/tcp.go` | TCP 接入、拆帧、读写超时、可靠输入路由、ECHO/BYE 与会话收尾 |
+| `internal/session/handshake.go` | HELLO 协商、绑定 token 认证、配对与配对期读超时宽限 |
+| `internal/session/udp.go` | UDP 发现与认证、全局/客户端限速、移动/滚动路由与 ECHO |
+| `internal/session/input.go` | 两通道共用的输入动作构造、控制权门控、按住状态、兜底释放与串行注入队列 |
+| `internal/session/priority.go` / `rate.go` | 控制权裁决与令牌桶算法 |
+
+TCP 输入背压入队，UDP 移动/滚动与按键连发非阻塞入队，队列满时丢弃计数；按住状态只由 TCP 可靠输入维护。
+协议字节语义仍以 [PROTOCOL.md](../protocol/PROTOCOL.md) 与黄金向量为单源，运行行为见下文「会话层规则」。
+
 ## 构建与测试
 
 ```sh

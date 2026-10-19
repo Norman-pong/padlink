@@ -28,11 +28,20 @@ const TEXT_KEYS: string[] = [
 export struct VoiceDock {
   @Require @Param voice: VoiceModel;
   @Require @Param conn: ConnectionManager;
+  @Param inputEpoch: number = 0;
+  @Param compact: boolean = false;
   @BuilderParam trailing: () => void = this.emptyTrailing;
   @Local private pressed: boolean = false;
   @Local private pressScale: number = 1;
   private pointerId: number = -1; // 只认自己按下的指针
   private texts: Map<string, string> = new Map();
+
+  @Monitor('inputEpoch')
+  resetPress(): void {
+    this.pointerId = -1;
+    this.pressed = false;
+    this.pressScale = 1;
+  }
 
   aboutToAppear(): void {
     for (const k of TEXT_KEYS) {
@@ -140,47 +149,51 @@ export struct VoiceDock {
   build() {
     Column({ space: 10 }) {
       if (this.cardVisible()) {
-        Column({ space: 8 }) {
-          if (this.voice.interimText.length > 0) {
-            Text(this.voice.interimText)
+        Scroll() {
+          Column({ space: 8 }) {
+            if (this.voice.interimText.length > 0) {
+              Text(this.voice.interimText)
+                .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                .fontColor($r('sys.color.font_secondary'))
+                .width('100%')
+            }
+            if (this.voice.finalText.length > 0) {
+              Text(this.voice.finalText)
+                .fontSize($r('sys.float.ohos_id_text_size_body1'))
+                .fontColor($r('sys.color.font_primary'))
+                .width('100%')
+            }
+            if (this.voice.phase === VoicePhase.DONE && this.voice.finalText.length === 0) {
+              Text(this.str('voice_empty_hint'))
+                .fontSize($r('sys.float.ohos_id_text_size_body2'))
+                .fontColor($r('sys.color.font_tertiary'))
+            }
+            Text(this.str(this.statusKey()))
               .fontSize($r('sys.float.ohos_id_text_size_body2'))
-              .fontColor($r('sys.color.font_secondary'))
+              .fontColor(this.isErrorPhase()
+                ? $r('sys.color.warning') : $r('sys.color.font_secondary'))
               .width('100%')
+              .maxLines(2)
+            if (this.isErrorPhase() && this.voice.errorKey === 'voice_err_mic_permission') {
+              Button(this.str('voice_open_settings'))
+                .buttonStyle(ButtonStyleMode.NORMAL)
+                .onClick(() => {
+                  this.voice.openPermissionSettings();
+                })
+            }
+            if (this.voice.sendFailed) {
+              Button(this.str('voice_resend'))
+                .buttonStyle(ButtonStyleMode.NORMAL)
+                .onClick(() => {
+                  this.voice.resend();
+                })
+            }
           }
-          if (this.voice.finalText.length > 0) {
-            Text(this.voice.finalText)
-              .fontSize($r('sys.float.ohos_id_text_size_body1'))
-              .fontColor($r('sys.color.font_primary'))
-              .width('100%')
-          }
-          if (this.voice.phase === VoicePhase.DONE && this.voice.finalText.length === 0) {
-            Text(this.str('voice_empty_hint'))
-              .fontSize($r('sys.float.ohos_id_text_size_body2'))
-              .fontColor($r('sys.color.font_tertiary'))
-          }
-          Text(this.str(this.statusKey()))
-            .fontSize($r('sys.float.ohos_id_text_size_body2'))
-            .fontColor(this.isErrorPhase()
-              ? $r('sys.color.warning') : $r('sys.color.font_secondary'))
-            .width('100%')
-            .maxLines(2)
-          if (this.isErrorPhase() && this.voice.errorKey === 'voice_err_mic_permission') {
-            Button(this.str('voice_open_settings'))
-              .buttonStyle(ButtonStyleMode.NORMAL)
-              .onClick(() => {
-                this.voice.openPermissionSettings();
-              })
-          }
-          if (this.voice.sendFailed) {
-            Button(this.str('voice_resend'))
-              .buttonStyle(ButtonStyleMode.NORMAL)
-              .onClick(() => {
-                this.voice.resend();
-              })
-          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
         }
+        .constraintSize({ maxWidth: '100%', maxHeight: this.compact ? 96 : undefined })
         .width(CARD_MAX_WIDTH_VP)
-        .alignItems(HorizontalAlign.Start)
         .padding(12)
         .borderRadius(12)
         .backgroundColor($r('sys.color.comp_background_primary'))

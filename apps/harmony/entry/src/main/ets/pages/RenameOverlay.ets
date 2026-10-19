@@ -45,7 +45,7 @@ export struct RenameOverlay {
         .width('100%')
         .height('100%')
         .backgroundColor($r('sys.color.ohos_id_color_mask_regular'))
-      Column() {
+      Scroll() {
         Column({ space: 12 }) {
           Text($r('app.string.settings_host_rename'))
             .fontSize($r('sys.float.ohos_id_text_size_body1'))
@@ -90,7 +90,7 @@ export struct RenameOverlay {
       .width('100%')
       .height('100%')
       .padding({ left: 32, right: 32 })
-      .justifyContent(FlexAlign.Center)
+      .align(Alignment.Center)
     }
     .width('100%')
     .height('100%')
