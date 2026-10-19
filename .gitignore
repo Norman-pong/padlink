@@ -21,6 +21,8 @@ daemon/dist/
 *.har
 
 # 签名与证书一律不入库
+.env
+.certs/
 *.p7b
 *.cer
 *.p12
