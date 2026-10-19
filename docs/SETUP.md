@@ -2,7 +2,7 @@
 
 面向**使用者**：在电脑上装好服务端（padlinkd），手机 APP 才能找到电脑、配对并控制。全部通信仅在局域网内进行，不经过任何云端。
 
-支持平台：**Ubuntu 26.04（GNOME Wayland，正式支持）**、**macOS（Apple Silicon / Intel）**。其他 Linux 发行版可用 tar.gz 安装，但不承诺兼容性。
+支持平台：**Windows 11（x64 / ARM64）**、**Ubuntu 26.04（GNOME Wayland，正式支持）**、**macOS（Apple Silicon / Intel）**。其他 Linux 发行版可用 tar.gz 安装，但不承诺兼容性。
 
 > APP 内置同款浓缩向导（发现页空态「电脑还没装服务端？」入口 / 设置 → 关于 → 服务端安装指南），两处内容改动需同步。
 
@@ -15,6 +15,8 @@
 ```powershell
 irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex
 ```
+
+脚本自动识别 x64 / ARM64，下载并校验 SHA-256 后安装。执行策略仅对安装子进程生效，不修改系统设置；失败会标明查询、下载、校验、解压或安装阶段，不会继续提示安装完成。
 
 装完即登录自启（HKCU Run 键，免管理员）。注意三件事：
 
@@ -139,7 +141,7 @@ padlinkctl uninstall --purge     # 连配对记录/配置一起删（会二次�
 padlinkctl uninstall --dry-run   # 先看会做什么，不实际执行
 ```
 
-- `update` 只管 tar.gz 与 macOS LaunchAgent 两种安装形态（升级后配对记录与手机自动重连不受影响）；
+- `update` 支持 Linux tar.gz、macOS LaunchAgent 与 Windows 用户级安装（升级后保留配对记录）；
   deb/rpm 安装的请用 `sudo apt upgrade padlink` / `sudo dnf upgrade padlink`。
 - 升级前会做 SHA-256 校验，校验不过不会动系统任何文件。
 

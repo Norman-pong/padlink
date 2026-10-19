@@ -33,6 +33,27 @@ jobs:
 
       - run: go test ./... -race
 
+      - name: Unix 一行安装回归
+        run: sh ../script/install.test.sh
+
+  windows-update-check:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+
+      - run: go test ./internal/update
+
+      - name: Windows 一行安装回归
+        shell: powershell
+        run: ../script/install.test.ps1
+
   ets-check:
     runs-on: ubuntu-latest
     steps:

@@ -750,11 +750,7 @@
     },
     {
       "name": "guide_step1_title",
-      "value": "Step 1 · Run the install command on your computer"
-    },
-    {
-      "name": "guide_step1_body",
-      "value": "Paste (or type) this command into a terminal on your computer:"
+      "value": "1 · Install on your computer"
     },
     {
       "name": "guide_install_cmd",
@@ -762,11 +758,7 @@
     },
     {
       "name": "guide_step1_hint",
-      "value": "Don't want to type it? Open github.com/Norman-pong/padlink in the computer's browser — the command is near the top of the page."
-    },
-    {
-      "name": "guide_step2_title",
-      "value": "Step 2 · Finish up by system"
+      "value": "Copy and forward the command to your computer, then paste it into the indicated terminal."
     },
     {
       "name": "guide_ubuntu_title",
@@ -774,7 +766,7 @@
     },
     {
       "name": "guide_ubuntu_s1",
-      "value": "1. Log out and back in (required on first install for input injection to work)"
+      "value": "After the first install, log out and back in to enable input permissions."
     },
     {
       "name": "guide_ubuntu_c1",
@@ -782,7 +774,7 @@
     },
     {
       "name": "guide_ubuntu_s2",
-      "value": "2. For voice typing, also install:"
+      "value": "For voice typing, also install this dependency:"
     },
     {
       "name": "guide_macos_title",
@@ -790,15 +782,15 @@
     },
     {
       "name": "guide_macos_s1",
-      "value": "On first run, allow both prompts: Accessibility and Incoming connections"
+      "value": "On first run, allow Accessibility and Incoming connections."
     },
     {
       "name": "guide_step3_title",
-      "value": "Step 3 · Connect from your phone"
+      "value": "2 · Connect your computer"
     },
     {
       "name": "guide_step3_body",
-      "value": "Once installed, the server runs in the background. Go back to the discovery page, tap Rescan, then tap the host that appears to pair. The 4-digit pairing code appears in a dialog on the computer (or run padlinkctl pair in a terminal)."
+      "value": "Open a new computer terminal to check the service. Rescan and pair from your phone; the computer shows a 4-digit pairing code."
     },
     {
       "name": "guide_trouble_title",
@@ -806,19 +798,11 @@
     },
     {
       "name": "guide_trouble_1",
-      "value": "· Phone and computer on the same Wi-Fi; disable AP isolation / client isolation on the router"
+      "value": "Use the same Wi-Fi on both devices and disable AP / client isolation on the router."
     },
     {
       "name": "guide_trouble_2",
-      "value": "· Allow UDP/TCP port 53021 through the computer's firewall"
-    },
-    {
-      "name": "guide_trouble_3",
-      "value": "· On Ubuntu, log out and back in once after the first install"
-    },
-    {
-      "name": "guide_trouble_4",
-      "value": "· Run padlinkctl status on the computer — it must print a version number"
+      "value": "Allow UDP / TCP port 53021 through the computer firewall."
     },
     {
       "name": "guide_copy",
@@ -826,7 +810,7 @@
     },
     {
       "name": "guide_copied",
-      "value": "Copied. Forward it to your computer and paste into a terminal"
+      "value": "Copied"
     },
     {
       "name": "guide_copy_failed",
@@ -835,6 +819,78 @@
     {
       "name": "settings_host_connect_fail",
       "value": "Connection failed, please retry"
+    },
+    {
+      "name": "guide_windows_title",
+      "value": "Windows"
+    },
+    {
+      "name": "guide_windows_terminal",
+      "value": "Windows 11: open PowerShell as administrator."
+    },
+    {
+      "name": "guide_unix_terminal",
+      "value": "Run the command below in Terminal on your computer."
+    },
+    {
+      "name": "guide_windows_install_cmd",
+      "value": "irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex"
+    },
+    {
+      "name": "guide_windows_finish",
+      "value": "Starts at login. Remote input cannot control administrator windows."
+    },
+    {
+      "name": "guide_windows_firewall",
+      "value": "If using third-party security software, also allow padlinkd or port 53021 in its firewall settings."
+    },
+    {
+      "name": "guide_install_label",
+      "value": "Install / reinstall"
+    },
+    {
+      "name": "guide_voice_label",
+      "value": "Voice typing dependency"
+    },
+    {
+      "name": "guide_status_label",
+      "value": "Check service status"
+    },
+    {
+      "name": "guide_status_cmd",
+      "value": "padlinkctl status"
+    },
+    {
+      "name": "guide_pair_label",
+      "value": "Show pairing code (fallback)"
+    },
+    {
+      "name": "guide_pair_cmd",
+      "value": "padlinkctl pair"
+    },
+    {
+      "name": "guide_manage_title",
+      "value": "Maintenance"
+    },
+    {
+      "name": "guide_update_label",
+      "value": "Update to the latest version"
+    },
+    {
+      "name": "guide_update_cmd",
+      "value": "padlinkctl update"
+    },
+    {
+      "name": "guide_update_hint",
+      "value": "Updates keep paired devices. For Ubuntu deb / rpm installs, update using the system package manager."
+    },
+    {
+      "name": "guide_copying",
+      "value": "Copying"
+    },
+    {
+      "name": "guide_copy_accessibility",
+      "value": "Copy command: %1$s"
     }
   ]
 }

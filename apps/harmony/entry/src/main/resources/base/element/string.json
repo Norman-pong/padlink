@@ -750,11 +750,7 @@
     },
     {
       "name": "guide_step1_title",
-      "value": "第 1 步 · 在电脑终端执行安装命令"
-    },
-    {
-      "name": "guide_step1_body",
-      "value": "在电脑终端粘贴（或输入）这条命令："
+      "value": "1 · 在电脑上安装"
     },
     {
       "name": "guide_install_cmd",
@@ -762,11 +758,7 @@
     },
     {
       "name": "guide_step1_hint",
-      "value": "不想手敲？在电脑浏览器打开 github.com/Norman-pong/padlink，页面顶部可以直接复制这条命令。"
-    },
-    {
-      "name": "guide_step2_title",
-      "value": "第 2 步 · 按电脑系统收尾"
+      "value": "复制后转发到电脑，在对应终端粘贴执行。"
     },
     {
       "name": "guide_ubuntu_title",
@@ -774,7 +766,7 @@
     },
     {
       "name": "guide_ubuntu_s1",
-      "value": "1. 注销并重新登录电脑（首次安装必须，否则注入权限不生效）"
+      "value": "首次安装后，注销并重新登录电脑，使输入权限生效。"
     },
     {
       "name": "guide_ubuntu_c1",
@@ -782,7 +774,7 @@
     },
     {
       "name": "guide_ubuntu_s2",
-      "value": "2. 要用语音听写，再装一个依赖："
+      "value": "需要语音听写时，再安装以下依赖："
     },
     {
       "name": "guide_macos_title",
@@ -790,15 +782,15 @@
     },
     {
       "name": "guide_macos_s1",
-      "value": "首次运行会弹两项授权，都要允许：「辅助功能」和「接受传入连接」"
+      "value": "首次运行时，允许「辅助功能」和「接受传入连接」授权。"
     },
     {
       "name": "guide_step3_title",
-      "value": "第 3 步 · 回到手机连接"
+      "value": "2 · 连接电脑"
     },
     {
       "name": "guide_step3_body",
-      "value": "装好后服务端会在电脑上常驻运行。回到发现页点「重新扫描」，点搜索到的主机发起配对，4 位配对码会显示在电脑屏幕的弹窗上（也可以在电脑终端运行 padlinkctl pair 查看）。"
+      "value": "重新打开电脑终端检查状态。在手机发现页重新扫描并配对，电脑弹窗会显示 4 位配对码。"
     },
     {
       "name": "guide_trouble_title",
@@ -806,19 +798,11 @@
     },
     {
       "name": "guide_trouble_1",
-      "value": "· 手机和电脑连同一个 WiFi；路由器若开了「AP 隔离/客户端隔离」需要关掉"
+      "value": "确认手机与电脑在同一 Wi-Fi，路由器未开启 AP / 客户端隔离。"
     },
     {
       "name": "guide_trouble_2",
-      "value": "· 电脑防火墙放行 UDP/TCP 53021 端口"
-    },
-    {
-      "name": "guide_trouble_3",
-      "value": "· Ubuntu 首次安装后必须注销重新登录一次"
-    },
-    {
-      "name": "guide_trouble_4",
-      "value": "· 在电脑终端运行 padlinkctl status，能看到版本号才说明服务端在运行"
+      "value": "电脑防火墙需放行 UDP / TCP 53021 端口。"
     },
     {
       "name": "guide_copy",
@@ -826,7 +810,7 @@
     },
     {
       "name": "guide_copied",
-      "value": "已复制，转发到电脑后在终端粘贴执行"
+      "value": "已复制"
     },
     {
       "name": "guide_copy_failed",
@@ -835,6 +819,78 @@
     {
       "name": "settings_host_connect_fail",
       "value": "连接失败，请重试"
+    },
+    {
+      "name": "guide_windows_title",
+      "value": "Windows"
+    },
+    {
+      "name": "guide_windows_terminal",
+      "value": "Windows 11：以管理员身份打开 PowerShell。"
+    },
+    {
+      "name": "guide_unix_terminal",
+      "value": "在电脑的「终端」中执行以下命令。"
+    },
+    {
+      "name": "guide_windows_install_cmd",
+      "value": "irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex"
+    },
+    {
+      "name": "guide_windows_finish",
+      "value": "安装后随登录启动；远程输入不支持管理员窗口。"
+    },
+    {
+      "name": "guide_windows_firewall",
+      "value": "使用火绒、联想管家或 360 等安全软件时，也需在其防护设置中放行 padlinkd 或 53021 端口。"
+    },
+    {
+      "name": "guide_install_label",
+      "value": "安装 / 重装"
+    },
+    {
+      "name": "guide_voice_label",
+      "value": "语音听写依赖"
+    },
+    {
+      "name": "guide_status_label",
+      "value": "检查服务状态"
+    },
+    {
+      "name": "guide_status_cmd",
+      "value": "padlinkctl status"
+    },
+    {
+      "name": "guide_pair_label",
+      "value": "查看配对码（备用）"
+    },
+    {
+      "name": "guide_pair_cmd",
+      "value": "padlinkctl pair"
+    },
+    {
+      "name": "guide_manage_title",
+      "value": "日常维护"
+    },
+    {
+      "name": "guide_update_label",
+      "value": "更新到最新版"
+    },
+    {
+      "name": "guide_update_cmd",
+      "value": "padlinkctl update"
+    },
+    {
+      "name": "guide_update_hint",
+      "value": "更新保留配对记录。Ubuntu 的 deb / rpm 安装请使用系统包管理器更新。"
+    },
+    {
+      "name": "guide_copying",
+      "value": "复制中"
+    },
+    {
+      "name": "guide_copy_accessibility",
+      "value": "复制命令：%1$s"
     }
   ]
 }

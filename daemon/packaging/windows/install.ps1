@@ -1,5 +1,5 @@
 ﻿# PadLink Windows 安装/升级脚本（用户级；防火墙一步需管理员，失败给出指引不中断）。
-# 用法：解压 release zip 后在包根目录执行 .\install.ps1
+# 用法：解压 release tar.gz 后在包根目录执行 .\install.ps1
 # 形态说明：二进制装在 %LOCALAPPDATA%\padlink\bin，HKCU Run 键登录自启（免管理员、
 # 不做 SCM 服务——Session 0 隔离与桌面注入冲突，见 docs/PLAN-WINDOWS.md）。
 $ErrorActionPreference = "Stop"
@@ -47,13 +47,22 @@ Write-Host "已设置登录自启（HKCU Run）"
 
 # 防火墙放行 UDP/TCP 53021（入站发现与会话）：需管理员，失败给出手动命令
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$firewallReady = $false
 if ($isAdmin) {
-  netsh advfirewall firewall delete rule name="PadLink" >$null 2>netsh advfirewall firewall delete rule name="PadLink" | Out-Null 2>$null1
-  netsh advfirewall firewall add rule name="PadLink" dir=in action=allow protocol=UDP localport=53021 | Out-Null
-  netsh advfirewall firewall add rule name="PadLink" dir=in action=allow protocol=TCP localport=53021 | Out-Null
-  Write-Host "防火墙已放行 53021（UDP/TCP 入站）"
-} else {
-  Write-Warning "防火墙规则需要管理员：请以管理员运行一次 PowerShell 执行下面两行（否则手机发现不了本机）："
+  try {
+    Get-NetFirewallRule -DisplayName "PadLink" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    foreach ($protocol in @("UDP", "TCP")) {
+      netsh advfirewall firewall add rule name="PadLink" dir=in action=allow protocol=$protocol localport=53021 | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw "添加 $protocol 规则失败（退出码 $LASTEXITCODE）" }
+    }
+    $firewallReady = $true
+    Write-Host "防火墙已放行 53021（UDP/TCP 入站）"
+  } catch {
+    Write-Warning "自动配置防火墙失败：$($_.Exception.Message)"
+  }
+}
+if (-not $firewallReady) {
+  Write-Warning "请在管理员 PowerShell 执行下面两行放行防火墙，否则手机可能无法发现本机："
   Write-Host '  netsh advfirewall firewall add rule name="PadLink" dir=in action=allow protocol=UDP localport=53021'
   Write-Host '  netsh advfirewall firewall add rule name="PadLink" dir=in action=allow protocol=TCP localport=53021'
 }

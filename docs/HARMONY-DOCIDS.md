@@ -91,3 +91,12 @@
 ---
 
 维护约定：本表新增条目必须先在本机 `devecocli docs search` 核准完整路径再写入；发现路径失效（文档更新迁移）时，重新 search 定位新路径并更新本表。
+
+## 安装指南与命令复制
+
+| 完整路径 | 关键事实 |
+| --- | --- |
+| `API参考/ArkUI_方舟UI框架/ArkTS组件/系统预置UI组件库/SegmentButtonV2/ohos-arkui-advanced-segmentbuttonv2` | `TabSegmentButtonV2` 为 V2 组件；通过 `SegmentButtonV2Items` 配置文本页签，`selectedIndex` 与 `$selectedIndex` 回调保持选中平台同步；默认系统样式处理选中与交互态。 |
+| `开发指南/基础功能/Basic_Services_Kit_基础服务/剪贴板服务/使用剪贴板进行复制粘贴/use-pasteboard-to-copy-and-paste` | 使用 `pasteboard.createData(MIMETYPE_TEXT_PLAIN, text)` 与异步 `setData` 写入纯文本；同一时间只支持一个复制操作，读取权限与写入能力分离。 |
+| `API参考/ArkUI_方舟UI框架/ArkTS组件/按钮与选择/Button/ts-basic-components-button` | `buttonStyle(ButtonStyleMode.NORMAL)` 使用系统普通按钮样式；默认 `stateEffect` 提供按压反馈；异步写入期间由页面禁用重复点击。 |
+| `FAQ/UI框架/组件使用/如何解决Text组件文本为中文_数字_英文混合时显示省略号截断异常的问题/faqs-arkui-347` | `wordBreak(WordBreak.BREAK_ALL)` 允许英文按字符换行；长命令直接展示原文，不插入零宽字符，以免改变复制内容。 |

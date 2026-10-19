@@ -46,11 +46,11 @@ type Options struct {
 	Current   string    // ctl 自报版本（不可解析视为开发构建）
 	CheckOnly bool      // 只解析与比较，不下载不安装
 	BaseURL   string    // "" 用 https://github.com（测试注入 httptest 地址）
-	Out       io.Writer // 进度与 install.sh 输出落点（nil 用 io.Discard）
+	Out       io.Writer // 进度与安装脚本输出落点（nil 用 io.Discard）
 }
 
 // Run 执行完整流程。验签失败发生在任何系统改动之前（下载与解压都在临时目录，
-// install.sh 在验签通过后才执行）；install.sh 失败后的系统状态由包内脚本决定，
+// 安装脚本在验签通过后才执行）；安装失败后的系统状态由包内脚本决定，
 // 重跑本命令或一行安装器均安全（脚本幂等）。
 func Run(opts Options) (Result, error) {
 	out := opts.Out
@@ -169,7 +169,7 @@ func Run(opts Options) (Result, error) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
-		return res, fmt.Errorf("install.sh 执行失败: %w（可重试 padlinkctl update，或用一行安装器重装）", err)
+		return res, fmt.Errorf("%s 执行失败: %w（可重试 padlinkctl update，或用一行安装器重装）", installScript, err)
 	}
 	return res, nil
 }

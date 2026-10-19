@@ -121,11 +121,11 @@ padlinkctl uninstall --dry-run           # 只打印将执行的命令与将删�
 升级（`padlinkctl update [--check] [vX.Y.Z]`，`internal/update`）：
 
 - 流程：解析最新 tag（`releases/latest` 302 Location，与 `script/install.sh` 同法）→ 下载
-  `padlink_<ver>_<os>_<arch>.tar.gz` + checksums.txt → SHA-256 强校验 → 解压到临时目录 → 执行包内 `install.sh`。
-- 安装逻辑单源在包内 install.sh（macOS bundle 重签 + launchd 重启都在那边）；Linux 安装后 ctl 补一步
+  `padlink_<ver>_<os>_<arch>.tar.gz` + checksums.txt → SHA-256 强校验 → 解压到临时目录 → 执行包内安装脚本（Unix 为 `install.sh`，Windows 为 `install.ps1`）。
+- 安装逻辑单源在包内脚本（macOS bundle 重签 + launchd 重启、Windows 二进制替换 + HKCU Run 登录自启均由对应脚本处理）；Linux 安装后 ctl 补一步
   `systemctl --user restart padlink`（install.sh 的 `enable --now` 对已运行单元是 no-op）。
-- 只接管 tar.gz 与 macOS LaunchAgent 形态；deb/rpm 提示走包管理器升级。校验不过不触碰系统
-  （下载与解压都在临时目录，install.sh 在验签通过后才执行）。
+- 支持 Linux tar.gz、macOS LaunchAgent 与 Windows 用户级安装；deb/rpm 提示走包管理器升级。校验不过不触碰系统
+  （下载与解压都在临时目录，安装脚本在验签通过后才执行）。
 
 - 安装形态探测：Linux tar.gz（`~/.local/bin` + `~/.config/systemd/user/`）、Linux deb/rpm（`/usr/bin` + `/usr/lib/systemd/user/`）、macOS LaunchAgent。
 - deb/rpm 形态不删 `/usr` 下文件，只提示 `sudo apt remove padlink` / `sudo dnf remove padlink`；

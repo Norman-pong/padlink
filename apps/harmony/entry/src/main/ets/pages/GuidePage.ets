@@ -1,36 +1,51 @@
-// 服务端安装向导：一行安装命令 → 按系统收尾 → 回手机重扫配对，附「装好了还搜不到」排查。
-// 纯展示页：无状态、无权限、无网络依赖（安装发生在电脑上，指南必须离线可读）。
+// 安装发生在电脑上；指南与命令保持离线可用。
 import { HdsNavDestination } from '@kit.UIDesignKit';
+import { TabSegmentButtonV2, SegmentButtonV2Items } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { scrollBlurTitleBarStyle } from './HdsTitleBar';
 import { GroupCard, GroupHeader } from './GroupCard';
-import { pageResStr } from './Res';
+import { pageResStr, pageResFmt } from './Res';
 
 const TAG: string = 'PadLink.Guide';
 const DOMAIN: number = 0x5050;
 
 @ComponentV2
 export struct GuidePage {
+  @Local private selectedSystem: number = 0;
+  @Local private copyingKey: string = '';
   private scroller: Scroller = new Scroller();
+  private systems: SegmentButtonV2Items = new SegmentButtonV2Items([
+    { text: $r('app.string.guide_windows_title') },
+    { text: $r('app.string.guide_macos_title') },
+    { text: $r('app.string.guide_ubuntu_title') }
+  ]);
 
   private resStr(name: string): string {
     return pageResStr(this.getUIContext(), name);
   }
 
   // 写系统粘贴板无需权限。
-  private copyCmd(): void {
-    const data: pasteboard.PasteData =
-      pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.resStr('guide_install_cmd'));
-    pasteboard.getSystemPasteboard().setData(data).then(() => {
+  private async copyCmd(key: string): Promise<void> {
+    if (this.copyingKey !== '') {
+      return;
+    }
+    this.copyingKey = key;
+    try {
+      const data: pasteboard.PasteData =
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.resStr(key));
+      await pasteboard.getSystemPasteboard().setData(data);
       this.getUIContext().getPromptAction()
         .showToast({ message: this.resStr('guide_copied'), duration: 2000 });
-    }).catch((err: BusinessError) => {
-      hilog.error(DOMAIN, TAG, 'pasteboard setData fail %{public}d %{public}s', err.code, err.message);
+    } catch (err) {
+      const error = err as BusinessError;
+      hilog.error(DOMAIN, TAG, 'pasteboard setData fail %{public}d %{public}s', error.code, error.message);
       this.getUIContext().getPromptAction()
         .showToast({ message: this.resStr('guide_copy_failed'), duration: 2000 });
-    });
+    } finally {
+      this.copyingKey = '';
+    }
   }
 
   @Builder
@@ -42,14 +57,35 @@ export struct GuidePage {
   }
 
   @Builder
-  codeBlock(res: Resource) {
-    Text(res)
-      .fontSize($r('sys.float.ohos_id_text_size_body2'))
-      .fontColor($r('sys.color.font_primary'))
-      .padding(10)
+  commandBlock(label: Resource, key: string) {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Text(label)
+          .fontSize($r('sys.float.ohos_id_text_size_body2'))
+          .fontColor($r('sys.color.font_secondary'))
+          .layoutWeight(1)
+        Button(this.copyingKey === key ? $r('app.string.guide_copying') : $r('app.string.guide_copy'))
+          .fontSize($r('sys.float.ohos_id_text_size_body2'))
+          .buttonStyle(ButtonStyleMode.NORMAL)
+          .enabled(this.copyingKey === '')
+          .accessibilityText(pageResFmt(this.getUIContext(), 'guide_copy_accessibility', [this.resStr(key)]))
+          .onClick(() => {
+            this.copyCmd(key);
+          })
+          .id('copy_' + key)
+      }
       .width('100%')
-      .borderRadius(8)
-      .backgroundColor($r('sys.color.comp_background_tertiary'))
+      Text(this.resStr(key))
+        .fontSize($r('sys.float.ohos_id_text_size_body2'))
+        .fontColor($r('sys.color.font_primary'))
+        .wordBreak(WordBreak.BREAK_ALL)
+        .width('100%')
+        .id(key)
+    }
+    .padding($r('sys.float.padding_level6'))
+    .width('100%')
+    .borderRadius($r('sys.float.corner_radius_level4'))
+    .backgroundColor($r('sys.color.comp_background_tertiary'))
   }
 
   build() {
@@ -58,42 +94,28 @@ export struct GuidePage {
         Column({ space: 16 }) {
           Column({ space: 8 }) {
             GroupHeader($r('app.string.guide_step1_title'))
+            TabSegmentButtonV2({
+              items: this.systems,
+              selectedIndex: this.selectedSystem,
+              $selectedIndex: (index: number): void => { this.selectedSystem = index; }
+            })
             GroupCard() {
-              this.bodyText($r('app.string.guide_step1_body'))
-              this.codeBlock($r('app.string.guide_install_cmd'))
-              Row() {
-                Blank()
-                Button($r('app.string.guide_copy'))
-                  .onClick(() => {
-                    this.copyCmd();
-                  })
+              if (this.selectedSystem === 0) {
+                this.bodyText($r('app.string.guide_windows_terminal'))
+                this.commandBlock($r('app.string.guide_install_label'), 'guide_windows_install_cmd')
+                this.bodyText($r('app.string.guide_windows_finish'))
+              } else if (this.selectedSystem === 1) {
+                this.bodyText($r('app.string.guide_unix_terminal'))
+                this.commandBlock($r('app.string.guide_install_label'), 'guide_install_cmd')
+                this.bodyText($r('app.string.guide_macos_s1'))
+              } else {
+                this.bodyText($r('app.string.guide_unix_terminal'))
+                this.commandBlock($r('app.string.guide_install_label'), 'guide_install_cmd')
+                this.bodyText($r('app.string.guide_ubuntu_s1'))
+                this.bodyText($r('app.string.guide_ubuntu_s2'))
+                this.commandBlock($r('app.string.guide_voice_label'), 'guide_ubuntu_c1')
               }
-              .width('100%')
               this.bodyText($r('app.string.guide_step1_hint'))
-            }
-          }
-          .alignItems(HorizontalAlign.Start)
-          .width('100%')
-
-          Column({ space: 8 }) {
-            GroupHeader($r('app.string.guide_step2_title'))
-            GroupCard() {
-              Text($r('app.string.guide_ubuntu_title'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('sys.color.font_primary'))
-                .width('100%')
-              this.bodyText($r('app.string.guide_ubuntu_s1'))
-              this.bodyText($r('app.string.guide_ubuntu_s2'))
-              this.codeBlock($r('app.string.guide_ubuntu_c1'))
-            }
-            GroupCard() {
-              Text($r('app.string.guide_macos_title'))
-                .fontSize($r('sys.float.ohos_id_text_size_body1'))
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('sys.color.font_primary'))
-                .width('100%')
-              this.bodyText($r('app.string.guide_macos_s1'))
             }
           }
           .alignItems(HorizontalAlign.Start)
@@ -103,6 +125,18 @@ export struct GuidePage {
             GroupHeader($r('app.string.guide_step3_title'))
             GroupCard() {
               this.bodyText($r('app.string.guide_step3_body'))
+              this.commandBlock($r('app.string.guide_status_label'), 'guide_status_cmd')
+              this.commandBlock($r('app.string.guide_pair_label'), 'guide_pair_cmd')
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+
+          Column({ space: 8 }) {
+            GroupHeader($r('app.string.guide_manage_title'))
+            GroupCard() {
+              this.commandBlock($r('app.string.guide_update_label'), 'guide_update_cmd')
+              this.bodyText($r('app.string.guide_update_hint'))
             }
           }
           .alignItems(HorizontalAlign.Start)
@@ -113,8 +147,9 @@ export struct GuidePage {
             GroupCard() {
               this.bodyText($r('app.string.guide_trouble_1'))
               this.bodyText($r('app.string.guide_trouble_2'))
-              this.bodyText($r('app.string.guide_trouble_3'))
-              this.bodyText($r('app.string.guide_trouble_4'))
+              if (this.selectedSystem === 0) {
+                this.bodyText($r('app.string.guide_windows_firewall'))
+              }
             }
           }
           .alignItems(HorizontalAlign.Start)
@@ -122,6 +157,7 @@ export struct GuidePage {
         }
         .padding(16)
         .width('100%')
+        .constraintSize({ maxWidth: 640 })
       }
       .width('100%')
       .height('100%')

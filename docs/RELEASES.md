@@ -23,7 +23,8 @@ daemon（电脑端）与 APP（手机端）**独立发版、独立版本号**，
 | 2026-10-16 | daemon | 1.5.0 | `v1.5.0` | `padlinkctl update`（下载→SHA-256 校验→执行包内 install.sh；--check / 指定版本回退 / 弱网重试；deb/rpm 不接管） | 存量 ≤1.4.0 无 update 命令，升 1.5.0 仍走一行安装器，1.5.0 起自更新可用；APP 侧无影响 |
 | 2026-10-16 | daemon | 1.6.0 | `v1.6.0` | **Windows 11 适配**：SendInput 注入后端（绝对定位/扫描码/滚轮整格）、文本注入（Win32 剪贴板）、配对码原生弹窗（倒计时）、HKCU Run 自启、install.ps1 + 一行安装、windows amd64/arm64 双包、update 支持 | 新平台，存量端不受影响；APP 零改动（协议未动）；Windows 端注意第三方安全软件需放行 53021（SETUP 排查表） |
 | 2026-10-16 | daemon | 1.6.1 | `v1.6.1` | Windows daemon 构建改 **windowsgui 子系统**：不再有可见控制台窗口（控制台窗口被关闭会连带杀掉 daemon，实测踩坑）；交互调试经 attachParentConsole 接回父控制台，已重定向的 stdout 不动 | 仅 Windows daemon 二进制变化，1.6.0 用户 `padlinkctl update` 即得；其他平台无影响 |
-| 待发布 | APP | 1.3.2 | `app-v1.3.2` | 已配对档案按 hostId 匹配与换 IP 迁移自愈；拒收未封签 ECHO 应答；「配对码」文案与双语 | daemon <1.4.0 时不广播 host_id，自愈回落现状（ip:port 直连），其余功能不受影响 |
+| 2026-10-19（确认上架） | APP | 1.3.2 | 尚未留档 tag | 用户确认鸿蒙端已上架应用中心；实际首次上架日期待补。已配对档案按 hostId 匹配与换 IP 迁移自愈；拒收未封签 ECHO 应答；「配对码」文案与双语 | daemon <1.4.0 时不广播 host_id，自愈回落现状（ip:port 直连），其余功能不受影响 |
+| 2026-10-19 | daemon | 1.6.2 | `v1.6.2` | 修复 Windows 更新脚本名称误报与防火墙命令；一行安装增加重试、校验与解压失败检查，安装子进程临时绕过执行策略；拆分会话与输入内核职责；补 Windows 安装和更新 CI 门禁 | 协议与配对数据保持兼容，存量 APP 无需同步升级；1.5.0 起可使用 `padlinkctl update`，Windows 更新失败提示中的旧脚本名在升级后修正 |
 
 ## 兼容性说明（host_id 换网自愈）
 

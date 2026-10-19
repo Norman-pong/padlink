@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -155,12 +157,22 @@ func makeTarGz(t *testing.T, files map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
-// setupAssets 构造含 install.sh 的包与配套 checksums，install.sh 会把 "done" 写到 marker。
+func fixtureInstaller() string {
+	if runtime.GOOS == "windows" {
+		return "install.ps1"
+	}
+	return "install.sh"
+}
+
+// setupAssets 中的安装脚本只写测试标记，不修改实际安装。
 func setupAssets(t *testing.T, marker string) (map[string][]byte, string) {
 	t.Helper()
+	script := "#!/bin/sh\nprintf 'done\\n' > '" + strings.ReplaceAll(marker, "'", "'\\''") + "'\n"
+	if runtime.GOOS == "windows" {
+		script = "\ufeff[System.IO.File]::WriteAllText('" + strings.ReplaceAll(marker, "'", "''") + "', \"done`n\")\n"
+	}
 	pkg := makeTarGz(t, map[string][]byte{
-		"install.sh": []byte("#!/bin/sh\necho done > " + marker + "\n"),
-		"padlinkd":   []byte("#!/bin/sh\necho 9.9.9\n"),
+		fixtureInstaller(): []byte(script),
 	})
 	asset := AssetName("1.4.1", runtime.GOOS, runtime.GOARCH)
 	sum := sha256.Sum256(pkg)
@@ -185,7 +197,7 @@ func TestRunUpgradeFlow(t *testing.T) {
 		t.Error("升级流程不应报 UpToDate")
 	}
 	if string(mustRead(t, marker)) != "done\n" {
-		t.Errorf("install.sh 未按预期执行（marker=%q）", mustRead(t, marker))
+		t.Errorf("安装脚本未按预期执行（marker=%q）", mustRead(t, marker))
 	}
 	if f.hits["latest"] != 1 {
 		t.Errorf("latest 端点命中 %d 次", f.hits["latest"])
@@ -209,23 +221,26 @@ func TestRunUpToDateSkipsDownload(t *testing.T) {
 		t.Error("已是最新时不应下载资产")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Error("已是最新时不应执行 install.sh")
+		t.Error("已是最新时不应执行安装脚本")
 	}
 }
 
 func TestRunChecksumMismatchAbortsBeforeInstall(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "marker")
 	assets, _ := setupAssets(t, marker)
-	f := newFakeRelease(t, "v1.4.1", assets, "deadbeef  padlink_1.4.1_darwin_arm64.tar.gz\n", false)
+	checksums := "deadbeef  " + AssetName("1.4.1", runtime.GOOS, runtime.GOARCH) + "\n"
+	f := newFakeRelease(t, "v1.4.1", assets, checksums, false)
 
 	var out bytes.Buffer
 	if _, err := Run(Options{BaseURL: f.srv.URL, Current: "1.4.0", Out: &out}); err == nil {
 		t.Fatal("校验失败应返回错误")
+	} else if !strings.Contains(err.Error(), "SHA-256 校验失败") {
+		t.Fatalf("应因校验不符中止，实得 %v", err)
 	} else if !bytes.Contains(out.Bytes(), []byte("下载")) {
 		t.Error("校验失败前应已开始下载")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Error("校验失败时 install.sh 不得执行（系统不得被改动）")
+		t.Error("校验失败时安装脚本不得执行（系统不得被改动）")
 	}
 }
 
@@ -281,21 +296,17 @@ func TestRunMissingAsset404(t *testing.T) {
 }
 
 func TestRunRejectsTarTraversal(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "marker")
 	evil := makeTarGz(t, map[string][]byte{
-		"../evil.sh": []byte("exit 0\n"),
-		"install.sh": []byte("echo done > " + marker + "\n"),
+		"../evil.sh":       []byte("exit 0\n"),
+		fixtureInstaller(): []byte("exit 0\n"),
 	})
 	asset := AssetName("1.4.1", runtime.GOOS, runtime.GOARCH)
 	sum := sha256.Sum256(evil)
 	checksums := hex.EncodeToString(sum[:]) + "  " + asset + "\n"
 	f := newFakeRelease(t, "v1.4.1", map[string][]byte{asset: evil}, checksums, false)
 
-	if _, err := Run(Options{BaseURL: f.srv.URL, Current: "1.4.0", Out: &bytes.Buffer{}}); err == nil {
-		t.Fatal("路径逃逸条目应报错")
-	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Error("解包中止后 install.sh 不得执行")
+	if _, err := Run(Options{BaseURL: f.srv.URL, Current: "1.4.0", Out: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "包内条目路径可疑") {
+		t.Fatalf("应拒绝路径逃逸条目，实得 %v", err)
 	}
 }
 
@@ -306,8 +317,58 @@ func TestRunMissingInstallScript(t *testing.T) {
 	checksums := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), asset)
 	f := newFakeRelease(t, "v1.4.1", map[string][]byte{asset: pkg}, checksums, false)
 
-	if _, err := Run(Options{BaseURL: f.srv.URL, Current: "1.4.0", Out: &bytes.Buffer{}}); err == nil {
-		t.Fatal("包内缺 install.sh 应报错")
+	if _, err := Run(Options{BaseURL: f.srv.URL, Current: "1.4.0", Out: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "release 包内缺少 "+fixtureInstaller()) {
+		t.Fatalf("应报告缺少实际平台安装脚本，实得 %v", err)
+	}
+}
+
+func TestRunFailedInstallerReportsScript(t *testing.T) {
+	script := fixtureInstaller()
+	pkg := makeTarGz(t, map[string][]byte{script: []byte("exit 23\n")})
+	asset := AssetName("1.4.1", runtime.GOOS, runtime.GOARCH)
+	sum := sha256.Sum256(pkg)
+	f := newFakeRelease(t, "v1.4.1", map[string][]byte{asset: pkg}, fmt.Sprintf("%x  %s\n", sum, asset), false)
+	_, err := Run(Options{BaseURL: f.srv.URL, Current: "1.4.0"})
+	if err == nil || !strings.Contains(err.Error(), script+" 执行失败") || !strings.Contains(err.Error(), "exit status 23") {
+		t.Fatalf("应报告实际安装脚本和退出码，实得 %v", err)
+	}
+}
+
+func TestWindowsInstallScriptsParse(t *testing.T) {
+	name := "pwsh"
+	if runtime.GOOS == "windows" {
+		name = "powershell"
+	}
+	shell, err := exec.LookPath(name)
+	if err != nil {
+		if runtime.GOOS == "windows" {
+			t.Fatal(err)
+		}
+		t.Skip("本机未安装 PowerShell；Windows CI 使用系统 powershell 验证")
+	}
+	parser := filepath.Join(t.TempDir(), "parse.ps1")
+	if err := os.WriteFile(parser, []byte(`param([string]$Source)
+$tokens = $null
+$errors = $null
+[void][System.Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) {
+  $errors | ForEach-Object { Write-Output "$($_.Extent.StartLineNumber): $($_.Message)" }
+  exit 1
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"../../packaging/windows/install.ps1", "../../../script/install.ps1"} {
+		t.Run(path, func(t *testing.T) {
+			source, err := filepath.Abs(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", parser, source).CombinedOutput()
+			if err != nil {
+				t.Fatalf("PowerShell 语法检查失败: %v\n%s", err, out)
+			}
+		})
 	}
 }
 

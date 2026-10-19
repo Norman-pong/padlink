@@ -1,10 +1,9 @@
 // Package update 实现 padlinkctl update：解析目标版本 → 下载当前平台的 release
-// tar.gz → SHA-256 校验 → 解压并执行包内 install.sh。
+// tar.gz → SHA-256 校验 → 解压并执行包内安装脚本（Unix 为 install.sh，Windows 为 install.ps1）。
 //
 // 分层与 internal/service 一致：本文件是纯逻辑（版本比较、资产名、校验行匹配、
 // Location 解析），不触网可单测；apply.go 负责网络下载与安装执行。
-// 安装逻辑单源在 release 包内 install.sh（macOS 的 bundle/签名/launchd 处理、
-// Linux 的 udev/systemd 处理都在那边），本包只做取包、验签、解压、执行四件事，
+// 安装逻辑单源在 release 包内脚本，本包只做取包、验签、解压、执行四件事，
 // 不复写任何安装步骤。
 package update
 

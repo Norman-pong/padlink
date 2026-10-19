@@ -1,6 +1,6 @@
 // padlinkctl 是 padlinkd 的控制 CLI：status / pair / clients / unpair 走 Unix socket 控制通道（行分隔 JSON）；
 // start / stop / restart / uninstall 由 internal/service 直接操作 systemd --user 或 launchd（daemon 未运行也可用）；
-// update 由 internal/update 从 GitHub Releases 取包验签后执行包内 install.sh。
+// update 由 internal/update 从 GitHub Releases 取包验签后执行包内安装脚本。
 package main
 
 import (
@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -64,8 +65,8 @@ func parseUninstallArgs(args []string) (service.UninstallOptions, error) {
 }
 
 // runUpdate 处理 padlinkctl update [--check] [vX.Y.Z]。deb/rpm 与未安装形态不接管；
-// tar.gz / macOS 形态由 update 包取包验签后执行包内 install.sh（安装逻辑单源，含
-// macOS 的 bundle 重签与 launchd 重启）。Linux 安装后需显式重启服务——install.sh 的
+// Linux tar.gz / macOS / Windows 形态由 update 包取包验签后执行包内安装脚本。
+// Linux 安装后需显式重启服务——install.sh 的
 // enable --now 对已运行单元是 no-op；macOS 的 install.sh 自带 bootout+bootstrap 无需补手。
 func runUpdate(args []string) error {
 	check := false
@@ -90,6 +91,9 @@ func runUpdate(args []string) error {
 	case service.KindDebRPM:
 		return fmt.Errorf("deb/rpm 安装由包管理器管理，请执行: sudo apt upgrade padlink（Debian/Ubuntu）或 sudo dnf upgrade padlink（Fedora/RHEL）")
 	case service.KindUnknown:
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("未检测到已知安装形态，请先在 PowerShell 中用一行安装器安装: irm https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.ps1 | iex")
+		}
 		return fmt.Errorf("未检测到已知安装形态，请先用一行安装器安装: curl -fsSL https://raw.githubusercontent.com/Norman-pong/padlink/main/script/install.sh | sh")
 	}
 	fmt.Fprintf(os.Stdout, "安装形态: %s\n", p.Kind)
